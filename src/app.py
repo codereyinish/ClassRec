@@ -144,7 +144,7 @@ async def transcribe_audio(file: UploadFile= File(...)): #get the file from File
        Transcribe the audio using OpenAI Whisper API
     """
     # Validate file type
-    allowed_type = ["audio/mpeg", "audio/mp3","audio/wav", "audio/ma",
+    allowed_type = ["audio/mpeg", "audio/mp3","audio/wav", "audio/ma",  "audio/x-wav",
                     "audio/mp4", "audio/x-m4a", "audio/webm", "audio/flac"]
 
     if file.content_type not in allowed_type:
@@ -171,8 +171,13 @@ async def transcribe_audio(file: UploadFile= File(...)): #get the file from File
         )
 
     try:
-        audio_file = file.file
-        audio_file_name = file.filename
+        #Read the file-content
+        contents = await file.read()
+
+        #Create BytesIO with filename
+        audio_file = io.BytesIO(contents) #make file like object for bytes
+        audio_file.name = file.filename
+
 
         #Call OpenAI Whisper API
         transcript = client.audio.transcriptions.create(
