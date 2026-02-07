@@ -1,9 +1,12 @@
-from fastapi import FastAPI,  File, UploadFile, HTTPException
+from fastapi import FastAPI,  File, UploadFile, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import io
+from typing import Tuple
+from validators import validate_audio_file
+
 
 
 #Load environment variables
@@ -139,45 +142,16 @@ def health():
     return {"status": "working"}
 
 @app.post("/transcribe")
-async def transcribe_audio(file: UploadFile= File(...)): #get the file from File()
-    """
-       Transcribe the audio using OpenAI Whisper API
-    """
-    # Validate file type
-    allowed_type = ["audio/mpeg", "audio/mp3","audio/wav", "audio/ma",  "audio/x-wav",
-                    "audio/mp4", "audio/x-m4a", "audio/webm", "audio/flac"]
-
-    if file.content_type not in allowed_type:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Invalid file type: {file.content_type}. Please upload an audio file")
-
-    #Check file size( Whisper API limit is 25MB)
-    MAX_SIZE_MB = 25
-
-    #Method 1 Try file.size first
-    if file.size:
-        file_size_mb = file.size/(1024*1024)
-    else:
-        #Size not available in content_header then- read and check
-        contents = await file.read()
-        file_size_mb = len(contents)/(1024*1024)
-        await file.seek(0) #to read the file again later for whisper api
-
-    if file_size_mb > MAX_SIZE_MB:
-        raise HTTPException(
-            status_code=404,
-            detail= f"File too large ({file_size_mb:.1f}MB). Maximum is {MAX_SIZE_MB}MB"
-        )
+async def transcribe_audio(
+        file: UploadFile,
+        validated_data: Tuple[bytes, str, float, str] = Depends(validate_audio_file)
+):
+    contents, mime, file_size_mb, correct_ext = validated_data
 
     try:
-        #Read the file-content
-        contents = await file.read()
-
         #Create BytesIO with filename
         audio_file = io.BytesIO(contents) #make file like object for bytes
-        audio_file.name = file.filename
-
+        audio_file.name = f"audio.{correct_ext}" #use generic audio name + proper extension
 
         #Call OpenAI Whisper API
         transcript = client.audio.transcriptions.create(
