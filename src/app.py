@@ -53,6 +53,7 @@ def home():
             }
             button:hover { background: #5568d3; }
             button:disabled { background: #ccc; cursor: not-allowed; }
+            
             #result { 
                 margin-top: 30px; 
                 padding: 20px; 
@@ -63,6 +64,41 @@ def home():
                 line-height: 1.6;
             }
             .loading { color: #667eea; font-weight: bold; }
+            
+            /* NEW: Container for transcription with relative positioning */
+            .transcription-container {
+                position: relative;
+                background: white;
+                padding: 15px;
+                padding-bottom: 50px;  /* Make space for button */
+                border-radius: 5px;
+                margin-top: 10px;
+                border-left: 4px solid #667eea;
+            }
+            
+            /* NEW: Copy button at bottom right */
+            .copy-btn {
+                position: absolute;
+                bottom: 10px;
+                right: 10px;
+                background: #10b981;
+                color: white;
+                padding: 8px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: opacity 0.3s ease;
+            }
+            
+            .copy-btn:hover { 
+                background: #059669; 
+            }
+            
+            /* NEW: Dim effect when clicked */
+            .copy-btn.dimmed { 
+                opacity: 0.4;
+            }
             
             </style>
         </head>
@@ -80,6 +116,24 @@ def home():
             
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
+                
+                function copyToClipboard(text, buttonElement){
+                    // Step 1: Start the copy operation
+                    navigator.clipboard.writeText(text)
+                
+                    // Step 2: If successful, do this
+                    .then( () => {
+                        buttonElement.classList.add('dimmed')
+                        
+                        setTimeout( () => {
+                           buttonElement.classList.remove('dimmed');
+                            },2000);
+                    }).catch(err => {
+                            alert("Failed to copy text: " + err);
+                            });
+                    }
+                
+                
                 async function uploadFile() {
                     const fileInput = document.getElementById('audioFile');
                     const resultDiv = document.getElementById('result');
@@ -87,7 +141,7 @@ def home():
                     
                     
                     if(!fileInput.files[0]) {
-                        alert('PLease select a file first!');
+                        alert('Please select a file first!');
                         return;
                     }
                     //Use formData to do manual submission for better UX
@@ -112,8 +166,19 @@ def home():
                             resultDiv.innerHTML=
                                 '<strong> ✅Transcription Complete! </strong><br> <br>' +
                                 '<strong>File:</strong>' + data.filename + '<br><br>' + 
-                                '<strong>Text:</strong><br>' + data.transcription;
+                                '<strong>Text:</strong><br>' + 
+                                '<div class="transcription-container">' +
+                                    data.transcription +
+                                    '<button class="copy-btn" id="copyBtn">📋 Copy</button>' +
+                                '</div>';
+                            
+                            
+                            // Attach copy event listener to the new button
+                            document.getElementById('copyBtn').addEventListener( 'click', function() {
+                                copyToClipboard(data.transcription, this);
+                                });
                         }
+                        
                         else {
                         resultDiv.innerHTML = '<strong> ❌Error: </strong> ' + data.detail;
                         }
