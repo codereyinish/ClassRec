@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lecture Transcription System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .hero {
+            text-align: center;
+            padding: 60px 20px;
+            color: white;
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .hero p {
+            font-size: 20px;
+            margin-bottom: 50px;
+            opacity: 0.9;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .feature-card {
+            background: white;
+            border: 3px solid #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            background: #f8f9ff;
+        }
+
+        .feature-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+
+        .feature-title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .feature-desc {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .feature-badge {
+            display: inline-block;
+            background: #10b981;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+
+        .feature-badge.coming-soon {
+            background: #f59e0b;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 60px;
+            color: white;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <h1>📚 Lecture Transcription System</h1>
+        <p>AI-powered transcription for students - Fast, accurate, and easy to use</p>
+    </div>
+
+    <div class="features">
+        <a href="/upload" class="feature-card">
+            <div class="feature-icon">📁</div>
+            <div class="feature-title">Upload Audio File</div>
+            <div class="feature-desc">
+                Already have a recording? Upload your audio file and get instant transcription.
+                Supports MP3, WAV, M4A, and more.
+            </div>
+            <span class="feature-badge">Available Now</span>
+        </a>
+
+        <a href="/live" class="feature-card">
+            <div class="feature-icon">🎙️</div>
+            <div class="feature-title">Record Live</div>
+            <div class="feature-desc">
+                Record and transcribe in real-time as your professor speaks.
+                Perfect for live lectures and meetings.
+            </div>
+            <span class="feature-badge coming-soon">Coming Soon</span>
+        </a>
+    </div>
+
+    <footer>
+    <p>&copy; 2025 MBcodes. All Rights Reserved.</p>
+    </footer>
+
+</body>
+</html>
