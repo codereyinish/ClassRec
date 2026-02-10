@@ -1,5 +1,7 @@
-from fastapi import FastAPI,  File, UploadFile, HTTPException, Depends
+from fastapi import FastAPI,  File, UploadFile, HTTPException, Depends, Request
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
@@ -12,199 +14,47 @@ from validators import validate_audio_file
 #Load environment variables
 load_dotenv()
 
+#Initialize OpenAI Client
 api_key = os.environ.get("OPENAI_API_KEY")
-
-app = FastAPI()
 client = OpenAI()
 
+#Initialize FastAPI
+app = FastAPI()
 
 
+# Setup templates and static files
+
+# Create an instance pointing to the templates folder
+templates = Jinja2Templates(directory="../templates")
+
+app.mount("/static", StaticFiles(directory="../static"), name="static")
+
+
+# ========== ROUTES ==========
 @app.get("/", response_class = HTMLResponse)
-def home():
-    html = """
-    <!DOCTYPE html>
-    <html>
-        <head>
-            <title>Lecture Transcription </title>
-            <style>
-                body { 
-                font-family: Arial; 
-                max-width: 700px; 
-                margin: 50px auto; 
-                padding: 20px; 
-            }
-            h1 { color: #333; }
-            .upload-box { 
-                border: 2px dashed #667eea; 
-                padding: 40px; 
-                text-align: center; 
-                border-radius: 10px; 
-                background: #f8f9ff;
-            }
-            button { 
-                background: #667eea; 
-                color: white; 
-                padding: 12px 35px; 
-                border: none; 
-                border-radius: 5px; 
-                cursor: pointer; 
-                font-size: 16px; 
-                margin-top: 20px; 
-            }
-            button:hover { background: #5568d3; }
-            button:disabled { background: #ccc; cursor: not-allowed; }
-            
-            #result { 
-                margin-top: 30px; 
-                padding: 20px; 
-                background: #f0f0f0; 
-                border-radius: 5px; 
-                display: none; 
-                white-space: pre-wrap;
-                line-height: 1.6;
-            }
-            .loading { color: #667eea; font-weight: bold; }
-            
-            /* NEW: Container for transcription with relative positioning */
-            .transcription-container {
-                position: relative;
-                background: white;
-                padding: 15px;
-                padding-bottom: 50px;  /* Make space for button */
-                border-radius: 5px;
-                margin-top: 10px;
-                border-left: 4px solid #667eea;
-            }
-            
-            /* NEW: Copy button at bottom right */
-            .copy-btn {
-                position: absolute;
-                bottom: 10px;
-                right: 10px;
-                background: #10b981;
-                color: white;
-                padding: 8px 20px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 14px;
-                transition: opacity 0.3s ease;
-            }
-            
-            .copy-btn:hover { 
-                background: #059669; 
-            }
-            
-            /* NEW: Dim effect when clicked */
-            .copy-btn.dimmed { 
-                opacity: 0.4;
-            }
-            
-            </style>
-        </head>
-        
-        <body>
-            <h1>📚Lecture Transcription System </h1>
-            <p> Upload an audio file and get AI-powered transcription</p>
-            <div class ="upload-box">
-                <input type ="file" id="audioFile" accept="audio/*">
-                <br>
-                <button id="uploadBtn">Transcribe Audio</button>
-            </div>
-            
-            <div id="result"> </div>
-            
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                
-                function copyToClipboard(text, buttonElement){
-                    // Step 1: Start the copy operation
-                    navigator.clipboard.writeText(text)
-                
-                    // Step 2: If successful, do this
-                    .then( () => {
-                        buttonElement.classList.add('dimmed')
-                        
-                        setTimeout( () => {
-                           buttonElement.classList.remove('dimmed');
-                            },2000);
-                    }).catch(err => {
-                            alert("Failed to copy text: " + err);
-                            });
-                    }
-                
-                
-                async function uploadFile() {
-                    const fileInput = document.getElementById('audioFile');
-                    const resultDiv = document.getElementById('result');
-                    const uploadBtn = document.getElementById('uploadBtn');
-                    
-                    
-                    if(!fileInput.files[0]) {
-                        alert('Please select a file first!');
-                        return;
-                    }
-                    //Use formData to do manual submission for better UX
-                    const formData = new FormData()
-                    formData.append('file', fileInput.files[0]);
-                    
-                    // Disable button and show loading
-                    uploadBtn.disabled = true;
-                    resultDiv.innerHTML = '<p class= "loading"> ⏳Transcribing ...This may take 10-30 seconds </p>';
-                    resultDiv.style.display= 'block';
-                    
-                    try {
-                        const response = await fetch('/transcribe', {
-                            method:'POST',
-                            body: formData
-                            //header only required for application/json, header for formdata is automatically handled by browser
-                        });
-                    
-                        const data = await response.json();
-                    
-                        if(response.ok){
-                            resultDiv.innerHTML=
-                                '<strong> ✅Transcription Complete! </strong><br> <br>' +
-                                '<strong>File:</strong>' + data.filename + '<br><br>' + 
-                                '<strong>Text:</strong><br>' + 
-                                '<div class="transcription-container">' +
-                                    data.transcription +
-                                    '<button class="copy-btn" id="copyBtn">📋 Copy</button>' +
-                                '</div>';
-                            
-                            
-                            // Attach copy event listener to the new button
-                            document.getElementById('copyBtn').addEventListener( 'click', function() {
-                                copyToClipboard(data.transcription, this);
-                                });
-                        }
-                        
-                        else {
-                        resultDiv.innerHTML = '<strong> ❌Error: </strong> ' + data.detail;
-                        }
-                    }
-                    
-                    catch (error){
-                        resultDiv.innerHTML = '<strong> ❌ Error: </strong>' + error.message;
-                    }
-                    finally{
-                        uploadBtn.disabled = false;
-                    }
-                }
-                // ⬇️ ADD THIS LINE - attach function to button
-                document.getElementById('uploadBtn').addEventListener('click', uploadFile);
-                });
-            </script>
-                     
-        </body>
-        
-    </html>
-    """
-    return HTMLResponse(content=html)
+async def home(request: Request):
+    """Homepage - Choose transcription method"""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/upload", response_class = HTMLResponse)
+async def upload_page(request: Request):
+    """File Upload transcription page"""
+    return templates.TemplateResponse("upload.html", {"request":request})
+
+
+@app.get("/live", response_class= HTMLResponse)
+async def live_page(request:Request):
+    """Live Recording Transcription Page"""
+    return templates.TemplateResponse("live.html", {"request": request})
+
+
+
 
 @app.get("/health")
 def health():
-    return {"status": "working"}
+    """Health check endpoint"""
+    return {"status": "healthy", "service": "transcription"}
+
 
 @app.post("/transcribe")
 async def transcribe_audio(
