@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Audio - Lecture Transcription</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin: 20px;
+            color: white;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .upload-box {
+            border: 2px dashed #667eea;
+            padding: 40px;
+            text-align: center;
+            border-radius: 10px;
+            background: #f8f9ff;
+            margin-top: 30px;
+        }
+
+        input[type="file"] {
+            margin: 20px 0;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            padding: 12px 35px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        #result {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            display: none;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .loading {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .transcription-container {
+            position: relative;
+            background: white;
+            padding: 15px;
+            padding-bottom: 50px;
+            border-radius: 5px;
+            margin-top: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .copy-btn {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: #10b981;
+            color: white;
+            padding: 8px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: opacity 0.3s ease;
+        }
+
+        .copy-btn:hover {
+            background: #059669;
+        }
+
+        .copy-btn.dimmed {
+            opacity: 0.4;
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Back to Home</a>
+
+    <div class="container">
+        <h1>📁 Upload Audio File</h1>
+        <p class="subtitle">Upload your lecture recording and get AI-powered transcription</p>
+
+        <div class="upload-box">
+            <input type="file" id="audioFile" accept="audio/*">
+            <br>
+            <button id="uploadBtn">Transcribe Audio</button>
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+
+            function copyToClipboard(text, buttonElement) {
+                navigator.clipboard.writeText(text).then(() => {
+                    buttonElement.classList.add('dimmed');
+                    setTimeout(() => {
+                        buttonElement.classList.remove('dimmed');
+                    }, 2000);
+                }).catch(err => {
+                    alert('Failed to copy text: ' + err);
+                });
+            }
+
+            async function uploadFile() {
+                const fileInput = document.getElementById('audioFile');
+                const resultDiv = document.getElementById('result');
+                const uploadBtn = document.getElementById('uploadBtn');
+
+                if(!fileInput.files[0]) {
+                    alert('Please select a file first!');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+
+                uploadBtn.disabled = true;
+                resultDiv.innerHTML = '<p class="loading">⏳ Transcribing... This may take 10-30 seconds</p>';
+                resultDiv.style.display = 'block';
+
+                try {
+                    const response = await fetch('/transcribe', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if(response.ok) {
+                        resultDiv.innerHTML =
+                            '<strong>✅ Transcription Complete!</strong><br><br>' +
+                            '<strong>File:</strong> ' + data.filename + '<br>' +
+                            '<strong>Size:</strong> ' + data.file_size_mb + ' MB<br><br>' +
+                            '<strong>Text:</strong><br>' +
+                            '<div class="transcription-container">' +
+                                data.transcription +
+                                '<button class="copy-btn" id="copyBtn">📋 Copy</button>' +
+                            '</div>';
+
+                        document.getElementById('copyBtn').addEventListener('click', function() {
+                            copyToClipboard(data.transcription, this);
+                        });
+                    } else {
+                        resultDiv.innerHTML = '<strong>❌ Error:</strong> ' + data.detail;
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = '<strong>❌ Error:</strong> ' + error.message;
+                } finally {
+                    uploadBtn.disabled = false;
+                }
+            }
+
+            document.getElementById('uploadBtn').addEventListener('click', uploadFile);
+        });
+    </script>
+</body>
+</html>
