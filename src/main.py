@@ -1,5 +1,5 @@
 from fastapi import FastAPI,  File, UploadFile, HTTPException, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
@@ -47,7 +47,9 @@ async def live_page(request:Request):
     """Live Recording Transcription Page"""
     return templates.TemplateResponse("live.html", {"request": request})
 
-
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse("static/favicon.ico")
 
 
 @app.get("/health")
