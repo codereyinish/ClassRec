@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Recording - Lecture Transcription</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin: 20px;
+            color: white;
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .page-title {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .page-title h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        .page-title p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+            height: calc(100vh - 200px);
+        }
+
+        /* Left Side - Controls */
+        .controls {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        /* Microphone Bubble */
+        .mic-bubble {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: #667eea;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 60px;
+            margin-bottom: 30px;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .mic-bubble.recording {
+            background: #ef4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 5px 15px rgba(239, 68, 68, 0.3);
+            }
+            50% {
+                transform: scale(1.1);
+                box-shadow: 0 10px 30px rgba(239, 68, 68, 0.5);
+            }
+        }
+
+        /* Status */
+        .status {
+            text-align: center;
+            padding: 15px 30px;
+            border-radius: 25px;
+            margin-bottom: 30px;
+            font-weight: 500;
+            min-width: 200px;
+        }
+
+        .status.idle {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status.recording {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 15px 40px;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-start {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-start:hover {
+            background: #059669;
+            transform: translateY(-2px);
+        }
+
+        .btn-stop {
+            background: #ef4444;
+            color: white;
+            display: none;
+        }
+
+        .btn-stop:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+        }
+
+        .instructions {
+            margin-top: 30px;
+            text-align: center;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .instructions p {
+            margin: 10px 0;
+        }
+
+        /* Right Side - Transcript */
+        .transcript-area {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            overflow-y: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .transcript-area h2 {
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 60px 20px;
+            font-size: 16px;
+        }
+
+        .empty-state-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .transcript-chunk {
+            background: #f9fafb;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .timestamp {
+            color: #6b7280;
+            font-size: 12px;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .transcript-text {
+            color: #333;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .controls {
+                margin-bottom: 20px;
+            }
+
+            .transcript-area {
+                min-height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Back to Home</a>
+
+    <div class="page-title">
+        <h1>🎙️ Live Recording</h1>
+        <p>Record and transcribe in real-time</p>
+    </div>
+
+    <div class="container">
+        <!-- Left: Controls -->
+        <div class="controls">
+            <div class="mic-bubble" id="micBubble">🎤</div>
+
+            <div id="status" class="status idle">
+                Ready to record
+            </div>
+
+            <button class="btn btn-start" id="startBtn">Start Recording</button>
+            <button class="btn btn-stop" id="stopBtn">Stop Recording</button>
+
+            <div class="instructions">
+                <p><strong>How to use:</strong></p>
+                <p>1. Click "Start Recording"</p>
+                <p>2. Allow microphone access</p>
+                <p>3. Speak naturally</p>
+                <p>4. Transcription appears automatically</p>
+                <p>5. Click "Stop" when done</p>
+            </div>
+        </div>
+
+        <!-- Right: Transcript -->
+        <div class="transcript-area" id="transcriptArea">
+            <h2>Transcription</h2>
+            <div class="empty-state">
+                <div class="empty-state-icon">📝</div>
+                <p>Start recording to see transcription appear here...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/recorder.js"></script>
+</body>
+</html>
