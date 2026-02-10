@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import io
 from typing import Tuple
 from validators import validate_audio_file
-
+from pathlib import Path
 
 
 #Load environment variables
@@ -22,12 +22,15 @@ client = OpenAI()
 app = FastAPI()
 
 
-# Setup templates and static files
+BASE_DIR = Path(__file__).parent.parent  # goes up from src/ to ClassRec/
+
+#Setup templates and static files
 
 # Create an instance pointing to the templates folder
-templates = Jinja2Templates(directory="../templates")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
-app.mount("/static", StaticFiles(directory="../static"), name="static")
+
 
 
 # ========== ROUTES ==========
