@@ -24,8 +24,8 @@ AI-powered transcription system for students built with FastAPI and OpenAI Whisp
 
 1. Clone the repository
 ```bash
-git clone https://github.com/YOUR_USERNAME/lecture-transcription.git
-cd lecture-transcription
+git clone https://github.com/codereyinish/ClassRec.git
+cd ClassRec
 ```
 
 2. Create virtual environment
@@ -56,7 +56,7 @@ http://localhost:8000
 
 ## Deployment
 
-Deployed on Render: [Your URL Here]
+Deployed on Render: 🔗 https://classrec.onrender.com
 
 ## License
 
@@ -64,4 +64,4 @@ MIT
 
 ## Author
 
-Inish - St. Joseph's College New York
+**Inish** - MBCodes
