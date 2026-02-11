@@ -74,7 +74,8 @@
             width: 150px;
             height: 150px;
             border-radius: 50%;
-            background: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -85,74 +86,43 @@
         }
 
         .mic-bubble.recording {
-            background: #ef4444;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
             animation: pulse 1.5s infinite;
         }
 
         @keyframes pulse {
-            0%, 100% {
-                transform: scale(1);
-                box-shadow: 0 5px 15px rgba(239, 68, 68, 0.3);
+        0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
+                }
+        50% {
+            transform: scale(1.08);
+            box-shadow: 0 12px 35px rgba(239, 68, 68, 0.6);
             }
-            50% {
-                transform: scale(1.1);
-                box-shadow: 0 10px 30px rgba(239, 68, 68, 0.5);
-            }
+        }
+
+        .mic-bubble:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.5);
         }
 
         /* Status */
         .status {
             text-align: center;
-            padding: 15px 30px;
-            border-radius: 25px;
+            padding: 0;
             margin-bottom: 30px;
             font-weight: 500;
             min-width: 200px;
-        }
-
-        .status.idle {
-            background: #d1fae5;
-            color: #065f46;
+            font-size: 16px;
+            color: #666;
         }
 
         .status.recording {
-            background: #fee2e2;
-            color: #991b1b;
+            color: #ef4444; #change color to red when recorded
         }
 
-        /* Buttons */
-        .btn {
-            padding: 15px 40px;
-            font-size: 18px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            margin: 10px;
-            transition: all 0.3s;
-            font-weight: 500;
-        }
 
-        .btn-start {
-            background: #10b981;
-            color: white;
-        }
-
-        .btn-start:hover {
-            background: #059669;
-            transform: translateY(-2px);
-        }
-
-        .btn-stop {
-            background: #ef4444;
-            color: white;
-            display: none;
-        }
-
-        .btn-stop:hover {
-            background: #dc2626;
-            transform: translateY(-2px);
-        }
-
+        /* Instructions */
         .instructions {
             margin-top: 30px;
             text-align: center;
@@ -163,6 +133,7 @@
         .instructions p {
             margin: 10px 0;
         }
+
 
         /* Right Side - Transcript */
         .transcript-area {
@@ -191,39 +162,6 @@
             font-size: 60px;
             margin-bottom: 20px;
             opacity: 0.5;
-        }
-
-        .transcript-chunk {
-            background: #f9fafb;
-            padding: 20px;
-            margin-bottom: 15px;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .timestamp {
-            color: #6b7280;
-            font-size: 12px;
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .transcript-text {
-            color: #333;
-            line-height: 1.6;
-            font-size: 15px;
         }
 
         /* Responsive */
@@ -257,11 +195,9 @@
             <div class="mic-bubble" id="micBubble">🎤</div>
 
             <div id="status" class="status idle">
-                Ready to record
+               Click the microphone to start recording
             </div>
 
-            <button class="btn btn-start" id="startBtn">Start Recording</button>
-            <button class="btn btn-stop" id="stopBtn">Stop Recording</button>
 
             <div class="instructions">
                 <p><strong>How to use:</strong></p>
@@ -276,13 +212,50 @@
         <!-- Right: Transcript -->
         <div class="transcript-area" id="transcriptArea">
             <h2>Transcription</h2>
-            <div class="empty-state">
+            <div class="empty-state" id="emptyState">
                 <div class="empty-state-icon">📝</div>
                 <p>Start recording to see transcription appear here...</p>
             </div>
         </div>
     </div>
 
-    <script src="/static/js/recorder.js"></script>
+    <script>
+    // ===== 1. TRACK STATE =====
+    let isRecording = false;
+
+    // ===== 2. GET ELEMENTS =====
+    const micBubble = document.getElementById('micBubble');
+    const statusDiv = document.getElementById('status');
+
+
+    // ===== 3. CLICK HANDLERS =====
+
+    // When microphone is clicked
+    micBubble.addEventListener('click', () => {
+        if (!isRecording) {
+            startRecording();
+        } else {
+            stopRecording();
+        }
+    });
+
+
+    // ===== 4. STYLE CHANGE FUNCTIONS =====
+
+    function startRecording() {
+        isRecording = true;
+        micBubble.classList.add('recording');
+        statusDiv.textContent = 'Recording... (Click to stop)';
+        statusDiv.className = 'status recording';
+    }
+
+    function stopRecording() {
+        isRecording = false;
+        micBubble.classList.remove('recording');
+        statusDiv.textContent = 'Click the microphone to start recording';
+        statusDiv.className = 'status idle';
+
+    }
+    </script>
 </body>
 </html>
