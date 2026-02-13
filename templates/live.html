@@ -222,6 +222,8 @@
     <script>
     // ===== 1. TRACK STATE =====
     let isRecording = false;
+    let websocket = null;
+    let audioContext = null;
 
     // ===== 2. GET ELEMENTS =====
     const micBubble = document.getElementById('micBubble');
@@ -230,7 +232,7 @@
 
     // ===== 3. CLICK HANDLERS =====
 
-    // When microphone is clicked
+    // CLICK MICROPHONE
     micBubble.addEventListener('click', () => {
         if (!isRecording) {
             startRecording();
@@ -240,22 +242,103 @@
     });
 
 
-    // ===== 4. STYLE CHANGE FUNCTIONS =====
+    // START RECORDING
 
-    function startRecording() {
+    async function startRecording() {
+      //CHANGE CSS STYLE
         isRecording = true;
-        micBubble.classList.add('recording');
         statusDiv.textContent = 'Recording... (Click to stop)';
         statusDiv.className = 'status recording';
+
+        //IMPLEMENT JS LOGIC
+        try{
+            // 1. Get microphone access via browser Web API
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: { sampleRate : 16000,
+                         channelCount : 1
+            });
+
+            // Establish Web-socket connection with backend
+            websocket = new Websocket('ws://localhost:8000/ws/transcribe');
+
+            // states of websocket connection with corresponding function to be implemented in each state
+
+            //Connection opened
+            websocket.onopen = () => {
+                micbubble.classlist.add('recording');
+                statusDiv.textContent = 'Recording... (Click to stop)';
+                statusDiv.className = 'status recording';
+            }
+
+            // Server sends transcription
+            websocket.onmessage = (event) =>{
+                const data = JSON.parse(event.data)
+                if (data.type === 'transcription'){
+                    //Display it
+                    addTranscription(data.text)
+                }
+            }
+
+            //Error --connection failed
+            websocket.onerror = (error) => {
+                stopRecording();
+                alert('Cannot connect to server. Is it running on port 8000?');
+            }
+
+            // Connection closed or intentionally dropped
+            websocket.onclose = (event) => {
+                stopRecording();
+                // Check if it was unexpected, if done intentionally , dont show alert, bad UX
+                if (isRecording) {
+                    statusDiv.textContent = 'Connection lost!';
+                    statusDiv.style.color = '#f59e0b'; // Orange
+                }
+
+                //Try to reconnect
+                const shouldReconnect = confirm('Connection lost! Try reconnecting?');
+                if (shouldReconnect) {
+                    stopRecording();                           // 1. Clean up old connection
+                    setTimeout(() => startRecording(), 1000);  // 2. Wait 1 sec, then try again
+                }
+            }
+        };
+
+
+
+
+
+
+
+
+                }
+
+
+            }
+
+
+
+
+
+
+
+
+
+        }
+
+
+
     }
 
     function stopRecording() {
+         //CHANGE CSS STYLE
         isRecording = false;
         micBubble.classList.remove('recording');
         statusDiv.textContent = 'Click the microphone to start recording';
         statusDiv.className = 'status idle';
 
     }
+
+
     </script>
 </body>
 </html>
