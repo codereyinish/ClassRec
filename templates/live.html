@@ -118,7 +118,7 @@
         }
 
         .status.recording {
-            color: #ef4444; #change color to red when recorded
+            color: #ef4444;
         }
 
 
@@ -164,21 +164,50 @@
             opacity: 0.5;
         }
 
-        /* Responsive */
-        @media (max-width: 1024px) {
-            .container {
-                grid-template-columns: 1fr;
-                height: auto;
-            }
+    .transcript-chunk {
+        background: #f9fafb;
+        border-left: 4px solid #667eea;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+        transition: all 0.2s ease;
+    }
 
-            .controls {
-                margin-bottom: 20px;
-            }
+    .transcript-chunk:hover {
+        background: #f3f4f6;
+        transform: translateX(5px);
+    }
 
-            .transcript-area {
-                min-height: 400px;
-            }
+    .timestamp {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-bottom: 8px;
+        font-weight: 500;
+    }
+
+    .transcript-text {
+        font-size: 16px;
+        color: #1f2937;
+        line-height: 1.6;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+        .container {
+            grid-template-columns: 1fr;
+            height: auto;
         }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .transcript-area {
+            min-height: 400px;
+        }
+    }
+
+
     </style>
 </head>
 <body>
@@ -212,11 +241,13 @@
         <!-- Right: Transcript -->
         <div class="transcript-area" id="transcriptArea">
             <h2>Transcription</h2>
-            <div class="empty-state" id="emptyState">
+            <div id="transcriptContent">
+                <div class="empty-state" id="emptyState">
                 <div class="empty-state-icon">📝</div>
                 <p>Start recording to see transcription appear here...</p>
             </div>
         </div>
+
     </div>
 
     <script>
@@ -228,6 +259,9 @@
     // ===== 2. GET ELEMENTS =====
     const micBubble = document.getElementById('micBubble');
     const statusDiv = document.getElementById('status');
+    const transcriptArea = document.getElementById('transcriptArea');
+    const transcriptContent = document.getElementById('transcriptContent');
+    const emptyState = document.getElementById('emptyState');
 
 
     // ===== 3. CLICK HANDLERS =====
@@ -245,7 +279,7 @@
     // START RECORDING
 
     async function startRecording() {
-      //CHANGE CSS STYLE
+        //CHANGE CSS STYLE
         isRecording = true;
         statusDiv.textContent = 'Recording... (Click to stop)';
         statusDiv.className = 'status recording';
@@ -256,16 +290,17 @@
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: { sampleRate : 16000,
                          channelCount : 1
+                        }
             });
 
             // Establish Web-socket connection with backend
-            websocket = new Websocket('ws://localhost:8000/ws/transcribe');
+            websocket = new WebSocket('ws://localhost:8000/ws/transcribe');
 
             // states of websocket connection with corresponding function to be implemented in each state
 
             //Connection opened
             websocket.onopen = () => {
-                micbubble.classlist.add('recording');
+                micBubble.classList.add('recording');
                 statusDiv.textContent = 'Recording... (Click to stop)';
                 statusDiv.className = 'status recording';
             }
@@ -301,43 +336,65 @@
                     setTimeout(() => startRecording(), 1000);  // 2. Wait 1 sec, then try again
                 }
             }
-        };
+
+            // 4. Setup Audio Processing
+            audioContext = new AudioContext({ sampleRate : 16000});
+            const source = audioContext.createMediaStreamSource(stream);
+            const processor = audioContext.createScriptProcessor(4096,1, 1);
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+
+            //5. Send Audio to Server
+             processor.onaudioprocess = (e) => {
+                if (websocket && websocket.readyState === WebSocket.OPEN){
+                    const audioData = e.inputBuffer.getChannelData(0);
 
 
+                    //Convert to INT16 matched for Server format
+                    const int16 = new Int16Array(audioData.length);
+                    for( let i =0; i<audioData.length; i++){
+                        int16[i] = audioData[i] * 32767;
+                    }
 
-
-
-
-
-
+                    //Send to server
+                    websocket.send(int16.buffer)
                 }
-
-
-            }
-
-
-
-
-
-
-
-
+            };
 
         }
-
-
+        catch(error){
+            alert('Error: ' + error.message);
+            statusDiv.textContent = 'Click to start';
+            statusDiv.className = 'status idle';
+            isRecording = false; // Reset flag
+        }
 
     }
 
     function stopRecording() {
+        if (audioContext) audioContext.close();
+        if (websocket) websocket.close();
          //CHANGE CSS STYLE
         isRecording = false;
         micBubble.classList.remove('recording');
-        statusDiv.textContent = 'Click the microphone to start recording';
+        statusDiv.textContent = 'Click to start recording';
         statusDiv.className = 'status idle';
-
     }
 
+
+    // Display Transcription
+    function addTranscription(text){
+        emptyState.style.display = 'none';
+        const div = document.createElement('div');
+        div.className = 'transcript-chunk';
+        div.innerHTML = `
+            <div class= "timestamp">${ new Date().toLocaleTimeString()}</div>
+            <div class = "transcript-text">${text}</div>
+        `;
+        transcriptContent.appendChild(div);
+        transcriptArea.scrollTop = transcriptArea.scrollHeight;
+
+    }
 
     </script>
 </body>
