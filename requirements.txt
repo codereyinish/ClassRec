@@ -1,8 +1,10 @@
 fastapi==0.104.1
-uvicorn==0.24.0
+uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 openai==1.57.0
 python-dotenv==1.0.0
 python-magic==0.4.27
 Jinja2==3.1.6
+
+
 
