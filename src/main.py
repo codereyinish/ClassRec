@@ -99,7 +99,7 @@ async def websocket_transcribe(websocket: WebSocket):
     await websocket.accept()
 
     audio_buffer = bytearray()
-    chunk_duration = 3
+    chunk_duration = 15
 
     SAMPLE_RATE = 16000  # 16kHz
     BYTES_PER_SAMPLE = 2  # Int16

@@ -150,9 +150,92 @@
 
         <div id="result"></div>
     </div>
-
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+
+            const DOM = {
+                 fileInput:  document.getElementById('audioFile'),
+                 resultDiv:  document.getElementById('result'),
+                 uploadBtn:  document.getElementById('uploadBtn'),
+            }
+
+            function getSelectedFile(){
+                return document.getElementById('audioFile').files[0]
+            }
+
+
+            function buildFormData(Selected_file){
+                const formData = new FormData();
+                formData.append('file', Selected_file);
+                return formData
+            }
+
+            function show_Transcription_Loading_State(){
+                DOM.uploadBtn.disabled = true;
+                DOM.resultDiv.style.display = 'block';
+                DOM.resultDiv.innerHTML = '<p class="loading">⏳ Transcribing... This may take 10-30 seconds</p>';
+            }
+
+            async function transcribeAudio(formData){
+                    const response = await fetch('/transcribe', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+
+                    //Throw Error
+                    if(!response.ok){
+                        throw new Error(data.detail || 'Transcription failed');
+                    }
+                    return data;
+            }
+
+            async function handleUpload() {
+                const Selected_file = getSelectedFile();
+                if(!Selected_file){
+                 alert('Please select a file first!');
+                 return;
+                }
+                show_Transcription_Loading_State();
+                try{
+                    const formData = buildFormData(Selected_file)
+                    const data = await transcribeAudio(formData)
+                    add_Transcription_to_ResultDiv(data)
+                    enableCopyButton(data);
+                }
+                catch (error){
+                    add_ErrorMessage_to_ResultDiv(error.message)
+                }
+                finally {
+                DOM.uploadBtn.disabled = false;  // ← Cleanup HERE
+                }
+
+            }
+
+
+            function add_Transcription_to_ResultDiv(data){
+                DOM.resultDiv.innerHTML=
+                        '<strong>✅ Transcription Complete!</strong><br><br>' +
+                        '<strong>File:</strong> ' + data.filename + '<br>' +
+                        '<strong>Size:</strong> ' + data.file_size_mb + ' MB<br><br>' +
+                        '<strong>Text:</strong><br>' +
+                        '<div class="transcription-container">' +
+                            data.transcription +
+                            '<button class="copy-btn" id="copyBtn">📋 Copy</button>' +
+                        '</div>';
+            }
+
+
+            function add_ErrorMessage_to_ResultDiv(ErrorMessage){
+                DOM.resultDiv.innerHTML = '<strong>❌ Error:</strong> ' + ErrorMessage;
+
+            }
+
+            function enableCopyButton(data){
+                document.getElementById('copyBtn').addEventListener('click', function() {
+                            copyToClipboard(data.transcription, this);
+                });
+            }
+
 
             function copyToClipboard(text, buttonElement) {
                 navigator.clipboard.writeText(text).then(() => {
@@ -165,57 +248,7 @@
                 });
             }
 
-            async function uploadFile() {
-                const fileInput = document.getElementById('audioFile');
-                const resultDiv = document.getElementById('result');
-                const uploadBtn = document.getElementById('uploadBtn');
-
-                if(!fileInput.files[0]) {
-                    alert('Please select a file first!');
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
-
-                uploadBtn.disabled = true;
-                resultDiv.innerHTML = '<p class="loading">⏳ Transcribing... This may take 10-30 seconds</p>';
-                resultDiv.style.display = 'block';
-
-                try {
-                    const response = await fetch('/transcribe', {
-                        method: 'POST',
-                        body: formData
-                    });
-
-                    const data = await response.json();
-
-                    if(response.ok) {
-                        resultDiv.innerHTML =
-                            '<strong>✅ Transcription Complete!</strong><br><br>' +
-                            '<strong>File:</strong> ' + data.filename + '<br>' +
-                            '<strong>Size:</strong> ' + data.file_size_mb + ' MB<br><br>' +
-                            '<strong>Text:</strong><br>' +
-                            '<div class="transcription-container">' +
-                                data.transcription +
-                                '<button class="copy-btn" id="copyBtn">📋 Copy</button>' +
-                            '</div>';
-
-                        document.getElementById('copyBtn').addEventListener('click', function() {
-                            copyToClipboard(data.transcription, this);
-                        });
-                    } else {
-                        resultDiv.innerHTML = '<strong>❌ Error:</strong> ' + data.detail;
-                    }
-                } catch (error) {
-                    resultDiv.innerHTML = '<strong>❌ Error:</strong> ' + error.message;
-                } finally {
-                    uploadBtn.disabled = false;
-                }
-            }
-
-            document.getElementById('uploadBtn').addEventListener('click', uploadFile);
-        });
+            document.getElementById('uploadBtn').addEventListener('click', handleUpload);
     </script>
 </body>
 </html>
