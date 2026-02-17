@@ -230,11 +230,11 @@
 
             <div class="instructions">
                 <p><strong>How to use:</strong></p>
-                <p>1. Click "Start Recording"</p>
+                <p>1. Click on Microphone</p>
                 <p>2. Allow microphone access</p>
                 <p>3. Speak naturally</p>
                 <p>4. Transcription appears automatically</p>
-                <p>5. Click "Stop" when done</p>
+                <p>5. Click again on Microphone when done</p>
             </div>
         </div>
 
@@ -296,6 +296,7 @@
             // Establish Web-socket connection with backend
             websocket = new WebSocket('ws://localhost:8000/ws/transcribe');
 
+
             // states of websocket connection with corresponding function to be implemented in each state
 
             //Connection opened
@@ -303,7 +304,7 @@
                 micBubble.classList.add('recording');
                 statusDiv.textContent = 'Recording... (Click to stop)';
                 statusDiv.className = 'status recording';
-            }
+            };
 
             // Server sends transcription
             websocket.onmessage = (event) =>{
@@ -312,13 +313,16 @@
                     //Display it
                     addTranscription(data.text)
                 }
-            }
+                else if (data.type === "error"){
+                    alert('Transcription error: ' + data.message);
+                }
+            };
 
             //Error --connection failed
             websocket.onerror = (error) => {
                 stopRecording();
                 alert('Cannot connect to server. Is it running on port 8000?');
-            }
+            };
 
             // Connection closed or intentionally dropped
             websocket.onclose = (event) => {
@@ -335,7 +339,7 @@
                     stopRecording();                           // 1. Clean up old connection
                     setTimeout(() => startRecording(), 1000);  // 2. Wait 1 sec, then try again
                 }
-            }
+            };
 
             // 4. Setup Audio Processing
             audioContext = new AudioContext({ sampleRate : 16000});
@@ -362,6 +366,7 @@
             };
 
         }
+
         catch(error){
             alert('Error: ' + error.message);
             statusDiv.textContent = 'Click to start';
