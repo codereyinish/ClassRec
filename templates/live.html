@@ -318,7 +318,9 @@
 
     // ===== 6. WEBSOCKET =====
     function implementWebsocketConnection(stream){
-            websocket = new WebSocket('ws://localhost:8000/ws/transcribe');
+            const protocol = window.location.protocol === "https:"? "wss:" : "ws:"
+            const wsUrl = window.location.host;
+            websocket = new WebSocket(`${protocol}//${wsUrl}/ws/transcribe`);
 
             // states of websocket connection with corresponding function to be implemented in each state
 
@@ -348,8 +350,7 @@
 
             // Connection closed or intentionally dropped
             websocket.onclose = (event) => {
-                // Check if it was unexpected, if done intentionally , dont show alert, bad UX
-                //unintentionally closed --> user hasnt pressed stop, so no stopRecording() --> so isRecording cant be TRUE
+                // Check if it was intentionally closed or not
                 if (isRecording) {
                     statusDiv.textContent = 'Connection lost!';
                     statusDiv.style.color = '#f59e0b'; // Orange
