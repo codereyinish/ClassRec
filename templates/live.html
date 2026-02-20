@@ -230,11 +230,10 @@
 
             <div class="instructions">
                 <p><strong>How to use:</strong></p>
-                <p>1. Click on Microphone</p>
-                <p>2. Allow microphone access</p>
-                <p>3. Speak naturally</p>
+                <p>1. Click the mic & allow access</p>
+                <p>2. Speak naturally</p>
                 <p>4. Transcription appears automatically</p>
-                <p>5. Click again on Microphone when done</p>
+                <p>3. Click again to stop</p>
             </div>
         </div>
 
@@ -251,12 +250,13 @@
     </div>
 
     <script>
-    // ===== 1. TRACK STATE =====
+
+    // ===== 1. STATE =====
     let isRecording = false;
     let websocket = null;
     let audioContext = null;
 
-    // ===== 2. GET ELEMENTS =====
+    // ===== 2. DOM ELEMENTS =====
     const micBubble = document.getElementById('micBubble');
     const statusDiv = document.getElementById('status');
     const transcriptArea = document.getElementById('transcriptArea');
@@ -264,7 +264,7 @@
     const emptyState = document.getElementById('emptyState');
 
 
-    // ===== 3. CLICK HANDLERS =====
+    // ===== 3. MIC CLICK=====
 
     // CLICK MICROPHONE
     micBubble.addEventListener('click', () => {
@@ -276,42 +276,64 @@
     });
 
 
-    // START RECORDING
-
-    async function startRecording() {
-        //CHANGE CSS STYLE
-        isRecording = true;
-        statusDiv.textContent = 'Recording... (Click to stop)';
-        statusDiv.className = 'status recording';
-
-        //IMPLEMENT JS LOGIC
-        try{
-            // 1. Get microphone access via browser Web API
+    // ===== 5. MICROPHONE =====
+    async function getMicrophoneAccess(){
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: { sampleRate : 16000,
                          channelCount : 1
                         }
             });
 
-            // Establish Web-socket connection with backend
-            websocket = new WebSocket('ws://localhost:8000/ws/transcribe');
+            if(!stream) throw new Error('Could not access microphone');
+            return stream;
+    }
 
+
+     // ===== 8. UI HELPERS =====
+     function setRecordingUI(){
+        //CHANGE CSS STYLE
+        micBubble.classList.add('recording');
+        statusDiv.textContent = 'Recording... (Click to stop)';
+        statusDiv.className = 'status recording';
+     }
+
+    function resetUI(){
+        micBubble.classList.remove('recording');
+        statusDiv.textContent = 'Click to start recording';
+        statusDiv.className = 'status idle';
+    }
+
+    // Display Transcription
+    function displayTranscription(text){
+        emptyState.style.display = 'none';
+        const div = document.createElement('div');
+        div.className = 'transcript-chunk';
+        div.innerHTML = `
+            <div class= "timestamp">${ new Date().toLocaleTimeString()}</div>
+            <div class = "transcript-text">${text}</div>
+        `;
+        transcriptContent.appendChild(div);
+        transcriptArea.scrollTop = transcriptArea.scrollHeight;
+    }
+
+    // ===== 6. WEBSOCKET =====
+    function implementWebsocketConnection(stream){
+            websocket = new WebSocket('ws://localhost:8000/ws/transcribe');
 
             // states of websocket connection with corresponding function to be implemented in each state
 
             //Connection opened
             websocket.onopen = () => {
-                micBubble.classList.add('recording');
-                statusDiv.textContent = 'Recording... (Click to stop)';
-                statusDiv.className = 'status recording';
+                setRecordingUI();
+                setupAudioProcessing(stream);
             };
 
             // Server sends transcription
             websocket.onmessage = (event) =>{
                 const data = JSON.parse(event.data)
                 if (data.type === 'transcription'){
-                    //Display it
-                    addTranscription(data.text)
+                    //Display i2t
+                    displayTranscription(data.text)
                 }
                 else if (data.type === "error"){
                     alert('Transcription error: ' + data.message);
@@ -326,21 +348,25 @@
 
             // Connection closed or intentionally dropped
             websocket.onclose = (event) => {
-                stopRecording();
                 // Check if it was unexpected, if done intentionally , dont show alert, bad UX
+                //unintentionally closed --> user hasnt pressed stop, so no stopRecording() --> so isRecording cant be TRUE
                 if (isRecording) {
                     statusDiv.textContent = 'Connection lost!';
                     statusDiv.style.color = '#f59e0b'; // Orange
-                }
 
-                //Try to reconnect
-                const shouldReconnect = confirm('Connection lost! Try reconnecting?');
-                if (shouldReconnect) {
-                    stopRecording();                           // 1. Clean up old connection
-                    setTimeout(() => startRecording(), 1000);  // 2. Wait 1 sec, then try again
+                    //Try to reconnect
+                    const shouldReconnect = confirm('Connection lost! Try reconnecting?');
+                    if (shouldReconnect) {
+                        stopRecording();                           // 1. Clean up old connection
+                        setTimeout(() => startRecording(), 1000);  // 2. Wait 1 sec, then try again
+                    }
                 }
             };
+    }
 
+
+    // ===== 7. AUDIO PROCESSING =====
+    function setupAudioProcessing(stream){
             // 4. Setup Audio Processing
             audioContext = new AudioContext({ sampleRate : 16000});
             const source = audioContext.createMediaStreamSource(stream);
@@ -352,55 +378,42 @@
              processor.onaudioprocess = (e) => {
                 if (websocket && websocket.readyState === WebSocket.OPEN){
                     const audioData = e.inputBuffer.getChannelData(0);
-
-
-                    //Convert to INT16 matched for Server format
-                    const int16 = new Int16Array(audioData.length);
-                    for( let i =0; i<audioData.length; i++){
-                        int16[i] = audioData[i] * 32767;
-                    }
-
-                    //Send to server
-                    websocket.send(int16.buffer)
+                    const int16Chunk = convertToInt16(audioData);
+                    websocket.send(int16Chunk.buffer)
                 }
             };
+    }
 
+
+    function convertToInt16(audioFloatSamples){
+        const int16 = new Int16Array(audioFloatSamples.length);
+        for (let i = 0; i < audioFloatSamples.length; i++) {
+            int16[i] = audioFloatSamples[i] * 32767;
         }
+        return int16;
+    }
 
+    // ===== 4. CORE FUNCTIONS =====
+    async function startRecording() {
+        try{
+            const stream = await getMicrophoneAccess();
+            implementWebsocketConnection(stream);
+            isRecording = true;
+        }
         catch(error){
             alert('Error: ' + error.message);
-            statusDiv.textContent = 'Click to start';
-            statusDiv.className = 'status idle';
-            isRecording = false; // Reset flag
+            resetUI();
         }
-
     }
+
 
     function stopRecording() {
         if (audioContext) audioContext.close();
         if (websocket) websocket.close();
-         //CHANGE CSS STYLE
         isRecording = false;
-        micBubble.classList.remove('recording');
-        statusDiv.textContent = 'Click to start recording';
-        statusDiv.className = 'status idle';
-    }
-
-
-    // Display Transcription
-    function addTranscription(text){
-        emptyState.style.display = 'none';
-        const div = document.createElement('div');
-        div.className = 'transcript-chunk';
-        div.innerHTML = `
-            <div class= "timestamp">${ new Date().toLocaleTimeString()}</div>
-            <div class = "transcript-text">${text}</div>
-        `;
-        transcriptContent.appendChild(div);
-        transcriptArea.scrollTop = transcriptArea.scrollHeight;
+        resetUI();
 
     }
-
-    </script>
+  </script>
 </body>
 </html>
