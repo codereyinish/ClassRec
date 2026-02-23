@@ -122,12 +122,36 @@
         }
 
 
+        #micSelect {
+            width: 180px;
+            padding: 4px 8px;
+            font-size: 13px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            background: #f9f9f9;
+            color: #333;
+            outline: none;
+            cursor: pointer;
+        }
+
+        #micSelect:focus {
+            border-color: #888;
+        }
+
         /* Instructions */
         .instructions {
             margin-top: 30px;
             text-align: center;
             color: #666;
             line-height: 1.6;
+        }
+
+        .instructions-title {
+            font-weight: 600;
+            color: #444;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
         }
 
         .instructions p {
@@ -227,13 +251,18 @@
                Click the microphone to start recording
             </div>
 
+            <div class="device-selector">
+                <label for="micSelect">🎤 Microphone:</label>
+                <select id ="micSelect"></select>
+            </div>
 
             <div class="instructions">
-                <p><strong>How to use:</strong></p>
-                <p>1. Click the mic & allow access</p>
-                <p>2. Speak naturally</p>
+                <p class="instructions-title">How to use:</p>
+                <p>1. Select <strong>MacBook Pro Microphone</strong> above</p>
+                <p>2. Click the mic & allow access</p>
+                <p>3. Speak naturally</p>
                 <p>4. Transcription appears automatically</p>
-                <p>3. Click again to stop</p>
+                <p>5. Click again to stop</p>
             </div>
         </div>
 
@@ -263,6 +292,40 @@
     const transcriptContent = document.getElementById('transcriptContent');
     const emptyState = document.getElementById('emptyState');
 
+    // ===== DEVICE SELECTOR====
+    const micSelect = document.getElementById('micSelect')
+
+
+    // ==== DEVICE SELECTOR DROPDOWN=====
+    async function requestMicPermissionBriefly(){
+        const stream = await navigator.mediaDevices.getUserMedia({ audio : true})
+        stream.getTracks().forEach(track => track.stop());
+    }
+
+    async function getAudioInputDevices(){
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(d => d.kind === 'audioinput');
+        return audioInputs;
+    }
+
+    function createDeviceDropdown(audioInputs){
+        audioInputs.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.text =  device.label;
+            micSelect.appendChild(option);
+        });
+    }
+
+    async function loadMicDevices(){
+        await requestMicPermissionBriefly();
+        const audioInputs = await getAudioInputDevices();
+        createDeviceDropdown(audioInputs);
+    }
+
+    loadMicDevices();
+
+
 
     // ===== 3. MIC CLICK=====
 
@@ -279,7 +342,8 @@
     // ===== 5. MICROPHONE =====
     async function getMicrophoneAccess(){
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: { sampleRate : 16000,
+                audio: { deviceId: micSelect.value ? {exact : micSelect.value} : undefined,
+                         sampleRate : 16000,
                          channelCount : 1
                         }
             });
