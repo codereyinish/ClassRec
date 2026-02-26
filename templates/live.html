@@ -284,6 +284,8 @@
     let isRecording = false;
     let websocket = null;
     let audioContext = null;
+    const SILENCE_THRESHOLD = 0.01;
+
 
     // ===== 2. DOM ELEMENTS =====
     const micBubble = document.getElementById('micBubble');
@@ -443,11 +445,30 @@
              processor.onaudioprocess = (e) => {
                 if (websocket && websocket.readyState === WebSocket.OPEN){
                     const audioData = e.inputBuffer.getChannelData(0);
+                    const rms = calculateRMS(audioData);
+                    console.log('RMS:', rms);  // ← add this
+                    if(isSilent(audioData)) return;
+
                     const int16Chunk = convertToInt16(audioData);
                     websocket.send(int16Chunk.buffer)
                 }
             };
     }
+
+    function isSilent(audioData){
+        const rms = calculateRMS(audioData);
+        return (rms<SILENCE_THRESHOLD)
+
+    }
+
+    function calculateRMS(audioFloatSamples) {
+    let sum = 0;
+    for (let i = 0; i < audioFloatSamples.length; i++) {
+        sum += audioFloatSamples[i] * audioFloatSamples[i]; // square each sample
+    }
+    return Math.sqrt(sum / audioFloatSamples.length); // sqrt of average
+    }
+
 
 
     function convertToInt16(audioFloatSamples){
