@@ -31,7 +31,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 SAMPLE_RATE = 16000  # 16kHz
 BYTES_PER_SAMPLE = 2  # Int16
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
-CHUNK_DURATION = 10
+CHUNK_DURATION = 5
 
 
 #=========AUDIO HELPERS =========
@@ -55,7 +55,7 @@ def is_buffer_full(audio_buffer: bytearray) -> bool:
 
 
 # ========TRANSCRIPTION=========
-def call_whisper(audio_file: io.BytesIO,prompt: str = "University lecture.") -> str:
+def call_whisper(audio_file: io.BytesIO,prompt: str="") -> str:
     """Send audio to Whisper API and return transcript text"""
     transcript = client.audio.transcriptions.create(
         model = "whisper-1",
@@ -152,8 +152,7 @@ async def websocket_transcribe(websocket: WebSocket):
                 msg = json.loads(data["text"])
                 if msg.get("type") == "context":
                     topic = msg.get("prompt", "")
-                    lecture_prompt = f"University lecture. Professor speaking about {topic}" if topic else \
-                        "University lecture"
+                    lecture_prompt = topic if topic else ""
 
             elif "bytes" in data:
                 audio_buffer.extend(data["bytes"])
