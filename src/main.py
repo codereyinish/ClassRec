@@ -30,7 +30,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 SAMPLE_RATE = 16000  # 16kHz
 BYTES_PER_SAMPLE = 2  # Int16
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
-CHUNK_DURATION = 4
+CHUNK_DURATION = 15
 
 
 #=========AUDIO HELPERS =========
@@ -42,9 +42,9 @@ def convert_pcm_to_wav(pcm_data: bytes) -> io.BytesIO:
         wav_file.setsampwidth(2)# 2 bytes = 16-bit
         wav_file.setframerate(16000) # 16kHz
         wav_file.writeframes(pcm_data)
-        audio_file.seek(0)
-        audio_file.name = "audio.wav"
-        return audio_file
+    audio_file.seek(0)
+    audio_file.name = "audio.wav"
+    return audio_file
 
 
 def is_buffer_full(audio_buffer: bytearray) -> bool:
@@ -54,6 +54,7 @@ def is_buffer_full(audio_buffer: bytearray) -> bool:
 
 
 # ========TRANSCRIPTION=========
+
 def call_whisper(audio_file: io.BytesIO) -> str:
     """Send audio to Whisper API and return transcript text"""
     transcript = client.audio.transcriptions.create(
@@ -64,16 +65,32 @@ def call_whisper(audio_file: io.BytesIO) -> str:
     return transcript.text
 
 
+def call_diarize(audio_file: io.BytesIO) -> list:
+    """Send audio to diarization API and return list of segments with speaker labels"""
+    transcript = client.audio.transcriptions.create(
+        model="gpt-4o-transcribe-diarize",
+        file=audio_file,
+        response_format="diarized_json"
+    )
+    return transcript.segments if hasattr(transcript, 'segments') else []
+
+
+
+#======LIVE TRANSCRIPTION's HELPER FUNCTION
 async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket):
     """Convert audio chunk to WAV, transcribe, and send result to browser via websocket"""
     try:
         audio_file_wav = convert_pcm_to_wav(chunk_data)
-        transcripted_text = call_whisper(audio_file_wav)
-        if transcripted_text.strip(): # don't send empty transcriptions
-            await websocket.send_json({
-                "type": "transcription",
-                "text": transcripted_text
-            })
+        segments = call_diarize(audio_file_wav)
+
+        for segment in segments:
+            if segment.text.strip():
+                await websocket.send_json({
+                    "type": "transcription",
+                    "speaker": segment.speaker,
+                    "text": segment.text
+                })
+                print("Step 6d: sent to browser ✅")
 
     except Exception as e:
         await websocket.send_json({
@@ -144,6 +161,7 @@ async def websocket_transcribe(websocket: WebSocket):
         while True:
             # Receive audio chunk from browser
             data  = await websocket.receive_bytes()
+            print(f"Step 5: received {len(data)} bytes, buffer: {len(audio_buffer)}")
             audio_buffer.extend(data)
 
             if is_buffer_full(audio_buffer):
