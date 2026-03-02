@@ -231,6 +231,80 @@
         }
     }
 
+    /* OVERLAY */
+    .overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s;
+    }
+    .overlay.open { opacity: 1; pointer-events: all; }
+
+    /* POPUP */
+    .popup {
+        background: white;
+        border-radius: 18px;
+        padding: 32px 28px;
+        width: 380px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        transform: translateY(16px) scale(0.97);
+        transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .overlay.open .popup { transform: translateY(0) scale(1); }
+    .popup-title { font-size: 20px; font-weight: 700; color: #1f2937; }
+    .popup-sub { font-size: 13px; color: #9ca3af; margin-top: 4px; }
+    .popup-input {
+        width: 100%;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px 16px;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .popup-input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+    }
+
+    /* GENERATING INDICATOR */
+    .generating { display: none; align-items: center; gap: 8px; font-size: 12px; color: #9ca3af; }
+    .generating.visible { display: flex; }
+    .spin {
+        width: 12px; height: 12px;
+        border: 2px solid #e5e7eb;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* TITLE PREVIEW */
+    .title-preview { display: none; align-items: center; gap: 10px; background: rgba(102,126,234,0.06); border: 1px solid rgba(102,126,234,0.2); border-radius: 10px; padding: 12px 16px; }
+    .title-preview.visible { display: flex; }
+    .preview-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; }
+    .preview-text { font-size: 13px; color: #667eea; font-weight: 600; }
+
+    /* BUTTONS */
+    .popup-actions { display: flex; gap: 10px; }
+    .btn-skip { flex: 1; padding: 11px; border-radius: 9px; border: 1px solid #e5e7eb; background: transparent; font-size: 13px; color: #6b7280; cursor: pointer; }
+    .btn-start { flex: 2; padding: 11px; border-radius: 9px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-size: 13px; color: white; cursor: pointer; font-weight: 600; }
+
+    /* SESSION TITLE PILL */
+    .session-title { display: none; align-items: center; gap: 8px; background: rgba(102,126,234,0.1); border: 1px solid rgba(102,126,234,0.3); border-radius: 20px; padding: 6px 16px; font-size: 13px; color: #667eea; }
+    .session-title.visible { display: flex; }
+    .title-dot { width: 6px; height: 6px; border-radius: 50%; background: #667eea; }
+    @keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
 
     </style>
 </head>
@@ -268,14 +342,51 @@
 
         <!-- Right: Transcript -->
         <div class="transcript-area" id="transcriptArea">
-            <h2>Transcription</h2>
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb;">
+                <h2 style="margin: 0;">Transcription</h2>
+                <div class="session-title" id="sessionTitle">
+                    <div class="title-dot"></div>
+                    <span id="titleText"></span>
+                </div>
+            </div>
             <div id="transcriptContent">
                 <div class="empty-state" id="emptyState">
-                <div class="empty-state-icon">📝</div>
-                <p>Start recording to see transcription appear here...</p>
+                    <div class="empty-state-icon">📝</div>
+                    <p>Start recording to see transcription appear here...</p>
+                </div>
             </div>
         </div>
+    </div>
 
+    <div class="overlay" id="overlay">
+        <div class="popup">
+            <div class="popup-header">
+                <div class="popup-title">Set lecture context 🎯</div>
+                <div class="popup-sub">Better context = better transcription</div>
+            </div>
+
+            <input
+                class="popup-input"
+                type="text"
+                id="promptInput"
+                placeholder="e.g. Java inheritance, polymorphism..."
+            />
+
+            <div class="generating" id="generating">
+                <div class="spin"></div>
+                Generating session title...
+            </div>
+
+            <div class="title-preview" id="titlePreview">
+                <span class="preview-label">Title</span>
+                <span class="preview-text" id="previewText"></span>
+            </div>
+
+            <div class="popup-actions">
+                <button class="btn-skip" id="btnSkip">Skip</button>
+                <button class="btn-start" id="btnStart">Start Recording →</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -333,12 +444,15 @@
 
     // CLICK MICROPHONE
     micBubble.addEventListener('click', () => {
-        if (!isRecording) {
-            startRecording();
-        } else {
+        if (isRecording) {
             stopRecording();
+        } else {
+            overlay.classList.add('open');
+            setTimeout(() => promptInput.focus(), 300);
         }
     });
+
+
 
 
     // ===== 5. MICROPHONE =====
@@ -393,6 +507,10 @@
             //Connection opened
             websocket.onopen = () => {
                 setRecordingUI();
+                websocket.send(JSON.stringify({
+                    type: "context",
+                    prompt: lecturePrompt
+                }));
                 setupAudioProcessing(stream);
             };
 
@@ -498,8 +616,57 @@
         if (websocket) websocket.close();
         isRecording = false;
         resetUI();
-
     }
+
+        // ===== POPUP / SESSION =====
+    let lecturePrompt = "";
+    const overlay      = document.getElementById('overlay');
+    const promptInput  = document.getElementById('promptInput');
+    const generating   = document.getElementById('generating');
+    const titlePreview = document.getElementById('titlePreview');
+    const previewText  = document.getElementById('previewText');
+    const btnStart     = document.getElementById('btnStart');
+    const btnSkip      = document.getElementById('btnSkip');
+    const sessionTitle = document.getElementById('sessionTitle');
+    const titleText    = document.getElementById('titleText');
+
+    let debounceTimer;
+    promptInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        const val = promptInput.value.trim();
+        if (!val) {
+            titlePreview.classList.remove('visible');
+            generating.classList.remove('visible');
+            return;
+        }
+        titlePreview.classList.remove('visible');
+        generating.classList.add('visible');
+        debounceTimer = setTimeout(() => {
+            generating.classList.remove('visible');
+            const words = val.split(' ').slice(0, 5);
+            const title = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            previewText.textContent = title;
+            titlePreview.classList.add('visible');
+        }, 900);
+    });
+
+    function startSession() {
+        lecturePrompt = promptInput.value.trim();
+        const title = previewText.textContent || null;
+        overlay.classList.remove('open');
+        if (title) {
+            titleText.textContent = title;
+            sessionTitle.classList.add('visible');
+        }
+        startRecording();
+    }
+
+    btnStart.addEventListener('click', startSession);
+    btnSkip.addEventListener('click', () => {
+        overlay.classList.remove('open');
+        startRecording();
+    });
+    promptInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startSession(); });
   </script>
 </body>
 </html>
