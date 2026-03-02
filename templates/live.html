@@ -484,17 +484,33 @@
     }
 
     // Display Transcription
+    let currentChunk = null;        // ← NEW: tracks current div
+    const MAX_CHARS = 400;          // ← NEW: max chars before new div
+
     function displayTranscription(text){
         emptyState.style.display = 'none';
-        const div = document.createElement('div');
-        div.className = 'transcript-chunk';
-        div.innerHTML = `
-            <div class= "timestamp">${ new Date().toLocaleTimeString()}</div>
-            <div class = "transcript-text">${text}</div>
-        `;
-        transcriptContent.appendChild(div);
+
+        // ← NEW: only create new div if first time or current is full
+        const currentText = currentChunk ? currentChunk.querySelector('.transcript-text').textContent : '';
+        const endsWithSentence = /[.!?]$/.test(currentText.trim());
+
+        if (!currentChunk || (currentText.length > MAX_CHARS && endsWithSentence)) {
+            currentChunk = document.createElement('div');
+            currentChunk.className = 'transcript-chunk';
+            currentChunk.innerHTML = `
+                <div class="timestamp">${new Date().toLocaleTimeString()}</div>
+                <div class="transcript-text"></div>
+            `;
+            transcriptContent.appendChild(currentChunk);
+        }
+
+        // ← NEW: append to existing div instead of creating new one
+        const textEl = currentChunk.querySelector('.transcript-text');
+        textEl.textContent += (textEl.textContent ? ' ' : '') + text;
+
         transcriptArea.scrollTop = transcriptArea.scrollHeight;
     }
+
 
     // ===== 6. WEBSOCKET =====
     function implementWebsocketConnection(stream){
