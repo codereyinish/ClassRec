@@ -215,6 +215,13 @@
         line-height: 1.6;
     }
 
+    .speaker-0 { border-left: 4px solid #667eea; }
+    .speaker-1 { border-left: 4px solid #10b981; }
+
+    .speaker-label { ... }
+    .speaker-0 .speaker-label { color: #667eea; }
+    .speaker-1 .speaker-label { color: #10b981; }
+
     /* Responsive */
     @media (max-width: 1024px) {
         .container {
@@ -285,6 +292,8 @@
     let websocket = null;
     let audioContext = null;
     const SILENCE_THRESHOLD = 0.01;
+    let lastSpeaker = null;
+    let lastSpeakerBlock = null;
 
 
     // ===== 2. DOM ELEMENTS =====
@@ -369,18 +378,31 @@
         statusDiv.className = 'status idle';
     }
 
-    // Display Transcription
-    function displayTranscription(text){
-        emptyState.style.display = 'none';
-        const div = document.createElement('div');
-        div.className = 'transcript-chunk';
-        div.innerHTML = `
-            <div class= "timestamp">${ new Date().toLocaleTimeString()}</div>
-            <div class = "transcript-text">${text}</div>
-        `;
-        transcriptContent.appendChild(div);
+
+    //====== DISPLAY ========
+    function displaySegment(speaker, text){
+        emptyState.style.display = none;
+
+        const speakerKey = speaker.toLowerCase().replace(' ' , '-');
+
+        if(speaker !== lastSpeaker) {
+            const div = document.createElement('div');
+            div.className = ` transcript-chunk ${speakerKey}`
+            div.innerHTML= `
+                <div class = "speaker-label" > ${speaker}</div>
+                <div class= "timestamp">${new Date().toLocaleTimeString()}</div>
+                <div class="transcript-text"></div>
+            `;
+            transcriptContent.appendChild(div);
+            lastSpeakerBlock = div.querySelector('.transcript-text');
+            lastSpeaker = speaker;
+        }
+        //same speaker--> append to existing block
+        lastSpeakerBlock.textContent += ' ' + text;
         transcriptArea.scrollTop = transcriptArea.scrollHeight;
+
     }
+
 
     // ===== 6. WEBSOCKET =====
     function implementWebsocketConnection(stream){
@@ -398,10 +420,11 @@
 
             // Server sends transcription
             websocket.onmessage = (event) =>{
+                console.log('Step 7: message received', event.data)
                 const data = JSON.parse(event.data)
                 if (data.type === 'transcription'){
                     //Display i2t
-                    displayTranscription(data.text)
+                    displaySegment(data.speaker, data.text)
                 }
                 else if (data.type === "error"){
                     alert('Transcription error: ' + data.message);
@@ -451,6 +474,7 @@
 
                     const int16Chunk = convertToInt16(audioData);
                     websocket.send(int16Chunk.buffer)
+
                 }
             };
     }
@@ -498,6 +522,8 @@
         if (websocket) websocket.close();
         isRecording = false;
         resetUI();
+        lastSpeaker = null;
+        lastSpeakerBlock = null;
 
     }
   </script>
