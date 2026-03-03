@@ -202,6 +202,11 @@
         transform: translateX(5px);
     }
 
+    .transcript-chunk.flagged {
+        border-left-color: #dc2626;
+        background: #fff8f8;
+    }
+
     .timestamp {
         font-size: 12px;
         color: #9ca3af;
@@ -305,6 +310,19 @@
     .title-dot { width: 6px; height: 6px; border-radius: 50%; background: #667eea; }
     @keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
+    .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-weight: 600;
+        margin-right: 6px;
+    }
+    .tag-exam { background: #fee2e2; color: #dc2626; }
+    .tag-assignment { background: #dcfce7; color: #16a34a; }
+    .tag-important  { background: #fef9c3; color: #ca8a04; }
 
     </style>
 </head>
@@ -487,8 +505,14 @@
     let currentChunk = null;        // ← NEW: tracks current div
     const MAX_CHARS = 400;          // ← NEW: max chars before new div
 
-    function displayTranscription(text){
+    function displayTranscription(text, tags=[]){
         emptyState.style.display = 'none';
+
+        //build tag HTML
+        const tagHTML = tags.map( tag => {
+            const icons = { exam: '🔴', assignment: '📝', important: '⭐' }
+            return `<span class="tag tag-${tag}">${icons[tag] || ''} ${tag}</span>`;
+        }).join('');
 
         // ← NEW: only create new div if first time or current is full
         const currentText = currentChunk ? currentChunk.querySelector('.transcript-text').textContent : '';
@@ -507,6 +531,11 @@
         // ← NEW: append to existing div instead of creating new one
         const textEl = currentChunk.querySelector('.transcript-text');
         textEl.textContent += (textEl.textContent ? ' ' : '') + text;
+
+        if (tagHTML) {
+            currentChunk.querySelector('.timestamp').innerHTML += ' ' + tagHTML;
+            currentChunk.classList.add('flagged');
+        }
 
         transcriptArea.scrollTop = transcriptArea.scrollHeight;
     }
@@ -535,7 +564,7 @@
                 const data = JSON.parse(event.data)
                 if (data.type === 'transcription'){
                     //Display i2t
-                    displayTranscription(data.text)
+                    displayTranscription(data.text, data.tags || [])
                 }
                 else if (data.type === "error"){
                     alert('Transcription error: ' + data.message);
