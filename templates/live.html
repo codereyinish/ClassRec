@@ -50,7 +50,7 @@
 
         .container {
             display: grid;
-            grid-template-columns: 1fr 2fr;
+            grid-template-columns: 1fr 2fr ;
             gap: 30px;
             max-width: 1400px;
             margin: 0 auto;
@@ -220,10 +220,56 @@
         line-height: 1.6;
     }
 
+    .alert-dropdown-wrapper {
+        position: relative;
+    }
+
+    .alert-toggle-btn {
+        padding: 6px 14px;
+        border-radius: 20px;
+        border: 1px solid #e5e7eb;
+        background: white;
+        font-size: 13px;
+        color: #667eea;
+        cursor: pointer;
+        font-weight: 600;
+    }
+    .alert-toggle-btn:hover {
+        background: rgba(102,126,234,0.08);
+        border-color: #667eea;
+    }
+    .alert-dropdown {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 100%;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        z-index: 50;
+        min-width: 200px;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .alert-dropdown-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .alert-dropdown-wrapper:hover .alert-dropdown {
+    display: flex;
+    }
+
     /* Responsive */
     @media (max-width: 1024px) {
         .container {
-            grid-template-columns: 1fr;
+            grid-template-columns: 1fr 2fr;
             height: auto;
         }
 
@@ -324,6 +370,28 @@
     .tag-assignment { background: #dcfce7; color: #16a34a; }
     .tag-important  { background: #fef9c3; color: #ca8a04; }
 
+    .pref-toggle {
+        width: 100%;
+        padding: 9px 14px;
+        border: 1px dashed #e5e7eb;
+        border-radius: 9px;
+        background: transparent;
+        font-size: 13px;
+        color: #6b7280;
+        cursor: pointer;
+        text-align: left;
+        transition: all 0.2s;
+    }
+    .pref-toggle:hover { border-color: #667eea; color: #667eea; }
+    .pref-toggle.open { border-color: #667eea; color: #667eea; margin-bottom: 10px; }
+    .tag-options { display: flex; flex-direction: column; gap: 8px; }
+    .tag-option { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; cursor: pointer; }
+    .tag-option input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: #667eea; }
+    .name-input { border: 1px solid #e5e7eb; border-radius: 6px; padding: 4px 8px; font-size: 13px; outline: none; width: 130px; }
+    .name-input:disabled { background: #f9fafb; color: #9ca3af; }
+    .tag-name { background: #ede9fe; color: #7c3aed; }
+
+
     </style>
 </head>
 <body>
@@ -360,13 +428,31 @@
 
         <!-- Right: Transcript -->
         <div class="transcript-area" id="transcriptArea">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb;">
-                <h2 style="margin: 0;">Transcription</h2>
-                <div class="session-title" id="sessionTitle">
-                    <div class="title-dot"></div>
-                    <span id="titleText"></span>
-                </div>
+            <!-- Header Area-->
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; position: relative;">
+                    <h2 style="margin: 0;">Transcription</h2>
+                    <div class="session-title" id="sessionTitle">
+                        <div class="title-dot"></div>
+                        <span id="titleText"></span>
+                    </div>
+
+                    <div class="alert-dropdown-wrapper" style="margin-left: auto;">
+                        <button class="alert-toggle-btn" id="alertToggle">🔔 Alerts</button>
+                        <div class="alert-dropdown" id="alertDropdown">
+                            <div class="alert-dropdown-title">Alert me for:</div>
+                            <label class="tag-option"><input type="checkbox" value="exam" checked> 🔴 Exam / Quiz</label>
+                            <label class="tag-option"><input type="checkbox" value="assignment" checked> 📝 Assignment</label>
+                            <label class="tag-option"><input type="checkbox" value="important" checked> ⭐ Important</label>
+                            <label class="tag-option"><input type="checkbox" value="attendance"> 📋 Attendance</label>
+                            <label class="tag-option"><input type="checkbox" value="classwork"> 📖 Classwork</label>
+                            <label class="tag-option">
+                                <input type="checkbox" id="nameCheck" value="name"> 🙋
+                                <input type="text" id="nameInput" placeholder="My name..." class="name-input" disabled>
+                            </label>
+                        </div>
+                    </div>
             </div>
+
             <div id="transcriptContent">
                 <div class="empty-state" id="emptyState">
                     <div class="empty-state-icon">📝</div>
@@ -374,7 +460,9 @@
                 </div>
             </div>
         </div>
+
     </div>
+
 
     <div class="overlay" id="overlay">
         <div class="popup">
@@ -387,8 +475,7 @@
                 class="popup-input"
                 type="text"
                 id="promptInput"
-                placeholder="e.g. Java inheritance, polymorphism..."
-            />
+                placeholder="e.g. Java inheritance, polymorphism...">
 
             <div class="generating" id="generating">
                 <div class="spin"></div>
@@ -554,8 +641,10 @@
                 setRecordingUI();
                 websocket.send(JSON.stringify({
                     type: "context",
-                    prompt: lecturePrompt
+                    prompt: lecturePrompt,
+                    tagConfig: window.tagConfig || {}
                 }));
+
                 setupAudioProcessing(stream);
             };
 
@@ -695,8 +784,17 @@
         }, 900);
     });
 
+    function collectAlertConfig() {
+    const selectedTags = [...document.querySelectorAll('.alert-dropdown input[type="checkbox"]:checked')]
+        .map(cb => cb.value);
+    const customName = document.getElementById('nameInput').value.trim();
+    window.tagConfig = { tags: selectedTags, name: customName };
+<!--    console.log(window.tagConfig)-->
+    }
+
     function startSession() {
         lecturePrompt = promptInput.value.trim();
+        collectAlertConfig();
         const title = previewText.textContent || null;
         overlay.classList.remove('open');
         if (title) {
@@ -708,10 +806,21 @@
 
     btnStart.addEventListener('click', startSession);
     btnSkip.addEventListener('click', () => {
+        collectAlertConfig();
         overlay.classList.remove('open');
         startRecording();
     });
     promptInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startSession(); });
+
+
+    document.getElementById('nameCheck').addEventListener('change', (e) => {
+        document.getElementById('nameInput').disabled = !e.target.checked;
+        if (e.target.checked) document.getElementById('nameInput').focus();
+    });
+
+
+
+
   </script>
 </body>
 </html>
