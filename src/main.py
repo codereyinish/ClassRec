@@ -66,15 +66,38 @@ def call_whisper(audio_file: io.BytesIO,prompt: str="") -> str:
     return transcript.text
 
 
+# ========TEXT ANALYSIS=========
+def analyze_text(text: str) -> list:
+    """Detects keyword and return the list of tags"""
+    text_lower = text.lower()
+    tags = []
+
+    exam_keywords = ["exam", "midterm", "final", "quiz", "test", "will be on", "on the test", "on the exam"]
+    assignment_keywords = ["homework", "due", "submit", "assignment", "classwork", "due date", "turn in"]
+    important_keywords = ["important", "remember this", "key concept", "note this", "this is key", "pay attention"]
+
+    if any(kw in text_lower for kw in exam_keywords):
+        tags.append("exam")
+
+    if any(kw in text_lower for kw in assignment_keywords):
+        tags.append("assignment")
+
+    if any(kw in text_lower for kw in important_keywords):
+        tags.append("important")
+
+    return tags
+
 async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_prompt:str):
     """Convert audio chunk to WAV, transcribe, and send result to browser via websocket"""
     try:
         audio_file_wav = convert_pcm_to_wav(chunk_data)
         transcripted_text = call_whisper(audio_file_wav, lecture_prompt)
         if transcripted_text.strip(): # don't send empty transcriptions
+            tags = analyze_text(transcripted_text)
             await websocket.send_json({
                 "type": "transcription",
-                "text": transcripted_text
+                "text": transcripted_text,
+                "tags": tags
             })
 
     except Exception as e:
