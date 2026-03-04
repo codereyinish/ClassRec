@@ -515,14 +515,29 @@
         }
     };
 
-    // ===== 1. STATE =====
+    // ======= 1. CONSTANTS =========
+      const TAG_ICONS = { exam: '🔴', assignment: '📝', important: '⭐', attendance: '📋', classwork: '📖', name: '🙋' };
+      const KEYWORD_MAP = {
+                exam:       ["exam", "midterm", "final", "quiz", "test"],
+                assignment: ["homework", "due", "submit", "assignment"],
+                important:  ["important", "remember this", "key concept"],
+                attendance: ["attendance", "sign in", "roll call", "present"],
+                classwork:  ["classwork", "in class"],
+                name: []
+            };
+      const MAX_CHARS = 400;          // ← NEW: max chars before new div
+      const SILENCE_THRESHOLD = 0.01;
+
+
+
+    // ===== 2. STATE =====
     let isRecording = false;
     let websocket = null;
     let audioContext = null;
-    const SILENCE_THRESHOLD = 0.01;
 
 
-    // ===== 2. DOM ELEMENTS =====
+
+    // ===== 3. DOM ELEMENTS =====
     const micBubble = document.getElementById('micBubble');
     const statusDiv = document.getElementById('status');
     const transcriptArea = document.getElementById('transcriptArea');
@@ -531,7 +546,7 @@
     const micSelect = document.getElementById('micSelect')
 
 
-    // ==== 3. DEVICE SELECTOR DROPDOWN=====
+    // ==== 4. DEVICE SELECTOR DROPDOWN=====
     async function requestMicPermissionBriefly(){
         const stream = await navigator.mediaDevices.getUserMedia({ audio : true})
         stream.getTracks().forEach(track => track.stop());
@@ -562,22 +577,19 @@
 
 
 
-    // ===== 4. MIC CLICK=====
+    // ===== 5. MIC CLICK=====
 
     // CLICK MICROPHONE
     micBubble.addEventListener('click', () => {
         if (isRecording) {
             stopRecording();
         } else {
-            overlay.classList.add('open');
-            setTimeout(() => promptInput.focus(), 300);
+            openPopup()
         }
     });
 
 
-
-
-    // ===== 5. MICROPHONE =====
+    // ===== 6. MICROPHONE =====
     async function getMicrophoneAccess(){
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: { deviceId: micSelect.value ? {exact : micSelect.value} : undefined,
@@ -591,7 +603,7 @@
     }
 
 
-     // ===== 6. UI HELPERS =====
+     // ===== 7. UI HELPERS =====
      function setRecordingUI(){
         //CHANGE CSS STYLE
         micBubble.classList.add('recording');
@@ -605,14 +617,10 @@
         statusDiv.className = 'status idle';
     }
 
-    //======= Display Transcription
+    //======= 8. Display Transcription
     let currentChunk = null;        // ← NEW: tracks current div
-    const MAX_CHARS = 400;          // ← NEW: max chars before new div
 
-    function displayTranscription(text, tags=[]){
-        emptyState.style.display = 'none';
-
-
+    function getOrCreateChunk(){
         // ← NEW: if currentChunk is null, then  text=''
         const currentText = currentChunk ? currentChunk.querySelector('.transcript-text').textContent : '';
         const endsWithSentence = /[.!?]$/.test(currentText.trim());
@@ -627,47 +635,47 @@
             `;
             transcriptContent.appendChild(currentChunk);
         }
+        return currentChunk
+    }
 
-        // ← NEW: append to existing div instead of creating new one
-        const textEl = currentChunk.querySelector('.transcript-text');
-        textEl.textContent += (textEl.textContent ? ' ' : '') + text;
-
-        const TAG_ICONS = { exam: '🔴', assignment: '📝', important: '⭐', attendance: '📋', classwork: '📖', name: '🙋' };
-        if(tags.length>0){
-            const timestamp = currentChunk.querySelector('.timestamp');
+    function applyTags(chunk, tags){
+        const timestamp = currentChunk.querySelector('.timestamp');
             tags.forEach(tag => {
                 if(!timestamp.innerHTML.includes(`tag-${tag}`)){
                     timestamp.innerHTML += ` <span class="tag tag-${tag}"> ${TAG_ICONS[tag] || ''} ${tag} </span>`;
                 }
             });
             currentChunk.classList.add('flagged');
+    }
 
-
-            const keywordMap = {
-                exam:       ["exam", "midterm", "final", "quiz", "test"],
-                assignment: ["homework", "due", "submit", "assignment"],
-                important:  ["important", "remember this", "key concept"],
-                attendance: ["attendance", "sign in", "roll call", "present"],
-                classwork:  ["classwork", "in class"],
-                name: []
-            };
-
-            keywordMap["name"] = window.tagConfig.name ?  [window.tagConfig.name] : []
-
-            let highlighted = textEl.textContent
+    function highlightKeywords(textEl, tags){
+         const keyword_map = { ...KEYWORD_MAP, name: window.tagConfig?.name ? [window.tagConfig.name] : [] };
+         let highlighted = textEl.textContent
             tags.forEach(tag => {
-                (keywordMap[tag]).forEach( kw => {
+                (keyword_map[tag]).forEach( kw => {
                     const regex = new RegExp(`(${kw})`, 'gi');
                     highlighted = highlighted.replace(regex,`<mark class="highlight-${tag}">$1</mark>`);
                 });
             });
             textEl.innerHTML = highlighted;
+    }
+
+
+    function displayTranscription(text, tags=[]){
+        emptyState.style.display = 'none';
+        const chunk = getOrCreateChunk();
+        //Fill up the text
+        const textEl = chunk.querySelector('.transcript-text');
+        textEl.textContent += (textEl.textContent ? ' ' : '') + text;
+        if(tags.length>0){
+            applyTags(chunk, tags);
+            highlightKeywords(textEl, tags);
         }
         transcriptArea.scrollTop = transcriptArea.scrollHeight;
     }
 
 
-    // ===== 7. WEBSOCKET =====
+    // ===== 9. WEBSOCKET =====
     function implementWebsocketConnection(stream){
             const protocol = window.location.protocol === "https:"? "wss:" : "ws:"
             const wsUrl = window.location.host;
@@ -676,6 +684,7 @@
             // states of websocket connection with corresponding function to be implemented in each state
 
             //Connection opened
+            Logger.debug("Websocket Connection  Opened");
             websocket.onopen = () => {
                 setRecordingUI();
                 websocket.send(JSON.stringify({
@@ -683,7 +692,7 @@
                     prompt: lecturePrompt,
                     tagConfig: window.tagConfig
                 }));
-
+            Logger.debug("Prompt and Tags sent to Backend", window.tagConfig);
                 setupAudioProcessing(stream);
             };
 
@@ -692,7 +701,8 @@
                 const data = JSON.parse(event.data)
                 if (data.type === 'transcription'){
                     //Display i2t
-                    Logger.debug("Got transcript")
+                    Logger.debug("Received transcript from Backend");
+                    Logger.debug('Tags detected:' , data.tags  )
                     displayTranscription(data.text, data.tags || [])
                 }
                 else if (data.type === "error"){
@@ -724,7 +734,7 @@
     }
 
 
-    // ===== 8. AUDIO PROCESSING =====
+    // ===== 10. AUDIO PROCESSING =====
     function setupAudioProcessing(stream){
             // 4. Setup Audio Processing
             audioContext = new AudioContext({ sampleRate : 16000});
@@ -738,11 +748,12 @@
                 if (websocket && websocket.readyState === WebSocket.OPEN){
                     const audioData = e.inputBuffer.getChannelData(0);
                     const rms = calculateRMS(audioData);
-                    console.log('RMS:', rms);  // ← add this
+<!--                    Logger.debug('RMS:', rms);  // ← add this-->
                     if(isSilent(audioData)) return;
 
                     const int16Chunk = convertToInt16(audioData);
                     websocket.send(int16Chunk.buffer)
+                    Logger.debug("Audio sent from frontend to Backend ")
                 }
             };
     }
@@ -771,7 +782,7 @@
         return int16;
     }
 
-    // ===== 9. CORE FUNCTIONS =====
+    // ===== 11. CORE FUNCTIONS =====
     async function startRecording() {
         try{
             const stream = await getMicrophoneAccess();
@@ -792,8 +803,10 @@
         resetUI();
     }
 
-        // =====10. POPUP / SESSION =====
+    // =====12. POPUP / SESSION =====
     let lecturePrompt = "";
+    let debounceTimer;
+
     const overlay      = document.getElementById('overlay');
     const promptInput  = document.getElementById('promptInput');
     const generating   = document.getElementById('generating');
@@ -804,7 +817,28 @@
     const sessionTitle = document.getElementById('sessionTitle');
     const titleText    = document.getElementById('titleText');
 
-    let debounceTimer;
+    function openPopup() {
+        overlay.classList.add('open');
+        setTimeout(() => promptInput.focus(), 300);
+    }
+
+    function closePopup() {
+        overlay.classList.remove('open');
+    }
+
+
+    function startSession() {
+        lecturePrompt = promptInput.value.trim();
+        collectAlertConfig();
+        const title = previewText.textContent || null;
+        closePopup();
+        if (title) {
+            titleText.textContent = title;
+            sessionTitle.classList.add('visible');
+        }
+        startRecording();
+    }
+
     promptInput.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         const val = promptInput.value.trim();
@@ -824,26 +858,6 @@
         }, 900);
     });
 
-    function collectAlertConfig() {
-    const selectedTags = [...document.querySelectorAll('.alert-dropdown input[type="checkbox"]:checked')]
-        .map(cb => cb.value);
-    const customName = document.getElementById('nameInput').value.trim();
-    window.tagConfig = { tags: selectedTags, name: customName };
-<!--    console.log(window.tagConfig)-->
-    }
-
-    function startSession() {
-        lecturePrompt = promptInput.value.trim();
-        collectAlertConfig();
-        const title = previewText.textContent || null;
-        overlay.classList.remove('open');
-        if (title) {
-            titleText.textContent = title;
-            sessionTitle.classList.add('visible');
-        }
-        startRecording();
-    }
-
     btnStart.addEventListener('click', startSession);
     btnSkip.addEventListener('click', () => {
         collectAlertConfig();
@@ -852,6 +866,12 @@
     });
     promptInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startSession(); });
 
+    function collectAlertConfig() {
+    const selectedTags = [...document.querySelectorAll('.alert-dropdown input[type="checkbox"]:checked')]
+        .map(cb => cb.value);
+    const customName = document.getElementById('nameInput').value.trim();
+    window.tagConfig = { tags: selectedTags, name: customName };
+    }
 
     document.getElementById('nameCheck').addEventListener('change', (e) => {
         document.getElementById('nameInput').disabled = !e.target.checked;
