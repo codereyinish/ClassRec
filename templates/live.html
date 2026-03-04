@@ -595,16 +595,12 @@
     function displayTranscription(text, tags=[]){
         emptyState.style.display = 'none';
 
-        //build tag HTML
-        const tagHTML = tags.map( tag => {
-            const icons = { exam: '🔴', assignment: '📝', important: '⭐' }
-            return `<span class="tag tag-${tag}">${icons[tag] || ''} ${tag}</span>`;
-        }).join('');
 
-        // ← NEW: only create new div if first time or current is full
+        // ← NEW: if currentChunk is null, then  text=''
         const currentText = currentChunk ? currentChunk.querySelector('.transcript-text').textContent : '';
         const endsWithSentence = /[.!?]$/.test(currentText.trim());
 
+        // if no div created yet or given div is full
         if (!currentChunk || (currentText.length > MAX_CHARS && endsWithSentence)) {
             currentChunk = document.createElement('div');
             currentChunk.className = 'transcript-chunk';
@@ -619,10 +615,17 @@
         const textEl = currentChunk.querySelector('.transcript-text');
         textEl.textContent += (textEl.textContent ? ' ' : '') + text;
 
-        if (tagHTML) {
-            currentChunk.querySelector('.timestamp').innerHTML += ' ' + tagHTML;
+        const TAG_ICONS = { exam: '🔴', assignment: '📝', important: '⭐', attendance: '📋', classwork: '📖', name: '🙋' };
+        if(tags.length>0){
+            const timestamp = currentChunk.querySelector('.timestamp');
+            tags.forEach(tag => {
+                if(!timestamp.innerHTML.includes(`tag-${tag}`)){
+                    timestamp.innerHTML += ` <span class = " tag tag-${tag}"> ${TAG_ICONS[tag] || ''} ${tag} </span>`;
+                }
+            })
             currentChunk.classList.add('flagged');
         }
+
 
         transcriptArea.scrollTop = transcriptArea.scrollHeight;
     }
@@ -642,7 +645,7 @@
                 websocket.send(JSON.stringify({
                     type: "context",
                     prompt: lecturePrompt,
-                    tagConfig: window.tagConfig || {}
+                    tagConfig: window.tagConfig
                 }));
 
                 setupAudioProcessing(stream);
