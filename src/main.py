@@ -67,37 +67,41 @@ def call_whisper(audio_file: io.BytesIO,prompt: str="") -> str:
 
 
 # ========TEXT ANALYSIS=========
-def analyze_text(text: str) -> list:
+def analyze_text(text: str, selected_tags:list, custom_name:str) -> list:
     """Detects keyword and return the list of tags"""
     text_lower = text.lower()
     tags = []
 
-    exam_keywords = ["exam", "midterm", "final", "quiz", "test", "will be on", "on the test", "on the exam"]
-    assignment_keywords = ["homework", "due", "submit", "assignment", "classwork", "due date", "turn in"]
-    important_keywords = ["important", "remember this", "key concept", "note this", "this is key", "pay attention"]
+    keyword_map = {
+        "exam": ["exam", "midterm", "final", "quiz", "test", "will be on"],
+        "assignment": ["homework", "due", "submit", "assignment", "due date", "turn in"],
+        "important": ["important", "remember this", "key concept", "pay attention"],
+        "attendance": ["attendance", "sign in", "roll call", "present"],
+        "classwork": ["classwork", "in class", "class activity"],
+    }
 
-    if any(kw in text_lower for kw in exam_keywords):
-        tags.append("exam")
+    for tag, keywords in keyword_map.items():
+       if tag in selected_tags and  any(kw in text_lower for kw in keywords ):
+           tags.append(tag)
 
-    if any(kw in text_lower for kw in assignment_keywords):
-        tags.append("assignment")
-
-    if any(kw in text_lower for kw in important_keywords):
-        tags.append("important")
-
+    if custom_name and custom_name.lower() in text_lower:
+        tags.append("name")
+    print(tags)
     return tags
 
-async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_prompt:str):
+
+async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_prompt:str, selected_tags:list,
+                           custom_name:str):
     """Convert audio chunk to WAV, transcribe, and send result to browser via websocket"""
     try:
         audio_file_wav = convert_pcm_to_wav(chunk_data)
         transcripted_text = call_whisper(audio_file_wav, lecture_prompt)
         if transcripted_text.strip(): # don't send empty transcriptions
-            tags = analyze_text(transcripted_text)
+            detected_tags = analyze_text(transcripted_text, selected_tags, custom_name)
             await websocket.send_json({
                 "type": "transcription",
                 "text": transcripted_text,
-                "tags": tags
+                "tags": detected_tags
             })
 
     except Exception as e:
@@ -164,7 +168,9 @@ async def websocket_transcribe(websocket: WebSocket):
     """ Collect the audio into audio_buffer via websocket, transcribe it after fillup"""
     await websocket.accept()
     audio_buffer = bytearray()
-    lecture_prompt = "University lecture."
+    lecture_prompt = ""
+    selected_tags = []
+    custom_name = ""
 
     try:
         while True:
@@ -174,8 +180,11 @@ async def websocket_transcribe(websocket: WebSocket):
             if "text" in data:
                 msg = json.loads(data["text"])
                 if msg.get("type") == "context":
-                    topic = msg.get("prompt", "")
-                    lecture_prompt = topic if topic else ""
+                    lecture_prompt = msg.get("prompt", "")
+                    tag_config = msg.get("tagConfig",{})
+                    selected_tags = tag_config.get("tags")
+                    custom_name = tag_config.get("name")
+
 
             elif "bytes" in data:
                 audio_buffer.extend(data["bytes"])
@@ -185,7 +194,8 @@ async def websocket_transcribe(websocket: WebSocket):
                     # Clear buffer IMMEDIATELY for next chunk
                     audio_buffer.clear()
 
-                    asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt))
+                    asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt, selected_tags,
+                                                         custom_name))
                     # keep receiving audio from browser with asyncio
 
     except WebSocketDisconnect:
