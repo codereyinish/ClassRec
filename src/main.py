@@ -181,11 +181,11 @@ async def websocket_transcribe(websocket: WebSocket):
         while True:
             # Receive audio chunk from browser
             data  = await websocket.receive()
-            logger.debug(f"Data Recieved")
+            # logger.debug(f"Data Recieved at backend")
 
             if "text" in data:
                 msg = json.loads(data["text"])
-                logger.debug("Data is text")
+                logger.debug("Data Received: Text")
                 if msg.get("type") == "context":
                     lecture_prompt = msg.get("prompt", "")
                     tag_config = msg.get("tagConfig",{})
@@ -195,9 +195,16 @@ async def websocket_transcribe(websocket: WebSocket):
 
             elif "bytes" in data:
                 audio_buffer.extend(data["bytes"])
-                logger.debug("Data is Audio Bytes")
+                filled = len(audio_buffer)
+                total = BYTES_PER_SECOND * CHUNK_DURATION
+                percent = int((filled / total) * 100)
+                bar = '█' * (percent // 10) + '░' * (10 - percent // 10)
+
+                # \r overwrites the same line — no spam
+                print(f"\r  🎙️ Audio Buffer  [{bar}] {percent}%  ({filled}/{total} bytes)", end='', flush=True)
+
                 if is_buffer_full(audio_buffer):
-                    logger.debug("Audio_buffer is Full")
+                    logger.debug("Audio_buffer Full. Sending to Whisper")
                     chunk_to_process = bytes(audio_buffer)
 
                     # Clear buffer IMMEDIATELY for next chunk
