@@ -504,6 +504,17 @@
 
     <script>
 
+     // ===== 0. LOGGER =====
+    const Logger = {
+        DEBUG: true,  // ← flip to false for production
+        debug: (msg, data = '') => {
+            if (Logger.DEBUG) console.log(`[DEBUG] ${msg}`, data);
+        },
+        error: (msg, data = '') => {
+            console.error(`[ERROR] ${msg}`, data);
+        }
+    };
+
     // ===== 1. STATE =====
     let isRecording = false;
     let websocket = null;
@@ -681,6 +692,7 @@
                 const data = JSON.parse(event.data)
                 if (data.type === 'transcription'){
                     //Display i2t
+                    Logger.debug("Got transcript")
                     displayTranscription(data.text, data.tags || [])
                 }
                 else if (data.type === "error"){
