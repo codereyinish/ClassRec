@@ -13,6 +13,7 @@ from typing import Tuple
 from validators import validate_audio_file
 from pathlib import Path
 import json
+from logger import logger
 
 
 #=======SETUP========
@@ -31,7 +32,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 SAMPLE_RATE = 16000  # 16kHz
 BYTES_PER_SAMPLE = 2  # Int16
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
-CHUNK_DURATION = 5
+CHUNK_DURATION = 10
 
 
 #=========AUDIO HELPERS =========
@@ -57,6 +58,7 @@ def is_buffer_full(audio_buffer: bytearray) -> bool:
 # ========TRANSCRIPTION=========
 def call_whisper(audio_file: io.BytesIO,prompt: str="") -> str:
     """Send audio to Whisper API and return transcript text"""
+    logger.debug(f"Prompt is {prompt}")
     transcript = client.audio.transcriptions.create(
         model = "whisper-1",
         file = audio_file,
@@ -86,8 +88,9 @@ def analyze_text(text: str, selected_tags:list, custom_name:str) -> list:
 
     if custom_name and custom_name.lower() in text_lower:
         tags.append("name")
-    print(tags)
+    logger.debug(f"tags collected in this chunk are {tags} ")
     return tags
+
 
 
 async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_prompt:str, selected_tags:list,
@@ -96,6 +99,7 @@ async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_promp
     try:
         audio_file_wav = convert_pcm_to_wav(chunk_data)
         transcripted_text = call_whisper(audio_file_wav, lecture_prompt)
+        logger.debug("Got Transcript ")
         if transcripted_text.strip(): # don't send empty transcriptions
             detected_tags = analyze_text(transcripted_text, selected_tags, custom_name)
             await websocket.send_json({
@@ -103,6 +107,7 @@ async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_promp
                 "text": transcripted_text,
                 "tags": detected_tags
             })
+            logger.debug("Transcript + tags sent to Frontend")
 
     except Exception as e:
         await websocket.send_json({
@@ -176,9 +181,11 @@ async def websocket_transcribe(websocket: WebSocket):
         while True:
             # Receive audio chunk from browser
             data  = await websocket.receive()
+            logger.debug(f"Data Recieved")
 
             if "text" in data:
                 msg = json.loads(data["text"])
+                logger.debug("Data is text")
                 if msg.get("type") == "context":
                     lecture_prompt = msg.get("prompt", "")
                     tag_config = msg.get("tagConfig",{})
@@ -188,11 +195,14 @@ async def websocket_transcribe(websocket: WebSocket):
 
             elif "bytes" in data:
                 audio_buffer.extend(data["bytes"])
+                logger.debug("Data is Audio Bytes")
                 if is_buffer_full(audio_buffer):
+                    logger.debug("Audio_buffer is Full")
                     chunk_to_process = bytes(audio_buffer)
 
                     # Clear buffer IMMEDIATELY for next chunk
                     audio_buffer.clear()
+
 
                     asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt, selected_tags,
                                                          custom_name))
