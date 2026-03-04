@@ -220,6 +220,14 @@
         line-height: 1.6;
     }
 
+    mark { background: none; }
+    .highlight-exam       { background: #fee2e2; border-radius: 3px; padding: 0 2px; }
+    .highlight-assignment { background: #dcfce7; border-radius: 3px; padding: 0 2px; }
+    .highlight-important  { background: #fef9c3; border-radius: 3px; padding: 0 2px; }
+    .highlight-attendance { background: #dbeafe; border-radius: 3px; padding: 0 2px; }
+    .highlight-classwork  { background: #f3e8ff; border-radius: 3px; padding: 0 2px; }
+    .highlight-name       { background: #ede9fe; border-radius: 3px; padding: 0 2px; }
+
     .alert-dropdown-wrapper {
         position: relative;
     }
@@ -509,12 +517,10 @@
     const transcriptArea = document.getElementById('transcriptArea');
     const transcriptContent = document.getElementById('transcriptContent');
     const emptyState = document.getElementById('emptyState');
-
-    // ===== DEVICE SELECTOR====
     const micSelect = document.getElementById('micSelect')
 
 
-    // ==== DEVICE SELECTOR DROPDOWN=====
+    // ==== 3. DEVICE SELECTOR DROPDOWN=====
     async function requestMicPermissionBriefly(){
         const stream = await navigator.mediaDevices.getUserMedia({ audio : true})
         stream.getTracks().forEach(track => track.stop());
@@ -545,7 +551,7 @@
 
 
 
-    // ===== 3. MIC CLICK=====
+    // ===== 4. MIC CLICK=====
 
     // CLICK MICROPHONE
     micBubble.addEventListener('click', () => {
@@ -574,7 +580,7 @@
     }
 
 
-     // ===== 8. UI HELPERS =====
+     // ===== 6. UI HELPERS =====
      function setRecordingUI(){
         //CHANGE CSS STYLE
         micBubble.classList.add('recording');
@@ -588,7 +594,7 @@
         statusDiv.className = 'status idle';
     }
 
-    // Display Transcription
+    //======= Display Transcription
     let currentChunk = null;        // ← NEW: tracks current div
     const MAX_CHARS = 400;          // ← NEW: max chars before new div
 
@@ -620,18 +626,37 @@
             const timestamp = currentChunk.querySelector('.timestamp');
             tags.forEach(tag => {
                 if(!timestamp.innerHTML.includes(`tag-${tag}`)){
-                    timestamp.innerHTML += ` <span class = " tag tag-${tag}"> ${TAG_ICONS[tag] || ''} ${tag} </span>`;
+                    timestamp.innerHTML += ` <span class="tag tag-${tag}"> ${TAG_ICONS[tag] || ''} ${tag} </span>`;
                 }
-            })
+            });
             currentChunk.classList.add('flagged');
+
+
+            const keywordMap = {
+                exam:       ["exam", "midterm", "final", "quiz", "test"],
+                assignment: ["homework", "due", "submit", "assignment"],
+                important:  ["important", "remember this", "key concept"],
+                attendance: ["attendance", "sign in", "roll call", "present"],
+                classwork:  ["classwork", "in class"],
+                name: []
+            };
+
+            keywordMap["name"] = window.tagConfig.name ?  [window.tagConfig.name] : []
+
+            let highlighted = textEl.textContent
+            tags.forEach(tag => {
+                (keywordMap[tag]).forEach( kw => {
+                    const regex = new RegExp(`(${kw})`, 'gi');
+                    highlighted = highlighted.replace(regex,`<mark class="highlight-${tag}">$1</mark>`);
+                });
+            });
+            textEl.innerHTML = highlighted;
         }
-
-
         transcriptArea.scrollTop = transcriptArea.scrollHeight;
     }
 
 
-    // ===== 6. WEBSOCKET =====
+    // ===== 7. WEBSOCKET =====
     function implementWebsocketConnection(stream){
             const protocol = window.location.protocol === "https:"? "wss:" : "ws:"
             const wsUrl = window.location.host;
@@ -687,7 +712,7 @@
     }
 
 
-    // ===== 7. AUDIO PROCESSING =====
+    // ===== 8. AUDIO PROCESSING =====
     function setupAudioProcessing(stream){
             // 4. Setup Audio Processing
             audioContext = new AudioContext({ sampleRate : 16000});
@@ -734,7 +759,7 @@
         return int16;
     }
 
-    // ===== 4. CORE FUNCTIONS =====
+    // ===== 9. CORE FUNCTIONS =====
     async function startRecording() {
         try{
             const stream = await getMicrophoneAccess();
@@ -755,7 +780,7 @@
         resetUI();
     }
 
-        // ===== POPUP / SESSION =====
+        // =====10. POPUP / SESSION =====
     let lecturePrompt = "";
     const overlay      = document.getElementById('overlay');
     const promptInput  = document.getElementById('promptInput');
