@@ -515,6 +515,8 @@
         }
     };
 
+
+
     // ======= 1. CONSTANTS =========
       const TAG_ICONS = { exam: '🔴', assignment: '📝', important: '⭐', attendance: '📋', classwork: '📖', name: '🙋' };
       const KEYWORD_MAP = {
@@ -545,6 +547,14 @@
     const emptyState = document.getElementById('emptyState');
     const micSelect = document.getElementById('micSelect')
 
+    //======= DATA SANITIZATION =======
+    function escapeHtml(str) {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
 
     // ==== 4. DEVICE SELECTOR DROPDOWN=====
     async function requestMicPermissionBriefly(){
@@ -650,7 +660,7 @@
 
     function highlightKeywords(textEl, tags){
          const keyword_map = { ...KEYWORD_MAP, name: window.tagConfig?.name ? [window.tagConfig.name] : [] };
-         let highlighted = textEl.textContent
+         let highlighted = escapeHTML(textEl.textContent)
             tags.forEach(tag => {
                 (keyword_map[tag]).forEach( kw => {
                     const regex = new RegExp(`(${kw})`, 'gi');
@@ -828,7 +838,7 @@
 
 
     function startSession() {
-        lecturePrompt = promptInput.value.trim();
+        lecturePrompt = promptInput.value.trim().slice(0,100);
         collectAlertConfig();
         const title = previewText.textContent || null;
         closePopup();
@@ -869,7 +879,7 @@
     function collectAlertConfig() {
     const selectedTags = [...document.querySelectorAll('.alert-dropdown input[type="checkbox"]:checked')]
         .map(cb => cb.value);
-    const customName = document.getElementById('nameInput').value.trim();
+    const customName = document.getElementById('nameInput').value.trim().slice(0,50);
     window.tagConfig = { tags: selectedTags, name: customName };
     }
 
