@@ -14,7 +14,7 @@ from validators import validate_audio_file
 from pathlib import Path
 import json
 from logger import logger
-
+from pydantic import BaseModel, Field, field_validator
 
 #=======SETUP========
 load_dotenv()
@@ -33,6 +33,26 @@ SAMPLE_RATE = 16000  # 16kHz
 BYTES_PER_SAMPLE = 2  # Int16
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
 CHUNK_DURATION = 10
+MAX_BUFFER_BYTES = BYTES_PER_SECOND * CHUNK_DURATION
+
+
+#=======PYDANTIC DATA VALIDATION=========
+VALID_TAGS = {"exam", "assignment", "important", "attendance", "classwork"}
+
+class  TagConfig(BaseModel):
+    tags: list[str] = []
+    name: str= Field(default="",max_length= 50)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, tags):
+        return [t for t in tags if t in VALID_TAGS]
+
+class ContextMessage(BaseModel):
+    type:str
+    prompt:str =  Field(default="", max_length=300)
+    tagConfig: TagConfig = Field(default_factory=TagConfig)
+
 
 
 #=========AUDIO HELPERS =========
@@ -51,7 +71,7 @@ def convert_pcm_to_wav(pcm_data: bytes) -> io.BytesIO:
 
 def is_buffer_full(audio_buffer: bytearray) -> bool:
     """Check if audio buffer has reached chunk duration"""
-    return len(audio_buffer) >= BYTES_PER_SECOND * CHUNK_DURATION
+    return len(audio_buffer) >= MAX_BUFFER_BYTES
 
 
 
@@ -184,18 +204,28 @@ async def websocket_transcribe(websocket: WebSocket):
             # logger.debug(f"Data Recieved at backend")
 
             if "text" in data:
-                msg = json.loads(data["text"])
-                logger.debug("Data Received: Text")
-                if msg.get("type") == "context":
-                    lecture_prompt = msg.get("prompt", "")
-                    tag_config = msg.get("tagConfig",{})
-                    selected_tags = tag_config.get("tags")
-                    custom_name = tag_config.get("name")
+                try:
+                    raw = json.loads(data["text"])
+                    msg = ContextMessage(**raw)
+                    logger.debug("Data Received: Text")
+                    if msg.type== "context":
+                        lecture_prompt = msg.prompt
+                        selected_tags = msg.tagConfig.tags
+                        custom_name = msg.tagConfig.name
+                except Exception as e:
+                    logger.debug(f"Validation error: {e}")  # ← add this
+                    await websocket.send_json({"type": "error", "message": "Invalid message format"})
+                    continue
 
 
             elif "bytes" in data:
+                if len(audio_buffer) > MAX_BUFFER_BYTES:
+                    await websocket.send_json({"type": "error", "message": "Audio limit exceeded"})
+                    await websocket.close()
+                    break
                 audio_buffer.extend(data["bytes"])
                 filled = len(audio_buffer)
+
                 total = BYTES_PER_SECOND * CHUNK_DURATION
                 percent = int((filled / total) * 100)
                 bar = '█' * (percent // 10) + '░' * (10 - percent // 10)
