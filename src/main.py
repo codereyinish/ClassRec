@@ -112,7 +112,7 @@ async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_promp
     except Exception as e:
         await websocket.send_json({
         "type": "error",
-        "message": str(e)
+        "message": "Transcription failed. Please try again."
         })
 
 
