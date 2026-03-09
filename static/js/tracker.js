@@ -1,7 +1,7 @@
 const LIMITS = {
     UPLOAD_TOTAL_MINUTES: 20,
     UPLOAD_MAX_PER_FILE: 10,
-    LIVE_TOTAL_MINUTES:10}
+    LIVE_TOTAL_MINUTES:2}
 
 const STORAGE_KEYS = {
     UPLOAD_MINUTES: 'classrec_upload_minutes',
