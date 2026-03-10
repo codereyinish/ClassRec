@@ -1,5 +1,5 @@
 const LIMITS = {
-    UPLOAD_TOTAL_MINUTES: 20,
+    UPLOAD_TOTAL_MINUTES: 15,
     UPLOAD_MAX_PER_FILE: 10,
     LIVE_TOTAL_MINUTES:2}
 
@@ -22,8 +22,9 @@ const UsageTracker = {
         localStorage.setItem(STORAGE_KEYS.LIVE_MINUTES, (this.getLiveMinutes() + mins).toFixed(4));
     },
     canUpload(fileDurationMins){
-        if(fileDurationMins > LIMITS.UPLOAD_MAX_PER_FILE) return {allowed: false , reason: " File too long"};
-         if (this.getUploadMinutes() + fileDurationMins > LIMITS.UPLOAD_TOTAL_MINUTES) return { allowed: false, reason: 'limit_reached' };
+        if(fileDurationMins > LIMITS.UPLOAD_MAX_PER_FILE) return {allowed: false , reason: "File too long. Max 10 minutes per file for freemium users."};
+         if (this.getUploadMinutes() + fileDurationMins > LIMITS.UPLOAD_TOTAL_MINUTES) return { allowed: false, reason:
+         "You have used all 20 free upload minutes." };
          return { allowed: true };
     },
     canRecordLive(){
