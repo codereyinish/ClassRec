@@ -507,7 +507,7 @@
 
     // ===== 0. LOGGER =====
    const Logger = {
-       DEBUG: true,  // ← flip to false for production
+       DEBUG: true,
        debug: (msg, data = '') => {
            if (Logger.DEBUG) console.log(`[DEBUG] ${msg}`, data);
        },
@@ -542,13 +542,15 @@
     //=====2B. LIVE USAGE TRACING ======
     let sessionSeconds = 0;
     let liveTimer = null;
+    let hasWarnedOneMinute = false;
 
-    function StartUsageTracking(){
+    function startUsageTracking(){
         sessionSeconds = 0;
         liveTimer = setInterval(trackLiveUsage, 1000);
     }
 
     function trackLiveUsage(){
+        Logger.debug("Live Tracking ....");
         sessionSeconds++;
         savetoLocalStorage();
         warnOneMinuteRemaining();
@@ -556,16 +558,22 @@
     }
 
     function savetoLocalStorage() {
-        if(sessionSeconds % 10 == 0) UsageTracker.addLiveMinutes(10/60);
+        if(sessionSeconds % 10 == 0){
+            UsageTracker.addLiveMinutes(10/60);
+            Logger.debug("10 seconds passed +");
+        }
     }
 
     function warnOneMinuteRemaining(){
-        if (UsageTracker.getRemainingLiveSeconds() <= 60) statusDiv.textContent = '⚠️ 1 minute left — sign up to continue';
+        if (UsageTracker.getRemainingLiveSeconds() <= 60 && !hasWarnedOneMinute){
+             hasWarnedOneMinute = true;
+             statusDiv.textContent = '⚠️ 1 minute left — sign up to continue!';
+             statusDiv.style.color = '#f59e0b';
+        }
     }
 
     function stopAtLimit(){
         if (UsageTracker.getRemainingLiveSeconds() <= 0) {
-            stopUsageTracking();
             stopRecording();
             showLoginPrompt();
         }
@@ -844,6 +852,7 @@
    // ===== 11. CORE FUNCTIONS =====
    async function startRecording() {
        try{
+           Logger.debug("Into Recording Mode");
            const stream = await getMicrophoneAccess();
            implementWebsocketConnection(stream);
            isRecording = true;
@@ -931,7 +940,7 @@
    const selectedTags = [...document.querySelectorAll('.alert-dropdown input[type="checkbox"]:checked')]
        .map(cb => cb.value);
    const customName = document.getElementById('nameInput').value.trim().slice(0,50);
-   window.tagConfig = { tags: selectedTags, name: customName };
+   window.tagConfig = { tags: selectedTags, nFLoame: customName };
    }
 
    document.getElementById('nameCheck').addEventListener('change', (e) => {
