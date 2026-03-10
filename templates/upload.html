@@ -134,6 +134,7 @@
             opacity: 0.4;
         }
     </style>
+    <script src="/static/js/tracker.js"></script>
 </head>
 <body>
     <a href="/" class="back-link">← Back to Home</a>
@@ -151,16 +152,28 @@
         <div id="result"></div>
     </div>
     <script>
+            // ===== 0. LOGGER =====
+           const Logger = {
+                   DEBUG: true,
+                   debug: (msg, data = '') => {
+                       if (Logger.DEBUG) console.log(`[DEBUG] ${msg}`, data);
+                   },
+                   error: (msg, data = '') => {
+                       console.error(`[ERROR] ${msg}`, data);
+                   }
+           };
+
 
             const DOM = {
-                 fileInput:  document.getElementById('audioFile'),
+                 audioFileInput:  document.getElementById('audioFile'),
                  resultDiv:  document.getElementById('result'),
                  uploadBtn:  document.getElementById('uploadBtn'),
             }
 
-            function getSelectedFile(){
-                return document.getElementById('audioFile').files[0]
-            }
+
+            //===== FILE_UPLOAD_TRACKING
+            let selectedAudioFile = null;
+            let audioFileDuration = 0;
 
 
             function buildFormData(Selected_file){
@@ -189,21 +202,57 @@
                     return data;
             }
 
+            function extractAudioDuration(audioFile){
+                 return new Promise((resolve, reject) => {
+                    const url = URL.createObjectURL(audioFile);
+                    const audio = new Audio();
+                    audio.onloadedmetadata = () => {
+                        resolve(audio.duration/ 60);
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    }
+                    audio.onerror = () => {
+                        URL.revokeObjectURL(url)  // ← on failure
+                        reject(new Error('Could not read audio duration'))
+                    }
+                    audio.src = url;
+                 })
+            }
+
+
+            DOM.audioFileInput.addEventListener('change', async(e) => {
+                selectedAudioFile = e.target.files[0];
+                if(!selectedAudioFile) return;
+
+                audioFileDuration = await extractAudioDuration(selectedAudioFile);
+                Logger.debug("Audio Duration is" ,audioFileDuration)
+            });
+
+
+
+
             async function handleUpload() {
-                const Selected_file = getSelectedFile();
-                if(!Selected_file){
+                if(!selectedAudioFile){
                  alert('Please select a file first!');
                  return;
                 }
+
+                let uploadPermission = UsageTracker.canUpload(audioFileDuration)
+                if(!uploadPermission.allowed){
+                    add_ErrorMessage_to_ResultDiv(uploadPermission.reason);
+                    return;
+                }
+
                 show_Transcription_Loading_State();
                 try{
-                    const formData = buildFormData(Selected_file)
-                    const data = await transcribeAudio(formData)
-                    add_Transcription_to_ResultDiv(data)
+                    const formData = buildFormData(selectedAudioFile);
+                    const data = await transcribeAudio(formData);
+                    add_Transcription_to_ResultDiv(data);
+                    UsageTracker.addUploadMinutes(audioFileDuration);
+                    Logger.debug("UploadMins:" , UsageTracker.getUploadMinutes())
                     enableCopyButton(data);
                 }
                 catch (error){
-                    add_ErrorMessage_to_ResultDiv(error.message)
+                    add_ErrorMessage_to_ResultDiv(error.message);
                 }
                 finally {
                 DOM.uploadBtn.disabled = false;  // ← Cleanup HERE
@@ -219,14 +268,16 @@
                         '<strong>Size:</strong> ' + data.file_size_mb + ' MB<br><br>' +
                         '<strong>Text:</strong><br>' +
                         '<div class="transcription-container">' +
-                            data.transcription +
+                            '<span id="transcriptionText"></span>' +
                             '<button class="copy-btn" id="copyBtn">📋 Copy</button>' +
                         '</div>';
+                document.getElementById('transcriptionText').textContent = data.transcription;
             }
 
 
             function add_ErrorMessage_to_ResultDiv(ErrorMessage){
-                DOM.resultDiv.innerHTML = '<strong>❌ Error:</strong> ' + ErrorMessage;
+               DOM.resultDiv.style.display = 'block';
+               DOM.resultDiv.innerHTML = '<strong>❌ Error:</strong> ' + ErrorMessage;
 
             }
 
@@ -247,6 +298,7 @@
                     alert('Failed to copy text: ' + err);
                 });
             }
+
 
             document.getElementById('uploadBtn').addEventListener('click', handleUpload);
     </script>
