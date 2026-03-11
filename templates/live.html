@@ -1,413 +1,379 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Recording - Lecture Transcription</title>
-    <link rel="icon" href="/static/favicon.png">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% extends "base.html" %}
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .back-link {
-            display: inline-block;
-            margin: 20px;
-            color: white;
-            text-decoration: none;
-            font-size: 16px;
-            font-weight: 500;
-        }
-
-        .back-link:hover {
-            text-decoration: underline;
-        }
-
-        .page-title {
-            text-align: center;
-            color: white;
-            margin-bottom: 30px;
-        }
-
-        .page-title h1 {
-            font-size: 36px;
-            margin-bottom: 10px;
-        }
-
-        .page-title p {
-            font-size: 16px;
-            opacity: 0.9;
-        }
-
-        .container {
-            display: grid;
-            grid-template-columns: 1fr 2fr ;
-            gap: 30px;
-            max-width: 1400px;
-            margin: 0 auto;
-            height: calc(100vh - 200px);
-        }
-
-        /* Left Side - Controls */
-        .controls {
-            background: white;
-            border-radius: 15px;
-            padding: 40px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        /* Microphone Bubble */
-        .mic-bubble {
-            width: 150px;
-            height: 150px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 60px;
-            margin-bottom: 30px;
-            transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-        }
-
-        .mic-bubble.recording {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes pulse {
-        0%, 100% {
-            transform: scale(1);
-            box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
-                }
-        50% {
-            transform: scale(1.08);
-            box-shadow: 0 12px 35px rgba(239, 68, 68, 0.6);
-            }
-        }
-
-        .mic-bubble:hover {
-            transform: scale(1.05);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.5);
-        }
-
-        /* Status */
-        .status {
-            text-align: center;
-            padding: 0;
-            margin-bottom: 30px;
-            font-weight: 500;
-            min-width: 200px;
-            font-size: 16px;
-            color: #666;
-        }
-
-        .status.recording {
-            color: #ef4444;
-        }
-
-
-        #micSelect {
-            width: 180px;
-            padding: 4px 8px;
-            font-size: 13px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            background: #f9f9f9;
-            color: #333;
-            outline: none;
-            cursor: pointer;
-        }
-
-        #micSelect:focus {
-            border-color: #888;
-        }
-
-        /* Instructions */
-        .instructions {
-            margin-top: 30px;
-            text-align: center;
-            color: #666;
-            line-height: 1.6;
-        }
-
-        .instructions-title {
-            font-weight: 600;
-            color: #444;
-            font-size: 14px;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-
-        .instructions p {
-            margin: 10px 0;
-        }
-
-
-        /* Right Side - Transcript */
-        .transcript-area {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            overflow-y: auto;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        .transcript-area h2 {
-            color: #333;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #e5e7eb;
-        }
-
-        .empty-state {
-            text-align: center;
-            color: #999;
-            padding: 60px 20px;
-            font-size: 16px;
-        }
-
-        .empty-state-icon {
-            font-size: 60px;
-            margin-bottom: 20px;
-            opacity: 0.5;
-        }
-
-    .transcript-chunk {
-        background: #f9fafb;
-        border-left: 4px solid #667eea;
-        border-radius: 8px;
-        padding: 15px;
-        margin-bottom: 15px;
-        transition: all 0.2s ease;
+{% block head %}
+<title>Live Recording </title>
+<style>
+    .page-title {
+        text-align: center;
+        margin-bottom: 28px;
     }
-
-    .transcript-chunk:hover {
-        background: #f3f4f6;
-        transform: translateX(5px);
+    .page-title h1 {
+        font-family: 'DM Serif Display', serif;
+        font-size: 32px;
+        color: var(--text);
+        font-weight: 400;
+        letter-spacing: -0.01em;
     }
-
-    .transcript-chunk.flagged {
-        border-left-color: #dc2626;
-        background: #fff8f8;
+    .page-title h1 em {
+        font-style: italic;
+        color: var(--text);
+        opacity: 0.65;
     }
-
-    .timestamp {
+    .page-title p {
         font-size: 12px;
-        color: #9ca3af;
-        margin-bottom: 8px;
+        color: #a8a8b8;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-top: 6px;
+    }
+
+    .container {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 20px;
+        max-width: 1400px;
+        margin: 0 auto;
+        height: calc(100vh - 160px);
+    }
+
+    /* ===== LEFT: CONTROLS ===== */
+    .controls {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 36px 28px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .mic-bubble {
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        background: var(--bg-elevated);
+        border: 2px solid var(--border);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 52px;
+        margin-bottom: 24px;
+        transition: all 0.3s ease;
+    }
+    .mic-bubble:hover {
+        border-color: rgba(255,255,255,0.22);
+        box-shadow: 0 0 28px rgba(255,255,255,0.06);
+        transform: scale(1.04);
+    }
+    .mic-bubble.recording {
+        background: rgba(224,82,82,0.1);
+        border-color: var(--red);
+        animation: pulse-mic 1.5s infinite;
+    }
+    @keyframes pulse-mic {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(224,82,82,0.4); }
+        50%       { box-shadow: 0 0 0 16px rgba(224,82,82,0); transform: scale(1.04); }
+    }
+
+    .status {
+        text-align: center;
+        margin-bottom: 24px;
+        font-size: 12px;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        min-width: 200px;
+        text-transform: uppercase;
+    }
+    .status.recording { color: var(--red); }
+
+    .device-selector { width: 100%; margin-bottom: 24px; }
+    .device-selector label {
+        display: block;
+        font-size: 11px;
+        color: var(--text-muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+    #micSelect {
+        width: 100%;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-family: 'DM Mono', monospace;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        outline: none;
+        cursor: pointer;
+        transition: border-color 0.2s;
+    }
+    #micSelect:focus { border-color: rgba(120,140,255,0.5); }
+
+    .instructions {
+        width: 100%;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+    }
+    .instructions-title {
+        font-size: 11px;
         font-weight: 500;
+        color: var(--text-muted);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 10px;
     }
+    .instructions p { font-size: 13px; color: #a8a8b8; line-height: 1.8; }
+    .instructions strong { color: var(--text); }
 
-    .transcript-text {
-        font-size: 16px;
-        color: #1f2937;
-        line-height: 1.6;
+    /* ===== RIGHT: TRANSCRIPT ===== */
+    .transcript-area {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px;
+        overflow-y: auto;
     }
-
-    mark { background: none; }
-    .highlight-exam       { background: #fee2e2; border-radius: 3px; padding: 0 2px; }
-    .highlight-assignment { background: #dcfce7; border-radius: 3px; padding: 0 2px; }
-    .highlight-important  { background: #fef9c3; border-radius: 3px; padding: 0 2px; }
-    .highlight-attendance { background: #dbeafe; border-radius: 3px; padding: 0 2px; }
-    .highlight-classwork  { background: #f3e8ff; border-radius: 3px; padding: 0 2px; }
-    .highlight-name       { background: #ede9fe; border-radius: 3px; padding: 0 2px; }
-
-    .alert-dropdown-wrapper {
+    .transcript-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--border);
         position: relative;
     }
+    .transcript-area h2 {
+        font-family: 'DM Serif Display', serif;
+        font-size: 20px;
+        font-weight: 400;
+        color: var(--text);
+        margin: 0;
+    }
 
+    .empty-state { text-align: center; color: var(--text-muted); padding: 60px 20px; font-size: 14px; }
+    .empty-state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
+
+    .transcript-chunk {
+        background: var(--bg-elevated);
+        border-left: 3px solid var(--border);
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        transition: all 0.2s ease;
+    }
+    .transcript-chunk:hover {
+        border-left-color: var(--green);
+        box-shadow: 0 0 20px rgba(82,168,120,0.06);
+        transform: translateX(4px);
+    }
+    .transcript-chunk.flagged { border-left-color: var(--red); background: rgba(224,82,82,0.05); }
+
+    .timestamp {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+        letter-spacing: 0.04em;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .transcript-text { font-size: 14px; color: var(--text); line-height: 1.7; }
+
+    mark { background: none; }
+    .highlight-exam       { background: rgba(224,82,82,0.18);   border-radius: 3px; padding: 0 3px; color: #f08080; }
+    .highlight-assignment { background: rgba(82,168,120,0.18);  border-radius: 3px; padding: 0 3px; color: #80c8a0; }
+    .highlight-important  { background: rgba(120,140,255,0.18); border-radius: 3px; padding: 0 3px; color: #a0aaff; }
+    .highlight-attendance { background: rgba(80,130,220,0.18);  border-radius: 3px; padding: 0 3px; color: #80a8e0; }
+    .highlight-classwork  { background: rgba(160,100,220,0.18); border-radius: 3px; padding: 0 3px; color: #c080e0; }
+    .highlight-name       { background: rgba(200,160,255,0.15); border-radius: 3px; padding: 0 3px; color: #c8a0ff; }
+
+    .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10px;
+        padding: 2px 8px;
+        border-radius: 5px;
+        font-weight: 500;
+        letter-spacing: 0.03em;
+    }
+    .tag-exam       { background: rgba(224,82,82,0.15);   color: #f08080; border: 1px solid rgba(224,82,82,0.25); }
+    .tag-assignment { background: rgba(82,168,120,0.15);  color: #80c8a0; border: 1px solid rgba(82,168,120,0.25); }
+    .tag-important  { background: rgba(120,140,255,0.15); color: #a0aaff; border: 1px solid rgba(120,140,255,0.25); }
+
+    /* Alert dropdown */
+    .alert-dropdown-wrapper { position: relative; margin-left: auto; }
     .alert-toggle-btn {
         padding: 6px 14px;
         border-radius: 20px;
-        border: 1px solid #e5e7eb;
-        background: white;
-        font-size: 13px;
-        color: #667eea;
+        border: 1px solid var(--border);
+        background: var(--bg-elevated);
+        font-size: 12px;
+        font-family: 'DM Mono', monospace;
+        color: var(--text-muted);
         cursor: pointer;
-        font-weight: 600;
+        letter-spacing: 0.04em;
+        transition: all 0.2s;
     }
-    .alert-toggle-btn:hover {
-        background: rgba(102,126,234,0.08);
-        border-color: #667eea;
-    }
+    .alert-toggle-btn:hover { border-color: rgba(120,140,255,0.5); color: #a0aaff; }
     .alert-dropdown {
         display: none;
         position: absolute;
         right: 0;
-        top: 100%;
-        background: white;
-        border: 1px solid #e5e7eb;
+        top: calc(100% + 8px);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
         border-radius: 12px;
         padding: 16px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         z-index: 50;
         min-width: 200px;
         flex-direction: column;
         gap: 10px;
     }
     .alert-dropdown-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: #6b7280;
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--text-muted);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid #f3f4f6;
+        letter-spacing: 0.08em;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border);
     }
-    .alert-dropdown-wrapper:hover .alert-dropdown {
-    display: flex;
+    .alert-dropdown-wrapper:hover .alert-dropdown { display: flex; }
+    .tag-option { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
+    .tag-option input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #a0aaff; }
+    .name-input {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 12px;
+        font-family: 'DM Mono', monospace;
+        color: var(--text);
+        outline: none;
+        width: 120px;
+        transition: border-color 0.2s;
     }
+    .name-input:disabled { opacity: 0.4; }
+    .name-input:focus { border-color: rgba(120,140,255,0.5); }
 
-    /* Responsive */
-    @media (max-width: 1024px) {
-        .container {
-            grid-template-columns: 1fr 2fr;
-            height: auto;
-        }
-
-        .controls {
-            margin-bottom: 20px;
-        }
-
-        .transcript-area {
-            min-height: 400px;
-        }
+    /* Session title pill — indigo */
+    .session-title {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        background: rgba(120,140,255,0.1);
+        border: 1px solid rgba(120,140,255,0.2);
+        border-radius: 20px;
+        padding: 4px 14px;
+        font-size: 11px;
+        color: #a0aaff;
     }
+    .session-title.visible { display: flex; }
+    .title-dot { width: 5px; height: 5px; border-radius: 50%; background: #a0aaff; }
 
-    /* OVERLAY */
+    /* ===== POPUP ===== */
     .overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0,0,0,0.5);
-        backdrop-filter: blur(4px);
+        background: rgba(0,0,0,0.7);
+        backdrop-filter: blur(8px);
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 100;
+        z-index: 200;
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.25s;
     }
     .overlay.open { opacity: 1; pointer-events: all; }
-
-    /* POPUP */
     .popup {
-        background: white;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
         border-radius: 18px;
         padding: 32px 28px;
-        width: 380px;
+        width: 400px;
         display: flex;
         flex-direction: column;
-        gap: 18px;
+        gap: 16px;
         transform: translateY(16px) scale(0.97);
         transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+        box-shadow: 0 24px 64px rgba(0,0,0,0.5);
     }
     .overlay.open .popup { transform: translateY(0) scale(1); }
-    .popup-title { font-size: 20px; font-weight: 700; color: #1f2937; }
-    .popup-sub { font-size: 13px; color: #9ca3af; margin-top: 4px; }
+    .popup-title { font-family: 'DM Serif Display', serif; font-size: 22px; font-weight: 400; color: var(--text); }
+    .popup-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
     .popup-input {
         width: 100%;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
         border-radius: 10px;
         padding: 12px 16px;
-        font-size: 14px;
+        font-size: 13px;
+        font-family: 'DM Mono', monospace;
+        color: var(--text);
         outline: none;
         transition: border-color 0.2s, box-shadow 0.2s;
     }
+    .popup-input::placeholder { color: var(--text-muted); }
     .popup-input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        border-color: rgba(120,140,255,0.5);
+        box-shadow: 0 0 0 3px rgba(120,140,255,0.08);
     }
-
-    /* GENERATING INDICATOR */
-    .generating { display: none; align-items: center; gap: 8px; font-size: 12px; color: #9ca3af; }
+    .generating { display: none; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); }
     .generating.visible { display: flex; }
     .spin {
         width: 12px; height: 12px;
-        border: 2px solid #e5e7eb;
-        border-top-color: #667eea;
+        border: 2px solid var(--border);
+        border-top-color: #a0aaff;
         border-radius: 50%;
         animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* TITLE PREVIEW */
-    .title-preview { display: none; align-items: center; gap: 10px; background: rgba(102,126,234,0.06); border: 1px solid rgba(102,126,234,0.2); border-radius: 10px; padding: 12px 16px; }
-    .title-preview.visible { display: flex; }
-    .preview-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; }
-    .preview-text { font-size: 13px; color: #667eea; font-weight: 600; }
-
-    /* BUTTONS */
-    .popup-actions { display: flex; gap: 10px; }
-    .btn-skip { flex: 1; padding: 11px; border-radius: 9px; border: 1px solid #e5e7eb; background: transparent; font-size: 13px; color: #6b7280; cursor: pointer; }
-    .btn-start { flex: 2; padding: 11px; border-radius: 9px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-size: 13px; color: white; cursor: pointer; font-weight: 600; }
-
-    /* SESSION TITLE PILL */
-    .session-title { display: none; align-items: center; gap: 8px; background: rgba(102,126,234,0.1); border: 1px solid rgba(102,126,234,0.3); border-radius: 20px; padding: 6px 16px; font-size: 13px; color: #667eea; }
-    .session-title.visible { display: flex; }
-    .title-dot { width: 6px; height: 6px; border-radius: 50%; background: #667eea; }
-    @keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-
-    .tag {
-        display: inline-flex;
+    .title-preview {
+        display: none;
         align-items: center;
-        gap: 4px;
-        font-size: 11px;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        margin-right: 6px;
+        gap: 10px;
+        background: rgba(120,140,255,0.08);
+        border: 1px solid rgba(120,140,255,0.2);
+        border-radius: 8px;
+        padding: 10px 14px;
     }
-    .tag-exam { background: #fee2e2; color: #dc2626; }
-    .tag-assignment { background: #dcfce7; color: #16a34a; }
-    .tag-important  { background: #fef9c3; color: #ca8a04; }
-
-    .pref-toggle {
-        width: 100%;
-        padding: 9px 14px;
-        border: 1px dashed #e5e7eb;
-        border-radius: 9px;
-        background: transparent;
-        font-size: 13px;
-        color: #6b7280;
-        cursor: pointer;
-        text-align: left;
-        transition: all 0.2s;
+    .title-preview.visible { display: flex; }
+    .preview-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .preview-text { font-size: 13px; color: #a0aaff; font-weight: 500; }
+    .popup-actions { display: flex; gap: 10px; }
+    .btn-skip {
+        flex: 1; padding: 11px; border-radius: 9px; border: 1px solid var(--border);
+        background: transparent; font-size: 12px; font-family: 'DM Mono', monospace;
+        color: var(--text-muted); cursor: pointer; transition: all 0.2s;
     }
-    .pref-toggle:hover { border-color: #667eea; color: #667eea; }
-    .pref-toggle.open { border-color: #667eea; color: #667eea; margin-bottom: 10px; }
-    .tag-options { display: flex; flex-direction: column; gap: 8px; }
-    .tag-option { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; cursor: pointer; }
-    .tag-option input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: #667eea; }
-    .name-input { border: 1px solid #e5e7eb; border-radius: 6px; padding: 4px 8px; font-size: 13px; outline: none; width: 130px; }
-    .name-input:disabled { background: #f9fafb; color: #9ca3af; }
-    .tag-name { background: #ede9fe; color: #7c3aed; }
+    .btn-skip:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+    .btn-start {
+        flex: 2; padding: 11px; border-radius: 9px; border: none;
+        background: var(--accent); font-size: 12px; font-family: 'DM Mono', monospace;
+        color: #0d0d11; cursor: pointer; font-weight: 500; letter-spacing: 0.04em; transition: all 0.2s;
+    }
+    .btn-start:hover { background: #f0aa28; box-shadow: 0 0 20px var(--accent-glow); }
 
+    @media (max-width: 1024px) {
+        .container { grid-template-columns: 1fr; height: auto; }
+        .transcript-area { min-height: 400px; }
+    }
 
-    </style>
-    <script src="/static/js/tracker.js"></script>
-</head>
-<body>
-    <a href="/" class="back-link">← Back to Home</a>
+</style>
+{% endblock %}
 
+{% block content %}
     <div class="page-title">
-        <h1>🎙️ Live Recording</h1>
+        <h1>Live <em>Recording</em></h1>
         <p>Record and transcribe in real-time</p>
     </div>
 
@@ -426,40 +392,39 @@
             </div>
 
             <div class="instructions">
-                <p class="instructions-title">How to use:</p>
-                <p>1. Select <strong>MacBook Pro Microphone</strong> above</p>
-                <p>2. Click the mic & allow access</p>
+                <p class="instructions-title">How to use</p>
+                <p>1. Select <strong>your mic</strong> above</p>
+                <p> 2. Set <strong> Alert Preferences </strong></p>
+                <p>2. Click the mic &amp; allow access</p>
                 <p>3. Speak naturally</p>
-                <p>4. Transcription appears automatically</p>
+                <p>4. Transcription appears live</p>
                 <p>5. Click again to stop</p>
             </div>
         </div>
 
         <!-- Right: Transcript -->
         <div class="transcript-area" id="transcriptArea">
-            <!-- Header Area-->
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; position: relative;">
-                    <h2 style="margin: 0;">Transcription</h2>
-                    <div class="session-title" id="sessionTitle">
-                        <div class="title-dot"></div>
-                        <span id="titleText"></span>
+            <div class="transcript-header">
+                <h2>Transcription</h2>
+                <div class="session-title" id="sessionTitle">
+                    <div class="title-dot"></div>
+                    <span id="titleText"></span>
+                </div>
+                <div class="alert-dropdown-wrapper">
+                    <button class="alert-toggle-btn">🔔 Alerts</button>
+                    <div class="alert-dropdown">
+                        <div class="alert-dropdown-title">Alert me for:</div>
+                        <label class="tag-option"><input type="checkbox" value="exam" checked> 🔴 Exam / Quiz</label>
+                        <label class="tag-option"><input type="checkbox" value="assignment" checked> 📝 Assignment</label>
+                        <label class="tag-option"><input type="checkbox" value="important" checked> ⭐ Important</label>
+                        <label class="tag-option"><input type="checkbox" value="attendance"> 📋 Attendance</label>
+                        <label class="tag-option"><input type="checkbox" value="classwork"> 📖 Classwork</label>
+                        <label class="tag-option">
+                            <input type="checkbox" id="nameCheck" value="name"> 🙋
+                            <input type="text" id="nameInput" placeholder="My name..." class="name-input" disabled>
+                        </label>
                     </div>
-
-                    <div class="alert-dropdown-wrapper" style="margin-left: auto;">
-                        <button class="alert-toggle-btn" id="alertToggle">🔔 Alerts</button>
-                        <div class="alert-dropdown" id="alertDropdown">
-                            <div class="alert-dropdown-title">Alert me for:</div>
-                            <label class="tag-option"><input type="checkbox" value="exam" checked> 🔴 Exam / Quiz</label>
-                            <label class="tag-option"><input type="checkbox" value="assignment" checked> 📝 Assignment</label>
-                            <label class="tag-option"><input type="checkbox" value="important" checked> ⭐ Important</label>
-                            <label class="tag-option"><input type="checkbox" value="attendance"> 📋 Attendance</label>
-                            <label class="tag-option"><input type="checkbox" value="classwork"> 📖 Classwork</label>
-                            <label class="tag-option">
-                                <input type="checkbox" id="nameCheck" value="name"> 🙋
-                                <input type="text" id="nameInput" placeholder="My name..." class="name-input" disabled>
-                            </label>
-                        </div>
-                    </div>
+                </div>
             </div>
 
             <div id="transcriptContent">
@@ -469,37 +434,26 @@
                 </div>
             </div>
         </div>
-
     </div>
-
-
+    <!-- Popup -->
     <div class="overlay" id="overlay">
         <div class="popup">
             <div class="popup-header">
-                <div class="popup-title">Set lecture context 🎯</div>
+                <div class="popup-title">Set lecture context </div>
                 <div class="popup-sub">Better context = better transcription</div>
             </div>
-
-            <input
-                class="popup-input"
-                type="text"
-                id="promptInput"
-                placeholder="e.g. Java inheritance, polymorphism...">
-
-            <div class="generating" id="generating">
-                <div class="spin"></div>
-                Generating session title...
-            </div>
-
-            <div class="title-preview" id="titlePreview">
-                <span class="preview-label">Title</span>
-                <span class="preview-text" id="previewText"></span>
-            </div>
-
-            <div class="popup-actions">
-                <button class="btn-skip" id="btnSkip">Skip</button>
-                <button class="btn-start" id="btnStart">Start Recording →</button>
-            </div>
+            <input class="popup-input" type="text" id="promptInput" placeholder="e.g. Java inheritance, polymorphism...">
+        <div class="generating" id="generating">
+            <div class="spin"></div>
+            Generating session title...
+        </div>
+        <div class="title-preview" id="titlePreview">
+            <span class="preview-label">Title</span>
+            <span class="preview-text" id="previewText"></span>
+        </div>
+        <div class="popup-actions">
+            <button class="btn-skip" id="btnSkip">Skip</button>
+            <button class="btn-start" id="btnStart">Start Recording →</button>
         </div>
     </div>
 
@@ -947,10 +901,5 @@
        document.getElementById('nameInput').disabled = !e.target.checked;
        if (e.target.checked) document.getElementById('nameInput').focus();
    });
-
-
-
-
 </script>
-    </body>
-        </html>
+{% endblock %}
