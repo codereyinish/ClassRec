@@ -56,7 +56,7 @@ http://localhost:8000
 
 ## Deployment
 
-Deployed on Render: 🔗 https://classrec.onrender.com
+Live on: 🔗 https://classrec.com
 
 ## License
 

@@ -1,0 +1,1 @@
+//const  CLERK_PUBLISHABLE_KEY = "pk_test_ZXRoaWNhbC1tYWNhdy00OS5jbGVyay5hY2NvdW50cy5kZXYk"
