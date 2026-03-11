@@ -1,154 +1,202 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload Audio - Lecture Transcription</title>
-    <link rel="icon" href="/static/favicon.png">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% extends "base.html" %}
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
+{% block head %}
+<title>Upload Audio - Lecture Transcription</title>
+<link rel="icon" href="/static/favicon.png">
+<style>
+    .page-title {
+        text-align: center;
+        margin-bottom: 32px;
+    }
 
-        .back-link {
-            display: inline-block;
-            margin: 20px;
-            color: white;
-            text-decoration: none;
-            font-size: 16px;
-            font-weight: 500;
-        }
+    .page-title h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 32px;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    }
 
-        .back-link:hover {
-            text-decoration: underline;
-        }
+    .page-title h1 em {
+        font-style: italic;
+        color: var(--accent);
+    }
+    .page-title p {
+    color: #a8a8b8;
+    }
 
-        .container {
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
+    .container {
+        max-width: 680px;
+        margin: 0 auto;
+    }
 
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 10px;
-        }
+    /* Upload card */
+    .upload-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 40px 36px;
+    }
 
-        .subtitle {
-            text-align: center;
-            color: #666;
-            margin-bottom: 30px;
-        }
+    .upload-box {
+        border: 2px dashed rgba(232,160,32,0.3);
+        border-radius: 12px;
+        padding: 44px 40px;
+        text-align: center;
+        background: var(--accent-dim);
+        transition: border-color 0.2s, background 0.2s;
+        cursor: pointer;
+    }
+    .upload-box:hover {
+        border-color: var(--accent);
+        background: rgba(232,160,32,0.08);
+    }
 
-        .upload-box {
-            border: 2px dashed #667eea;
-            padding: 40px;
-            text-align: center;
-            border-radius: 10px;
-            background: #f8f9ff;
-            margin-top: 30px;
-        }
+    .upload-icon {
+        font-size: 40px;
+        margin-bottom: 14px;
+        opacity: 0.6;
+    }
 
-        input[type="file"] {
-            margin: 20px 0;
-        }
+    .upload-label {
+        font-size: 14px;
+        color: var(--text-muted);
+        margin-bottom: 16px;
+        letter-spacing: 0.03em;
+    }
+    .upload-label strong { color: var(--text); }
 
-        button {
-            background: #667eea;
-            color: white;
-            padding: 12px 35px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-top: 20px;
-            transition: background 0.3s;
-        }
+    input[type="file"] {
+        display: block;
+        margin: 0 auto;
+        font-size: 12px;
+        font-family: 'DM Mono', monospace;
+        color: var(--text-muted);
+        cursor: pointer;
+    }
+    input[type="file"]::file-selector-button {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 14px;
+        font-family: 'DM Mono', monospace;
+        font-size: 12px;
+        color: var(--text);
+        cursor: pointer;
+        margin-right: 10px;
+        transition: border-color 0.2s;
+    }
+    input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
 
-        button:hover {
-            background: #5568d3;
-        }
+    .upload-btn-wrap { margin-top: 28px; text-align: center; }
 
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
+    #uploadBtn {
+        background: var(--accent);
+        color: #0d0d11;
+        padding: 12px 40px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        font-family: 'DM Mono', monospace;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        transition: all 0.2s;
+    }
+    #uploadBtn:hover { background: #f0aa28; box-shadow: 0 0 24px var(--accent-glow); }
+    #uploadBtn:disabled {
+        background: var(--bg-elevated);
+        color: var(--text-muted);
+        cursor: not-allowed;
+        box-shadow: none;
+    }
 
-        #result {
-            margin-top: 30px;
-            padding: 20px;
-            background: #f0f0f0;
-            border-radius: 5px;
-            display: none;
-            white-space: pre-wrap;
-            line-height: 1.6;
-        }
+    /* Result */
+    #result {
+        margin-top: 20px;
+        padding: 24px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        display: none;
+        line-height: 1.6;
+        font-size: 13px;
+        color: var(--text);
+    }
 
-        .loading {
-            color: #667eea;
-            font-weight: bold;
-        }
+    .loading {
+        color: var(--accent);
+        font-weight: 500;
+        letter-spacing: 0.03em;
+    }
 
-        .transcription-container {
-            position: relative;
-            background: white;
-            padding: 15px;
-            padding-bottom: 50px;
-            border-radius: 5px;
-            margin-top: 10px;
-            border-left: 4px solid #667eea;
-        }
+    .result-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+        letter-spacing: 0.03em;
+    }
+    .result-meta span { color: var(--text); }
 
-        .copy-btn {
-            position: absolute;
-            bottom: 10px;
-            right: 10px;
-            background: #10b981;
-            color: white;
-            padding: 8px 20px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: opacity 0.3s ease;
-        }
+    .transcription-container {
+        position: relative;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        padding: 16px 16px 52px 16px;
+        border-radius: 8px;
+        margin-top: 10px;
+    }
 
-        .copy-btn:hover {
-            background: #059669;
-        }
+    #transcriptionText {
+        font-size: 14px;
+        color: var(--text);
+        line-height: 1.75;
+        display: block;
+    }
 
-        .copy-btn.dimmed {
-            opacity: 0.4;
-        }
-    </style>
-    <script src="/static/js/tracker.js"></script>
-</head>
-<body>
-    <a href="/" class="back-link">← Back to Home</a>
+    .copy-btn {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        padding: 6px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        font-family: 'DM Mono', monospace;
+        letter-spacing: 0.04em;
+        transition: all 0.2s;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .copy-btn.dimmed { opacity: 0.35; }
+
+    .error-text { color: var(--red); font-size: 13px; }
+    .success-label { color: var(--green); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px; font-weight: 500; }
+</style>
+{% endblock %}
+
+{% block content %}
+    <div class="page-title">
+        <h1>Upload <em>Audio</em></h1>
+        <p>Transcribe your lecture recording with AI</p>
+    </div>
 
     <div class="container">
-        <h1>📁 Upload Audio File</h1>
-        <p class="subtitle">Upload your lecture recording and get AI-powered transcription</p>
-
-        <div class="upload-box">
-            <input type="file" id="audioFile" accept="audio/*">
-            <br>
-            <button id="uploadBtn">Transcribe Audio</button>
+        <div class="upload-card">
+            <div class="upload-box">
+                <div class="upload-icon">📁</div>
+                <p class="upload-label">Drop your audio file here or <strong>browse</strong></p>
+                <input type="file" id="audioFile" accept="audio/*">
+            </div>
+            <div class="upload-btn-wrap">
+                <button id="uploadBtn">Transcribe Audio →</button>
+            </div>
         </div>
-
         <div id="result"></div>
     </div>
     <script>
@@ -300,7 +348,6 @@
             }
 
 
-            document.getElementById('uploadBtn').addEventListener('click', handleUpload);
+            DOM.uploadBtn.addEventListener('click', handleUpload);
     </script>
-</body>
-</html>
+{% endblock %}
