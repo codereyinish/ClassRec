@@ -1,5 +1,7 @@
 // ===== CONSTANTS =====
 const CLERK_PUBLISHABLE_KEY = "pk_test_ZXRoaWNhbC1tYWNhdy00OS5jbGVyay5hY2NvdW50cy5kZXYk";
+const NUDGE_START_TIME = 10000;
+const NUDGE_END_TIME = 8000;
 
 // ===== WAIT FOR CLERK TO LOAD =====
 window.addEventListener("load", async () => {
@@ -13,6 +15,7 @@ window.addEventListener("load", async () => {
 
     await clerk.load();
     renderNav(clerk);
+    startNudgeTimer(clerk);
 
     // Expose upgrade modal globally so live.js + upload.js can call it
     window.showUpgradeModal = () => showUpgradeModal(clerk);
@@ -183,18 +186,25 @@ function renderNav(clerk) {
 
     } else {
         mount.innerHTML = `
+            <style>
+                @keyframes glow-pulse {
+                    0%, 100% { box-shadow: 0 0 8px rgba(232,160,32,0.2), inset 0 0 8px rgba(232,160,32,0.05); }
+                    50%       { box-shadow: 0 0 18px rgba(232,160,32,0.5), inset 0 0 12px rgba(232,160,32,0.1); }
+                }
+            </style>
             <button id="clerk-login-btn" style="
-                background: transparent;
-                border: 1px solid var(--border);
-                color: var(--text-muted);
+                background: rgba(232,160,32,0.08);
+                border: 1px solid rgba(232,160,32,0.5);
+                color: #e8a020;
                 font-family: 'DM Mono', monospace;
                 font-size: 12px;
-                letter-spacing: 0.05em;
+                letter-spacing: 0.08em;
                 text-transform: uppercase;
-                padding: 6px 14px;
+                padding: 7px 16px;
                 border-radius: 6px;
                 cursor: pointer;
                 transition: all 0.2s;
+                animation: glow-pulse 2s ease-in-out infinite;
             ">Sign in</button>
         `;
 
@@ -314,4 +324,90 @@ function clerkDarkTheme() {
             },
         }
     };
+}
+
+//=========15 SEC NUDGE (only on index.html && !signed in)
+function startNudgeTimer(clerk){
+    if(window.location.pathname !== "/") return;
+    if(clerk.user) return;
+
+    setTimeout(() => {
+         // Don't show if they already signed in or nudge already showing
+         if(clerk.user) return;
+         if(document.getElementById("clerk-nudge")) return;
+
+         const nudge = document.createElement("div")
+         nudge.id = "clerk-nudge";
+        nudge.style.cssText = `
+            position: fixed;
+            top: 68px;
+            right: 24px;
+            width: 300px;
+            background: #14141a;
+            border: 1px solid rgba(232,160,32,0.25);
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(232,160,32,0.05);
+            z-index: 999;
+            font-family: 'DM Mono', monospace;
+            animation: nudge-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        `;
+
+        nudge.innerHTML = `
+            <style>
+                @keyframes nudge-slide-in {
+                    from { opacity: 0; transform: translateY(-8px); }
+                    to   { opacity: 1; transform: translateY(0); }
+                }
+            </style>
+
+            <button id="nudge-close" style="
+                position: absolute; top: 12px; right: 14px;
+                background: transparent; border: none;
+                color: #7a7a8a; font-size: 14px; cursor: pointer;
+                line-height: 1;
+            ">✕</button>
+
+            <div style="font-size: 20px; margin-bottom: 8px;">🎓</div>
+
+            <div style="color: #f0ebe0; font-size: 13px; font-weight: 500; margin-bottom: 6px;">
+                Enjoying ClassRec?
+            </div>
+            <div style="color: #7a7a8a; font-size: 12px; line-height: 1.6; margin-bottom: 16px;">
+                Sign up free and get unlimited transcription. No credit card needed.
+            </div>
+
+            <button id="nudge-cta" style="
+                width: 100%;
+                background: var(--accent);
+                color: #0d0d11;
+                border: none;
+                border-radius: 7px;
+                padding: 9px 0;
+                font-family: 'DM Mono', monospace;
+                font-size: 12px;
+                font-weight: 500;
+                letter-spacing: 0.04em;
+                cursor: pointer;
+                transition: all 0.2s;
+            ">Become a Rec Member →</button>
+        `;
+        document.body.appendChild(nudge);
+
+        document.getElementById("nudge-close").addEventListener("click", () => nudge.remove());
+        document.getElementById("nudge-cta").addEventListener("click", () => {
+            nudge.remove();
+            showAuthModal(clerk);
+        });
+
+        // Auto dismiss after 8 seconds
+        setTimeout(() => {
+            if (document.getElementById("clerk-nudge")) nudge.remove();
+        }, NUDGE_END_TIME);
+
+
+
+    } , NUDGE_START_TIME)
+
+
 }
