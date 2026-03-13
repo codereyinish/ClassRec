@@ -84,7 +84,13 @@
 
         let uploadPermission = UsageTracker.canUpload(audioFileDuration)
         if(!uploadPermission.allowed){
-            add_ErrorMessage_to_ResultDiv(uploadPermission.reason);
+            if(uploadPermission.code === "file_too_long"){
+                console.log(uploadPermission.reason);
+                add_ErrorMessage_to_ResultDiv(uploadPermission.reason);
+                return;
+            } else {
+                window.showUpgradeModal();
+            }
             return;
         }
 
