@@ -19,12 +19,15 @@ from pydantic import BaseModel, Field, field_validator
 #=======SETUP========
 load_dotenv()
 
+CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "pk_test_ZXRoaWNhbC1tYWNhdy00OS5jbGVyay5hY2NvdW50cy5kZXYk")
+
 api_key = os.environ.get("OPENAI_API_KEY")
 client = OpenAI()
 app = FastAPI()
 
 BASE_DIR = Path(__file__).parent.parent  # goes up from src/ to ClassRec/
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals["clerk_key"] = CLERK_PUBLISHABLE_KEY
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
