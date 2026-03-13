@@ -17,9 +17,9 @@ window.addEventListener("load", async () => {
     renderNav(clerk);
     startNudgeTimer(clerk);
 
-    // Expose upgrade modal globally so live.js + upload.js can call it
-    window.showUpgradeModal = () => showUpgradeModal(clerk);
+    window.showUpgradeModal = () => _showUpgradeModal(clerk);
 });
+
 
 // ===== NAV: avatar or sign in button =====
 function renderNav(clerk) {
@@ -166,11 +166,6 @@ function renderNav(clerk) {
             dd.style.display = dd.style.display === "none" ? "block" : "none";
         });
 
-        // Close on outside click
-        document.addEventListener("click", () => {
-            const dd = document.getElementById("user-dropdown");
-            if (dd) dd.style.display = "none";
-        });
 
         // Sign out
         document.getElementById("signout-btn").addEventListener("click", async () => {
@@ -222,8 +217,14 @@ function renderNav(clerk) {
     }
 }
 
+// Close on outside click
+    document.addEventListener("click", () => {
+        const dd = document.getElementById("user-dropdown");
+        if (dd) dd.style.display = "none";
+    });
+
 // ===== UPGRADE MODAL (called when free limit is hit) =====
-function showUpgradeModal(clerk) {
+function _showUpgradeModal(clerk) {
     if (clerk.user) {
         // Already signed in, just show limit message
         if (document.getElementById("clerk-modal-overlay")) return;
