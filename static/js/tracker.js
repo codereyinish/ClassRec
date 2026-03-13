@@ -1,7 +1,22 @@
-const LIMITS = {
-    UPLOAD_TOTAL_MINUTES: 15,
-    UPLOAD_MAX_PER_FILE: 10,
-    LIVE_TOTAL_MINUTES:2}
+
+const MEMBER_LIVE_LIMIT = 5;
+const NON_MEMBER_LIVE_LIMIT = 1;
+const MEMBER_UPLOAD_LIMIT = 25;
+const NON_MEMBER_UPLOAD_LIMIT = 15;
+const UPLOAD_MAX_PER_FILE = 30;
+
+
+function isMember() {
+    return !!window.Clerk?.user;  // checked fresh every time
+}
+function getLiveLimit(){
+        return isMember() ? MEMBER_LIVE_LIMIT : NON_MEMBER_LIVE_LIMIT;
+}
+
+function getUploadLimit(){
+    return isMember() ? MEMBER_UPLOAD_LIMIT  : NON_MEMBER_UPLOAD_LIMIT
+}
+
 
 const STORAGE_KEYS = {
     UPLOAD_MINUTES: 'classrec_upload_minutes',
@@ -22,18 +37,18 @@ const UsageTracker = {
         localStorage.setItem(STORAGE_KEYS.LIVE_MINUTES, (this.getLiveMinutes() + mins).toFixed(4));
     },
     canUpload(fileDurationMins){
-        if(fileDurationMins > LIMITS.UPLOAD_MAX_PER_FILE) return {allowed: false , reason: "File too long. Max 10 minutes per file for freemium users."};
-         if (this.getUploadMinutes() + fileDurationMins > LIMITS.UPLOAD_TOTAL_MINUTES) return { allowed: false, reason:
-         "You have used all 20 free upload minutes." };
-         return { allowed: true };
+        if(fileDurationMins > UPLOAD_MAX_PER_FILE) return {allowed: false ,
+        reason: "File too long. Max 10 minutes per file for freemium users", code: "file_too_long"};
+        if (this.getUploadMinutes() + fileDurationMins > getUploadLimit()) return { allowed: false, reason:
+         "You have used all 20 free upload minutes.", code: "limit_reached"};
+        return { allowed: true };
     },
     canRecordLive(){
-         return this.getLiveMinutes() < LIMITS.LIVE_TOTAL_MINUTES;
+         return this.getLiveMinutes() < getLiveLimit();
     },
     getRemainingLiveSeconds() {
-        return Math.max(0, (LIMITS.LIVE_TOTAL_MINUTES - this.getLiveMinutes()) * 60);
+        return Math.max(0, (getLiveLimit() - this.getLiveMinutes()) * 60);
     }
-
 
 
 }
