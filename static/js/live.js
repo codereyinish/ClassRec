@@ -26,6 +26,7 @@
 
 
 
+
    // ===== 2. STATE =====
    let isRecording = false;
    let websocket = null;
@@ -58,17 +59,19 @@
     }
 
     function warnOneMinuteRemaining(){
-        if (UsageTracker.getRemainingLiveSeconds() <= 60 && !hasWarnedOneMinute){
+        if (UsageTracker.getRemainingLiveSeconds()<= 30 && !hasWarnedOneMinute){
              hasWarnedOneMinute = true;
-             statusDiv.textContent = '⚠️ 1 minute left — sign up to continue!';
-             statusDiv.style.color = '#f59e0b';
+             if(!window.Clerk?.user){
+                statusDiv.textContent = '⚠️ 1 minute left — sign up to continue!';
+                statusDiv.style.color = '#f59e0b';
+             }
         }
     }
 
     function stopAtLimit(){
         if (UsageTracker.getRemainingLiveSeconds() <= 0) {
             stopRecording();
-            showLoginPrompt();
+            window.showUpgradeModal();
         }
     }
 
@@ -79,9 +82,6 @@
         sessionSeconds = 0;
     }
 
-    function showLoginPrompt() {
-        alert('You have used your free 10 minutes. Sign up to continue!');
-    }
 
 
 
@@ -141,7 +141,7 @@
            stopRecording();
        } else {
             if(!UsageTracker.canRecordLive()){
-                showLoginPrompt();
+                window.showUpgradeModal();
                 return;
             }
            openPopup()
