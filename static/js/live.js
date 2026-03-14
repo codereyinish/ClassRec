@@ -22,7 +22,7 @@
                name: []
            };
      const MAX_CHARS = 400;          // ← NEW: max chars before new div
-     const SILENCE_THRESHOLD = 0.01;
+     const SILENCE_THRESHOLD = 0.0001;
 
 
 
@@ -115,7 +115,11 @@
    }
 
    function createDeviceDropdown(audioInputs){
-       audioInputs.forEach(device => {
+       const filtered = audioInputs.filter(device =>
+           !device.label.toLowerCase().includes('airpods') &&
+           !device.label.toLowerCase().includes('bluetooth')
+       );
+       filtered.forEach(device => {
            const option = document.createElement('option');
            option.value = device.deviceId;
            option.text =  device.label;
@@ -155,6 +159,7 @@
               openPopup()
        }
    });
+
 
 
    // ===== 6. MICROPHONE =====
@@ -316,7 +321,7 @@
                if (websocket && websocket.readyState === WebSocket.OPEN){
                    const audioData = e.inputBuffer.getChannelData(0);
                    const rms = calculateRMS(audioData);
-<!--                    Logger.debug('RMS:', rms);  // ← add this-->
+                   Logger.debug('RMS:', rms);  // ← add this-->
                    if(isSilent(audioData)) return;
 
                    const int16Chunk = convertToInt16(audioData);
