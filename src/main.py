@@ -15,6 +15,12 @@ from pathlib import Path
 import json
 from logger import logger
 from pydantic import BaseModel, Field, field_validator
+import sentry_sdk
+
+sentry_sdk.init(
+    dsn="https://f62227a4abc04cfda1165ef380cdc745@o4511040460488704.ingest.us.sentry.io/4511040467566592",
+    send_default_pii=True,
+)
 
 #=======SETUP========
 load_dotenv()
