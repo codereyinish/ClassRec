@@ -134,17 +134,25 @@
 
 
    // ===== 5. MIC CLICK=====
+   let pendingStream = null;  // ← store stream here
 
    // CLICK MICROPHONE
-   micBubble.addEventListener('click', () => {
+   micBubble.addEventListener('click', async() => {
        if (isRecording) {
            stopRecording();
        } else {
-            if(!UsageTracker.canRecordLive()){
-                window.showUpgradeModal();
-                return;
-            }
-           openPopup()
+                if(!UsageTracker.canRecordLive()){
+                    window.showUpgradeModal();
+                    return;
+                }
+                try{
+                    pendingStream = await getMicrophoneAccess();
+                }
+                catch(e){
+                    alert('Microphone access denied: ' + e.message);
+                    return;
+                }
+              openPopup()
        }
    });
 
@@ -346,7 +354,8 @@
    async function startRecording() {
        try{
            Logger.debug("Into Recording Mode");
-           const stream = await getMicrophoneAccess();
+           const stream = pendingStream || await getMicrophoneAccess();
+           pendingStream = null;
            implementWebsocketConnection(stream);
            isRecording = true;
            startUsageTracking();
