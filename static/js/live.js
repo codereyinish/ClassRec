@@ -152,7 +152,7 @@
    // ===== 6. MICROPHONE =====
    async function getMicrophoneAccess(){
            const stream = await navigator.mediaDevices.getUserMedia({
-               audio: { deviceId: micSelect.value ? {exact : micSelect.value} : undefined,
+               audio: { deviceId: micSelect.value ? {ideal : micSelect.value} : undefined,
                         sampleRate : 16000,
                         channelCount : 1
                        }
