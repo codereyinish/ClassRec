@@ -16,6 +16,8 @@ import json
 from logger import logger
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
+import onnxruntime as ort
+import numpy as np
 
 sentry_sdk.init(
     dsn="https://f62227a4abc04cfda1165ef380cdc745@o4511040460488704.ingest.us.sentry.io/4511040467566592",
@@ -24,7 +26,6 @@ sentry_sdk.init(
 
 #=======SETUP========
 load_dotenv()
-
 CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "pk_test_ZXRoaWNhbC1tYWNhdy00OS5jbGVyay5hY2NvdW50cy5kZXYk")
 
 api_key = os.environ.get("OPENAI_API_KEY")
@@ -126,6 +127,10 @@ async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_promp
                            custom_name:str):
     """Convert audio chunk to WAV, transcribe, and send result to browser via websocket"""
     try:
+        #skip Whisper if no speech detected
+        if not contains_speech(chunk_data):
+            logger.debug("VAD: silence detected, skipping Whisper")
+            return
         audio_file_wav = convert_pcm_to_wav(chunk_data)
         transcripted_text = call_whisper(audio_file_wav, lecture_prompt)
         logger.debug("Got Transcript ")
@@ -139,6 +144,7 @@ async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_promp
             logger.debug("Transcript + tags sent to Frontend")
 
     except Exception as e:
+        logger.exception(f"transcribe_chunk error: {e}")
         await websocket.send_json({
         "type": "error",
         "message": "Transcription failed. Please try again."
@@ -258,6 +264,52 @@ async def websocket_transcribe(websocket: WebSocket):
         print("Client Disconnected from Websocket")
     except Exception as e:
         print(f"Websocket error : {e}")
+
+
+## ======= VAD ======
+VAD_MODEL_PATH =  BASE_DIR/"models"/"silero_vad.onnx"
+VAD_WINDOW_SIZE = 512 #audio sample in 1 pass
+VAD_THRESHOLD = 0.5
+_vad_session = None
+
+def contains_speech(pcm_bytes: bytes) -> bool:
+    """Returns True if the audio chunk likely contains human speech."""
+    global _vad_session
+
+    if _vad_session is None:
+        if not VAD_MODEL_PATH.exists():
+            logger.warning("VAD model not found — skipping VAD, sending all audio to Whisper")
+            return True
+        _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
+        logger.info("Silero VAD model loaded")
+
+    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+    # v4 model uses separate h and c LSTM states, both [2, 1, 64]
+    h = np.zeros((2, 1, 64), dtype=np.float32)
+    c = np.zeros((2, 1, 64), dtype=np.float32)
+    sr = np.array(SAMPLE_RATE, dtype=np.int64)
+    max_score = 0.0
+
+    # Slide a 512-sample window through the whole chunk
+    for i in range(0, len(samples) - VAD_WINDOW_SIZE + 1, VAD_WINDOW_SIZE):
+        window = samples[i : i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
+        outs = _vad_session.run(None, {"input": window, "sr": sr, "h": h, "c": c})
+        score = float(outs[0].squeeze())
+        h, c = outs[1], outs[2]  # carry state forward to next window
+
+        if score > max_score:
+            max_score = score
+        if max_score >= VAD_THRESHOLD:
+            break  # early exit — already confirmed there's speech
+
+    logger.debug(f"VAD max score: {max_score:.3f} → {'SPEECH' if max_score >= VAD_THRESHOLD else 'SILENCE'}")
+    return max_score >= VAD_THRESHOLD
+
+
+
+
 
 
 
