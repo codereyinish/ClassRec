@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
 import onnxruntime as ort
 import numpy as np
+import psutil
+import tracemalloc
 
 sentry_sdk.init(
     dsn="https://f62227a4abc04cfda1165ef380cdc745@o4511040460488704.ingest.us.sentry.io/4511040467566592",
@@ -31,6 +33,11 @@ CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "pk_test_ZXRoaWNhbC1t
 api_key = os.environ.get("OPENAI_API_KEY")
 client = OpenAI()
 app = FastAPI()
+
+# ======= MEMORY TRACKING =======
+_process = psutil.Process(os.getpid())
+_mem_baseline_mb: float = 0.0
+_mem_after_vad_mb: float = 0.0
 
 BASE_DIR = Path(__file__).parent.parent  # goes up from src/ to ClassRec/
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -177,8 +184,31 @@ async def favicon():
 
 @app.get("/health")
 def health():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "transcription"}
+    """Health check endpoint with live memory breakdown"""
+    current_mb = _process.memory_info().rss / 1024 / 1024
+
+    breakdown = []
+    if tracemalloc.is_tracing():
+        snapshot = tracemalloc.take_snapshot()
+        for stat in snapshot.statistics("filename")[:5]:
+            filename = stat.traceback[0].filename if stat.traceback else "unknown"
+            breakdown.append({
+                "file": filename.split("/")[-1],
+                "size_mb": round(stat.size / 1024 / 1024, 2),
+            })
+
+    return {
+        "status": "healthy",
+        "memory": {
+            "current_mb": round(current_mb, 1),
+            "baseline_mb": round(_mem_baseline_mb, 1),
+            "growth_mb": round(current_mb - _mem_baseline_mb, 1),
+            "after_vad_load_mb": round(_mem_after_vad_mb, 1),
+            "limit_mb": 512,
+            "used_percent": round(current_mb / 512 * 100, 1),
+        },
+        "top_allocators": breakdown,
+    }
 
 
 #========FILE UPLOAD TRANSCRIPTION===========
@@ -306,6 +336,24 @@ def contains_speech(pcm_bytes: bytes) -> bool:
 
     logger.debug(f"VAD max score: {max_score:.3f} → {'SPEECH' if max_score >= VAD_THRESHOLD else 'SILENCE'}")
     return max_score >= VAD_THRESHOLD
+
+
+# ======= STARTUP =======
+@app.on_event("startup")
+async def startup_event():
+    global _mem_baseline_mb, _mem_after_vad_mb, _vad_session
+    tracemalloc.start()
+    _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
+    logger.info(f"Startup baseline memory: {_mem_baseline_mb:.1f} MB")
+
+    if VAD_MODEL_PATH.exists():
+        _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
+        logger.info("Silero VAD model pre-loaded at startup")
+    else:
+        logger.warning("VAD model not found at startup")
+
+    _mem_after_vad_mb = _process.memory_info().rss / 1024 / 1024
+    logger.info(f"Memory after VAD load: {_mem_after_vad_mb:.1f} MB")
 
 
 
