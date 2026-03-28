@@ -232,6 +232,192 @@ async def transcribe_audio(
         raise HTTPException(status_code=500, detail=f"Transcription Failed: {str(e)}")
 
 
+# ======= VAD ======
+VAD_MODEL_PATH =  BASE_DIR/"models"/"silero_vad.onnx"
+VAD_WINDOW_SIZE = 512 #audio sample in 1 pass
+VAD_THRESHOLD = 0.5
+_vad_session = None
+
+
+#======== SPEAKER DIARIZATION=========
+SEG_MODEL_PATH = BASE_DIR/"models"/"segmentation.onnx"
+EMB_MODEL_PATH = BASE_DIR/"models"/"embedding.onnx"
+_seg_session = None
+_emb_session = None
+
+
+def contains_speech(pcm_bytes: bytes) -> bool:
+    """Returns True if the audio chunk likely contains human speech."""
+    global _vad_session
+
+    if _vad_session is None:
+        if not VAD_MODEL_PATH.exists():
+            logger.warning("VAD model not found — skipping VAD, sending all audio to Whisper")
+            return True
+        _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
+        logger.info("Silero VAD model loaded")
+
+    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+    # v4 model uses separate h and c LSTM states, both [2, 1, 64]
+    h = np.zeros((2, 1, 64), dtype=np.float32)
+    c = np.zeros((2, 1, 64), dtype=np.float32)
+    sr = np.array(SAMPLE_RATE, dtype=np.int64)
+    max_score = 0.0
+
+    # Slide a 512-sample window through the whole chunk
+    for i in range(0, len(samples) - VAD_WINDOW_SIZE + 1, VAD_WINDOW_SIZE):
+        window = samples[i : i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
+        outs = _vad_session.run(None, {"input": window, "sr": sr, "h": h, "c": c})
+        score = float(outs[0].squeeze())
+        h, c = outs[1], outs[2]  # carry state forward to next window
+
+        if score > max_score:
+            max_score = score
+        if max_score >= VAD_THRESHOLD:
+            break  # early exit — already confirmed there's speech
+
+    logger.debug(f"VAD max score: {max_score:.3f} → {'SPEECH' if max_score >= VAD_THRESHOLD else 'SILENCE'}")
+    return max_score >= VAD_THRESHOLD
+
+ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 3
+
+def compute_professor_embedding(pcm_bytes: bytes) -> np.ndarray | None:
+    """Split enrollment audio into 3s windows, embed each, return average."""
+    if len(pcm_bytes)< ENROLL_WINDOW_BYTES:
+        logger.warning("Enrollment audio too short")
+        return None
+    embeddings = []
+    for i in range(0, len(pcm_bytes)-ENROLL_WINDOW_BYTES+1, ENROLL_WINDOW_BYTES):
+        window = pcm_bytes[i: i + ENROLL_WINDOW_BYTES]
+        emb = get_embedding(window)
+        if emb is not None:
+            embeddings.append(emb)
+
+    if not embeddings:
+        return None
+
+    avg = np.mean(embeddings, axis = 0)
+    avg = avg/ np.linalg.norm(avg)
+    return avg
+
+def get_embedding(pcm_bytes:bytes) -> np.ndarray | None:
+    """Run 3s audio through embedding model, return 256-number vector."""
+    if _emb_session is  None:
+        logger.warning("Embedding model not loaded")
+        return None
+
+    samples = np.frombuffer(pcm_bytes, dtype = np.int16).astype(np.float32)/ 32768.0
+    samples = samples.reshape(1,1,-1)
+    outputs = _emb_session.run(None, {"input": samples})
+    embedding = outputs[0].squeeze()  # shape: [256]
+    return embedding
+
+
+SIMILARITY_THRESHOLD = 0.75
+MIN_SEGMENT_DURATION =0.5 #0.5 sec of segment size at least for bettte embedding
+def filter_to_professor(pcm_bytes: bytes,professor_embedding: np.ndarray):
+    """Segment audio, keep only professor voice, return filtered audio + leftover."""
+    if _seg_session is None:
+        logger.Warning("Segmentation model not loaded, skipping Filter")
+        return pcm_bytes, b""
+
+    # Step 1 Run segmentation model
+    samples = np.frombuffer(pcm_bytes, dtype = np.int16).astype(np.float32)/32768.0
+    samples = samples.reshape(1, -1) #batch, samples
+    output = _seg_session.run(None, {"input_values" : samples})
+    segmentation = output[0].squeeze(0) # shape: [num_frames, frame_array]
+
+    # Step 2 : Convert Frames to Time Segments
+    num_frames = segmentation.shape[0]
+    duration = len(pcm_bytes)/ BYTES_PER_SECOND
+    frame_duration = duration/ num_frames
+
+    segments = []
+    in_speech = False
+    seg_start = 0.0
+
+    for i , frame in enumerate(segmentation):
+        is_speech = frame.max() > 0.5 #0.5 is confidence score
+        if is_speech and not in_speech:
+            seg_start = i * frame_duration
+            in_speech = True
+        # so for next frame --> It is already in speech and if that frame is also is speech, then 1st conditon wont run
+        #2nd condtion also doesnt run, In fact we have to do nothing, we only need to know start and end timestamp of
+        elif not is_speech and in_speech:
+            segments.append((seg_start,i*frame_duration))
+            in_speech = False
+
+        #for last frame 293, we dont have next frame,and append only happens when silence detected in next frame,
+        # we dont have next frame lol
+    if in_speech:
+        segments.append((seg_start, duration))
+
+    #filter segments by professor similarity
+    professor_audio = b""
+    leftover = b""
+
+    for index, (start,end) in enumerate(segments):
+        seg_duration = end - start
+        is_last = index == len(segments) - 1
+
+        if seg_duration < MIN_SEGMENT_DURATION and is_last:
+            leftover = pcm_bytes[int(start * BYTES_PER_SECOND): ]
+            continue
+
+        if seg_duration < MIN_SEGMENT_DURATION:
+            continue
+
+        start_byte  = int(start * BYTES_PER_SECOND)
+        end_byte = int(end * BYTES_PER_SECOND)
+        seg_bytes = pcm_bytes[start_byte:end_byte]
+
+        #Now we got the segment where speaker is speaking, we extracted original audio becasue we cant conitnue with
+        # numpy segment from the segmentation model in different format
+        emb = get_embedding(seg_bytes)
+        if emb is None:
+            continue
+
+        similarity = np.dot(emb, professor_embedding) #Cosine dot multiplication
+        logger.debug(f"Segment {start:.1f}s-{end:.1f}s similarity: {similarity:.3f}")
+
+        if similarity >= SIMILARITY_THRESHOLD:
+            professor_audio += seg_bytes
+    return professor_audio , leftover
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def show_Graphical_Audio_Progress(filled):
+    total = BYTES_PER_SECOND * CHUNK_DURATION
+    percent = int((filled / total) * 100)
+    bar = '█' * (percent // 10) + '░' * (10 - percent // 10)
+
+    # \r overwrites the same line — no spam
+    print(f"\r  🎙️ Audio Buffer  [{bar}] {percent}%  ({filled}/{total} bytes)", end='', flush=True)
+
+
+
+
 #========LIVE TRANSCRIPTION========
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
@@ -326,102 +512,6 @@ async def websocket_transcribe(websocket: WebSocket):
         print("Client Disconnected from Websocket")
     except Exception as e:
         print(f"Websocket error : {e}")
-
-ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 3
-
-def compute_professor_embedding(pcm_bytes: bytes) -> np.ndarray | None:
-    """Split enrollment audio into 3s windows, embed each, return average."""
-    if len(pcm_bytes)< ENROLL_WINDOW_BYTES:
-        logger.warning("Enrollment audio too short")
-        return None
-    embeddings = []
-    for i in range(0, len(pcm_bytes)-ENROLL_WINDOW_BYTES+1, ENROLL_WINDOW_BYTES):
-        window = pcm_bytes[i: i + ENROLL_WINDOW_BYTES]
-        emb = get_embedding(window)
-        if emb is not None:
-            embeddings.append(emb)
-
-    if not embeddings:
-        return None
-
-    avg = np.mean(embeddings, axis = 0)
-    avg = avg/ np.linalg.norm(avg)
-    return avg
-
-def get_embedding(pcm_bytes:bytes) -> np.ndarray | None:
-    """Run 3s audio through embedding model, return 256-number vector."""
-    if _emb_session is  None:
-        logger.warning("Embedding model not loaded")
-        return None
-
-    samples = np.frombuffer(pcm_bytes, dtype = np.int16).astype(np.float32)/ 32768.0
-    samples = samples.reshape(1,1,-1)
-    outputs = _emb_session.run(None, {"input": samples})
-    embedding = outputs[0].squeeze()  # shape: [256]
-    return embedding
-
-
-
-
-
-
-def show_Graphical_Audio_Progress(filled):
-    total = BYTES_PER_SECOND * CHUNK_DURATION
-    percent = int((filled / total) * 100)
-    bar = '█' * (percent // 10) + '░' * (10 - percent // 10)
-
-    # \r overwrites the same line — no spam
-    print(f"\r  🎙️ Audio Buffer  [{bar}] {percent}%  ({filled}/{total} bytes)", end='', flush=True)
-
-
-## ======= VAD ======
-VAD_MODEL_PATH =  BASE_DIR/"models"/"silero_vad.onnx"
-VAD_WINDOW_SIZE = 512 #audio sample in 1 pass
-VAD_THRESHOLD = 0.5
-_vad_session = None
-
-
-#======== SPEAKER DIARIZATION=========
-SEG_MODEL_PATH = BASE_DIR/"models"/"segmentation.onnx"
-EMB_MODEL_PATH = BASE_DIR/"models"/"embedding.onnx"
-_seg_session = None
-_emb_session = None
-
-
-def contains_speech(pcm_bytes: bytes) -> bool:
-    """Returns True if the audio chunk likely contains human speech."""
-    global _vad_session
-
-    if _vad_session is None:
-        if not VAD_MODEL_PATH.exists():
-            logger.warning("VAD model not found — skipping VAD, sending all audio to Whisper")
-            return True
-        _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
-        logger.info("Silero VAD model loaded")
-
-    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-
-
-    # v4 model uses separate h and c LSTM states, both [2, 1, 64]
-    h = np.zeros((2, 1, 64), dtype=np.float32)
-    c = np.zeros((2, 1, 64), dtype=np.float32)
-    sr = np.array(SAMPLE_RATE, dtype=np.int64)
-    max_score = 0.0
-
-    # Slide a 512-sample window through the whole chunk
-    for i in range(0, len(samples) - VAD_WINDOW_SIZE + 1, VAD_WINDOW_SIZE):
-        window = samples[i : i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
-        outs = _vad_session.run(None, {"input": window, "sr": sr, "h": h, "c": c})
-        score = float(outs[0].squeeze())
-        h, c = outs[1], outs[2]  # carry state forward to next window
-
-        if score > max_score:
-            max_score = score
-        if max_score >= VAD_THRESHOLD:
-            break  # early exit — already confirmed there's speech
-
-    logger.debug(f"VAD max score: {max_score:.3f} → {'SPEECH' if max_score >= VAD_THRESHOLD else 'SILENCE'}")
-    return max_score >= VAD_THRESHOLD
 
 
 # ======= STARTUP =======
