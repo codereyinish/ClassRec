@@ -271,12 +271,13 @@ _emb_session = None
 
 
 
-ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 3
+ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 1
 
 def compute_professor_embedding(pcm_bytes: bytes) -> np.ndarray | None:
-    """Split enrollment audio into 3s windows, embed each, return average."""
-    if len(pcm_bytes)< ENROLL_WINDOW_BYTES:
-        logger.warning("Enrollment audio too short")
+    """Split enrollment audio into 1s windows, embed each, return average."""
+    logger.info(f"Enrollment buffer: {len(pcm_bytes)} bytes ({len(pcm_bytes)/BYTES_PER_SECOND:.1f}s)")
+    if len(pcm_bytes) < ENROLL_WINDOW_BYTES:
+        logger.warning(f"Enrollment audio too short: need {ENROLL_WINDOW_BYTES} bytes, got {len(pcm_bytes)}")
         return None
     embeddings = []
     for i in range(0, len(pcm_bytes)-ENROLL_WINDOW_BYTES+1, ENROLL_WINDOW_BYTES):
@@ -409,7 +410,9 @@ async def websocket_transcribe(websocket: WebSocket):
         while True:
             # Receive audio chunk from browser
             data  = await websocket.receive()
-            # logger.debug(f"Data Recieved at backend")
+
+            if data.get("type") == "websocket.disconnect":
+                break
 
             if "text" in data:
                 try:
@@ -428,21 +431,32 @@ async def websocket_transcribe(websocket: WebSocket):
 
                     elif msg.type=="enroll_end":
                         enrolling = False
-                        professor_embedding = compute_professor_embedding(bytes(enrollment_buffer))
+                        try:
+                            professor_embedding = compute_professor_embedding(bytes(enrollment_buffer))
+                        except Exception as emb_err:
+                            logger.error(f"Embedding error: {emb_err}")
+                            professor_embedding = None
                         if professor_embedding is not None:
                             voice_lock_active = True
                             await websocket.send_json({"type": "enroll_success"})
                             logger.info("Professor voice Locked")
                         else:
-                            await websocket.send_json({"type": "enroll_failed", "message": "RETRY::: Not enough audio "
-                                                                                           "captured"})
+                            await websocket.send_json({"type": "enroll_failed", "message": "Not enough audio captured"})
                             enrollment_buffer.clear()
 
+                    elif msg.type == "voice_lock_off":
+                        voice_lock_active = False
+                        professor_embedding = None
+                        enrollment_buffer.clear()
+                        logger.info("Voice lock disabled")
 
 
 
-                except Exception as e:
-                    logger.debug(f"Validation error: {e}")  # ← add this
+
+                except WebSocketDisconnect:
+                    raise
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.debug(f"Message parse error: {e}")
                     await websocket.send_json({"type": "error", "message": "Invalid message format"})
                     continue
 
@@ -468,9 +482,7 @@ async def websocket_transcribe(websocket: WebSocket):
                 if is_buffer_full(audio_buffer):
                     logger.debug("Audio_buffer Full. Sending to Pyannote")
                     chunk_to_process = leftover + bytes(audio_buffer)
-                    # Clear buffer IMMEDIATELY for next chunk
                     audio_buffer.clear()
-                    # if there is enrollment voice recordin and embedding for that is generated then run filter_process
                     if voice_lock_active and professor_embedding is not None:
                         logger.debug("Filtering ")
                         chunk_to_process, leftover = filter_to_professor(chunk_to_process, professor_embedding)
@@ -481,7 +493,6 @@ async def websocket_transcribe(websocket: WebSocket):
                     if chunk_to_process:
                         asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt, selected_tags,
                                                          custom_name))
-                    # keep receiving audio from browser with asyncio
 
     except WebSocketDisconnect:
         print("Client Disconnected from Websocket")

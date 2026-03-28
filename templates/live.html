@@ -14,7 +14,23 @@
     <div class="container">
         <!-- Left: Controls -->
         <div class="controls">
-            <div class="mic-bubble" id="micBubble">🎤</div>
+            <div class="voice-lock-toggle-wrapper">
+                <label class="voice-lock-toggle">
+                    <input type="checkbox" id="lockToggle">
+                    <span class="toggle-track"></span>
+                </label>
+                <span class="toggle-label">Lock Mode</span>
+            </div>
+            <div class="sample-audio-wrapper" id="sampleAudioWrapper" style="display:none">
+                <p class="sample-label">Locked Audio</p>
+                <audio id="sampleAudio" controls></audio>
+            </div>
+
+            <div class="mic-wrapper">
+                <div class="mic-bubble" id="micBubble">🎤</div>
+                <span class="lock-badge" id="lockBadge">🔒</span>
+                <div class="lock-hint" id="lockHint">Hold mic to capture professor's voice</div>
+            </div>
 
             <div id="status" class="status idle">
                Click the microphone to start recording

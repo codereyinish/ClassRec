@@ -31,6 +31,11 @@
    let isRecording = false;
    let websocket = null;
    let audioContext = null;
+   let voiceLockActive = false;
+   let lockToggleOn = false;
+   let isEnrolling = false;
+   let enrollAutoStop = null;   // 10s auto-stop for enrollment
+   let enrollmentAudioChunks = [];
 
 
     //=====2B. LIVE USAGE TRACING ======
@@ -91,7 +96,98 @@
    const transcriptArea = document.getElementById('transcriptArea');
    const transcriptContent = document.getElementById('transcriptContent');
    const emptyState = document.getElementById('emptyState');
-   const micSelect = document.getElementById('micSelect')
+   const micSelect = document.getElementById('micSelect');
+   const lockToggle = document.getElementById('lockToggle');
+   const lockBadge = document.getElementById('lockBadge');
+   const lockHint = document.getElementById('lockHint');
+
+   lockToggle.addEventListener('change', () => {
+       lockToggleOn = lockToggle.checked;
+       if (lockToggleOn) {
+           lockHint.classList.add('visible');
+       } else {
+           lockHint.classList.remove('visible');
+           lockBadge.classList.remove('visible');
+           voiceLockActive = false;
+           if (websocket && websocket.readyState === WebSocket.OPEN) {
+               websocket.send(JSON.stringify({ type: "voice_lock_off" }));
+           }
+       }
+   });
+
+
+   function onMicDown(e) {
+       if (!lockToggleOn || voiceLockActive) return;
+       e.preventDefault();   // block click from firing
+       enrollmentAudioChunks = [];
+       statusDiv.textContent = 'Recording sample...';
+       statusDiv.className = 'status enrolling';
+       lockHint.classList.remove('visible');
+       if (!UsageTracker.canRecordLive()) { window.showUpgradeModal(); return; }
+       (async () => {
+           try { pendingStream = await getMicrophoneAccess(); }
+           catch (err) { alert('Mic denied: ' + err.message); return; }
+           isEnrolling = true;
+           startEnrolling();
+       })();
+       enrollAutoStop = setTimeout(() => onMicUp(null), 10000);  // auto-stop
+   }
+
+   function showEnrollmentPlayback() {
+       if (enrollmentAudioChunks.length === 0) return;
+       const blob = createWavBlob(enrollmentAudioChunks);
+       const audioEl = document.getElementById('sampleAudio');
+       const wrapper = document.getElementById('sampleAudioWrapper');
+       if (audioEl && wrapper) {
+           audioEl.src = URL.createObjectURL(blob);
+           wrapper.style.display = 'block';
+       }
+   }
+
+   function createWavBlob(chunks) {
+       const totalSamples = chunks.reduce((s, c) => s + c.length, 0);
+       const pcm = new Int16Array(totalSamples);
+       let offset = 0;
+       for (const chunk of chunks) { pcm.set(chunk, offset); offset += chunk.length; }
+       const dataSize = pcm.byteLength;
+       const wav = new ArrayBuffer(44 + dataSize);
+       const v = new DataView(wav);
+       const str = (off, s) => [...s].forEach((c, i) => v.setUint8(off + i, c.charCodeAt(0)));
+       str(0,'RIFF'); v.setUint32(4, 36+dataSize, true); str(8,'WAVE');
+       str(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+       v.setUint16(22,1,true); v.setUint32(24,16000,true);
+       v.setUint32(28,32000,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+       str(36,'data'); v.setUint32(40,dataSize,true);
+       new Int16Array(wav,44).set(pcm);
+       return new Blob([wav], { type:'audio/wav' });
+   }
+
+   function onMicUp(e) {
+       if (!lockToggleOn || !isEnrolling) return;
+       if (e) e.preventDefault();
+       isEnrolling = false;
+       if (enrollAutoStop) { clearTimeout(enrollAutoStop); enrollAutoStop = null; }
+       if (websocket && websocket.readyState === WebSocket.OPEN) {
+           websocket.send(JSON.stringify({ type: "enroll_end" }));
+       }
+       const seconds = (enrollmentAudioChunks.length * 4096) / 16000;
+       if (seconds >= 1.5) {
+           showEnrollmentPlayback();
+           statusDiv.textContent = 'Processing sample...';
+           statusDiv.className = 'status recording';
+       } else {
+           lockHint.textContent = 'Hold for at least 2 seconds';
+           lockHint.classList.add('visible');
+           statusDiv.textContent = 'Too short — try again';
+           statusDiv.className = 'status idle';
+       }
+   }
+
+   micBubble.addEventListener('mousedown', onMicDown);
+   micBubble.addEventListener('mouseup', onMicUp);
+   micBubble.addEventListener('touchstart', onMicDown, { passive: false });
+   micBubble.addEventListener('touchend', onMicUp, { passive: false });
+
 
    //======= DATA SANITIZATION =======
    function escapeHtml(str) {
@@ -141,22 +237,19 @@
    let pendingStream = null;  // ← store stream here
 
    // CLICK MICROPHONE
-   micBubble.addEventListener('click', async() => {
+   micBubble.addEventListener('click', async () => {
+       if (lockToggleOn && !voiceLockActive) return;
        if (isRecording) {
            stopRecording();
        } else {
-                if(!UsageTracker.canRecordLive()){
-                    window.showUpgradeModal();
-                    return;
-                }
-                try{
-                    pendingStream = await getMicrophoneAccess();
-                }
-                catch(e){
-                    alert('Microphone access denied: ' + e.message);
-                    return;
-                }
-              openPopup()
+           if (!UsageTracker.canRecordLive()) { window.showUpgradeModal(); return; }
+           openPopup();
+           try {
+               pendingStream = await getMicrophoneAccess();
+           } catch (e) {
+               alert('Microphone access denied: ' + e.message);
+               closePopup();
+           }
        }
    });
 
@@ -178,7 +271,6 @@
 
     // ===== 7. UI HELPERS =====
     function setRecordingUI(){
-       //CHANGE CSS STYLE
        micBubble.classList.add('recording');
        statusDiv.textContent = 'Recording... (Click to stop)';
        statusDiv.className = 'status recording';
@@ -188,17 +280,23 @@
        micBubble.classList.remove('recording');
        statusDiv.textContent = 'Click to start recording';
        statusDiv.className = 'status idle';
+       lockToggle.checked = false;
+       lockToggleOn = false;
+       lockHint.textContent = 'Hold mic to capture professor\'s voice';
+       lockHint.classList.remove('visible');
+       lockBadge.classList.remove('visible');
+       voiceLockActive = false;
+       isEnrolling = false;
+       if (enrollAutoStop) { clearTimeout(enrollAutoStop); enrollAutoStop = null; }
    }
 
    //======= 8. Display Transcription
    let currentChunk = null;        // ← NEW: tracks current div
 
    function getOrCreateChunk(){
-       // ← NEW: if currentChunk is null, then  text=''
        const currentText = currentChunk ? currentChunk.querySelector('.transcript-text').textContent : '';
        const endsWithSentence = /[.!?]$/.test(currentText.trim());
 
-       // if no div created yet or given div is full
        if (!currentChunk || (currentText.length > MAX_CHARS && endsWithSentence)) {
            currentChunk = document.createElement('div');
            currentChunk.className = 'transcript-chunk';
@@ -237,7 +335,6 @@
    function displayTranscription(text, tags=[]){
        emptyState.style.display = 'none';
        const chunk = getOrCreateChunk();
-       //Fill up the text
        const textEl = chunk.querySelector('.transcript-text');
        textEl.textContent += (textEl.textContent ? ' ' : '') + text;
        if(tags.length>0){
@@ -254,7 +351,6 @@
            const wsUrl = window.location.host;
            websocket = new WebSocket(`${protocol}//${wsUrl}/ws/transcribe`);
 
-           // states of websocket connection with corresponding function to be implemented in each state
 
            //Connection opened
            Logger.debug("Websocket Connection  Opened");
@@ -280,6 +376,18 @@
                }
                else if (data.type === "error"){
                    alert('Transcription error: ' + data.message);
+               }
+               else if (data.type === "enroll_success") {
+                   voiceLockActive = true;
+                   lockBadge.classList.add('visible');
+                   lockHint.classList.remove('visible');
+                   openPopup();   // let user set lecture context now that voice is locked
+               }
+               else if (data.type === "enroll_failed") {
+                   lockHint.textContent = 'Hold for more than 3 seconds';
+                   lockHint.classList.add('visible');
+                   statusDiv.textContent = 'Not enough audio — try again';
+                   statusDiv.className = 'status idle';
                }
            };
 
@@ -309,24 +417,18 @@
 
    // ===== 10. AUDIO PROCESSING =====
    function setupAudioProcessing(stream){
-           // 4. Setup Audio Processing
            audioContext = new AudioContext({ sampleRate : 16000});
            const source = audioContext.createMediaStreamSource(stream);
            const processor = audioContext.createScriptProcessor(4096,1, 1);
            source.connect(processor);
            processor.connect(audioContext.destination);
 
-           //5. Send Audio to Server
             processor.onaudioprocess = (e) => {
                if (websocket && websocket.readyState === WebSocket.OPEN){
                    const audioData = e.inputBuffer.getChannelData(0);
-                   const rms = calculateRMS(audioData);
-                   Logger.debug('RMS:', rms);  // ← add this-->
-                   if(isSilent(audioData)) return;
-
                    const int16Chunk = convertToInt16(audioData);
-                   websocket.send(int16Chunk.buffer)
-                   Logger.debug("Audio sent from frontend to Backend ")
+                   websocket.send(int16Chunk.buffer);
+                   if (isEnrolling) enrollmentAudioChunks.push(new Int16Array(int16Chunk));
                }
            };
    }
@@ -380,6 +482,59 @@
        resetUI();
    }
 
+   function startEnrolling() {
+       const stream = pendingStream;
+       pendingStream = null;
+       if (!stream) { isEnrolling = false; return; }
+
+       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+       websocket = new WebSocket(`${protocol}//${window.location.host}/ws/transcribe`);
+
+       websocket.onopen = () => {
+           websocket.send(JSON.stringify({ type: "context", prompt: "", tagConfig: window.tagConfig || { tags: [], name: "" } }));
+           websocket.send(JSON.stringify({ type: "enroll_start" }));
+           isRecording = true;
+           startUsageTracking();
+           setupAudioProcessing(stream);
+       };
+
+       websocket.onmessage = (event) => {
+           const data = JSON.parse(event.data);
+           if (data.type === "enroll_success") {
+               voiceLockActive = true;
+               lockBadge.classList.add('visible');
+               lockHint.classList.remove('visible');
+               if (audioContext) audioContext.close();
+               websocket.close();
+               isRecording = false;
+               stopUsageTracking();
+               statusDiv.textContent = 'Voice locked! Click mic to record.';
+               statusDiv.className = 'status idle';
+           } else if (data.type === "enroll_failed") {
+               lockHint.textContent = 'Hold for at least 2 seconds';
+               lockHint.classList.add('visible');
+               if (audioContext) audioContext.close();
+               websocket.close();
+               isRecording = false;
+               stopUsageTracking();
+               statusDiv.textContent = 'Not enough audio — try again';
+               statusDiv.className = 'status idle';
+           } else if (data.type === "error") {
+               alert('Error: ' + data.message);
+           } else if (data.type === "transcription") {
+               displayTranscription(data.text, data.tags || []);
+           }
+       };
+
+       websocket.onerror = () => { stopRecording(); alert('Cannot connect to server. Is it running?'); };
+       websocket.onclose = () => {
+           if (isRecording) {
+               isRecording = false;
+               stopUsageTracking();
+           }
+       };
+   }
+
    // =====12. POPUP / SESSION =====
    let lecturePrompt = "";
    let debounceTimer;
@@ -409,11 +564,15 @@
        collectAlertConfig();
        const title = previewText.textContent || null;
        closePopup();
-       if (title) {
-           titleText.textContent = title;
-           sessionTitle.classList.add('visible');
+       if (title) { titleText.textContent = title; sessionTitle.classList.add('visible'); }
+       if (isRecording) {
+           if (websocket && websocket.readyState === WebSocket.OPEN) {
+               websocket.send(JSON.stringify({ type: "context", prompt: lecturePrompt, tagConfig: window.tagConfig }));
+           }
+           setRecordingUI();
+       } else {
+           startRecording();
        }
-       startRecording();
    }
 
    promptInput.addEventListener('input', () => {
@@ -439,7 +598,14 @@
    btnSkip.addEventListener('click', () => {
        collectAlertConfig();
        overlay.classList.remove('open');
-       startRecording();
+       if (isRecording) {
+           if (websocket && websocket.readyState === WebSocket.OPEN) {
+               websocket.send(JSON.stringify({ type: "context", prompt: "", tagConfig: window.tagConfig }));
+           }
+           setRecordingUI();
+       } else {
+           startRecording();
+       }
    });
    promptInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') startSession(); });
 
