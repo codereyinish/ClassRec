@@ -379,24 +379,6 @@ def filter_to_professor(pcm_bytes: bytes,professor_embedding: np.ndarray):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def show_Graphical_Audio_Progress(filled):
     total = BYTES_PER_SECOND * CHUNK_DURATION
     percent = int((filled / total) * 100)
@@ -486,15 +468,18 @@ async def websocket_transcribe(websocket: WebSocket):
                 if is_buffer_full(audio_buffer):
                     logger.debug("Audio_buffer Full. Sending to Pyannote")
                     chunk_to_process = leftover + bytes(audio_buffer)
-                    audio_buffer.clear()
-                    
-
-
                     # Clear buffer IMMEDIATELY for next chunk
                     audio_buffer.clear()
-                    leftover = b""
+                    # if there is enrollment voice recordin and embedding for that is generated then run filter_process
+                    if voice_lock_active and professor_embedding is not None:
+                        logger.debug("Filtering ")
+                        chunk_to_process, leftover = filter_to_professor(chunk_to_process, professor_embedding)
 
-                    asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt, selected_tags,
+                    else:
+                        logger.debug("Not Using Professor VOice Lock Featrue  ")
+                        leftover = b""
+                    if chunk_to_process:
+                        asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt, selected_tags,
                                                          custom_name))
                     # keep receiving audio from browser with asyncio
 
