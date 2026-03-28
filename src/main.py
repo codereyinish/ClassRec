@@ -241,6 +241,11 @@ async def websocket_transcribe(websocket: WebSocket):
     lecture_prompt = ""
     selected_tags = []
     custom_name = ""
+    leftover = b"" #bytes zero bytes
+    enrolling = False
+    enrollment_buffer = bytearray()
+    professor_embedding = None
+    voice_lock_active = False
 
     try:
         while True:
@@ -257,6 +262,27 @@ async def websocket_transcribe(websocket: WebSocket):
                         lecture_prompt = msg.prompt
                         selected_tags = msg.tagConfig.tags
                         custom_name = msg.tagConfig.name
+
+                    elif msg.type=="enroll_start":
+                        enrolling = True
+                        enrollment_buffer.clear()
+                        logger.info("Enrollment started")
+
+                    elif msg.type=="enroll_end":
+                        enrolling = False
+                        professor_embedding = compute_professor_embedding(bytes(enrollment_buffer))
+                        if professor_embedding is not None:
+                            voice_lock_active = True
+                            await websocket.send_json({"type": "enroll_success"})
+                            logger.info("Professor voice Locked")
+                        else:
+                            await websocket.send_json({"type": "enroll_failed", "message": "RETRY::: Not enough audio "
+                                                                                           "captured"})
+                            enrollment_buffer.clear()
+
+
+
+
                 except Exception as e:
                     logger.debug(f"Validation error: {e}")  # ← add this
                     await websocket.send_json({"type": "error", "message": "Invalid message format"})
@@ -264,27 +290,33 @@ async def websocket_transcribe(websocket: WebSocket):
 
 
             elif "bytes" in data:
+                packet = data["bytes"]
+
+                # Implement VAD
+                if not contains_speech(packet):
+                    continue
+
+                if enrolling:
+                    enrollment_buffer.extend(packet)
+                    continue
+
+                # In case of buffer overflow due to external reasons
                 if len(audio_buffer) > MAX_BUFFER_BYTES:
                     await websocket.send_json({"type": "error", "message": "Audio limit exceeded"})
                     await websocket.close()
                     break
-                audio_buffer.extend(data["bytes"])
+                audio_buffer.extend(packet)
                 filled = len(audio_buffer)
 
-                total = BYTES_PER_SECOND * CHUNK_DURATION
-                percent = int((filled / total) * 100)
-                bar = '█' * (percent // 10) + '░' * (10 - percent // 10)
-
-                # \r overwrites the same line — no spam
-                print(f"\r  🎙️ Audio Buffer  [{bar}] {percent}%  ({filled}/{total} bytes)", end='', flush=True)
+                show_Graphical_Audio_Progress(filled)
 
                 if is_buffer_full(audio_buffer):
-                    logger.debug("Audio_buffer Full. Sending to Whisper")
-                    chunk_to_process = bytes(audio_buffer)
+                    logger.debug("Audio_buffer Full. Sending to Pyannote")
+                    chunk_to_process = leftover + bytes(audio_buffer)
 
                     # Clear buffer IMMEDIATELY for next chunk
                     audio_buffer.clear()
-
+                    leftover = b""
 
                     asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt, selected_tags,
                                                          custom_name))
@@ -295,12 +327,66 @@ async def websocket_transcribe(websocket: WebSocket):
     except Exception as e:
         print(f"Websocket error : {e}")
 
+ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 3
+
+def compute_professor_embedding(pcm_bytes: bytes) -> np.ndarray | None:
+    """Split enrollment audio into 3s windows, embed each, return average."""
+    if len(pcm_bytes)< ENROLL_WINDOW_BYTES:
+        logger.warning("Enrollment audio too short")
+        return None
+    embeddings = []
+    for i in range(0, len(pcm_bytes)-ENROLL_WINDOW_BYTES+1, ENROLL_WINDOW_BYTES):
+        window = pcm_bytes[i: i + ENROLL_WINDOW_BYTES]
+        emb = get_embedding(window)
+        if emb is not None:
+            embeddings.append(emb)
+
+    if not embeddings:
+        return None
+
+    avg = np.mean(embeddings, axis = 0)
+    avg = avg/ np.linalg.norm(avg)
+    return avg
+
+def get_embedding(pcm_bytes:bytes) -> np.ndarray | None:
+    """Run 3s audio through embedding model, return 256-number vector."""
+    if _emb_session is  None:
+        logger.warning("Embedding model not loaded")
+        return None
+
+    samples = np.frombuffer(pcm_bytes, dtype = np.int16).astype(np.float32)/ 32768.0
+    samples = samples.reshape(1,1,-1)
+    outputs = _emb_session.run(None, {"input": samples})
+    embedding = outputs[0].squeeze()  # shape: [256]
+    return embedding
+
+
+
+
+
+
+def show_Graphical_Audio_Progress(filled):
+    total = BYTES_PER_SECOND * CHUNK_DURATION
+    percent = int((filled / total) * 100)
+    bar = '█' * (percent // 10) + '░' * (10 - percent // 10)
+
+    # \r overwrites the same line — no spam
+    print(f"\r  🎙️ Audio Buffer  [{bar}] {percent}%  ({filled}/{total} bytes)", end='', flush=True)
+
 
 ## ======= VAD ======
 VAD_MODEL_PATH =  BASE_DIR/"models"/"silero_vad.onnx"
 VAD_WINDOW_SIZE = 512 #audio sample in 1 pass
 VAD_THRESHOLD = 0.5
 _vad_session = None
+
+
+#======== SPEAKER DIARIZATION=========
+SEG_MODEL_PATH = BASE_DIR/"models"/"segmentation.onnx"
+EMB_MODEL_PATH = BASE_DIR/"models"/"embedding.onnx"
+_seg_session = None
+_emb_session = None
+
 
 def contains_speech(pcm_bytes: bytes) -> bool:
     """Returns True if the audio chunk likely contains human speech."""
@@ -341,7 +427,8 @@ def contains_speech(pcm_bytes: bytes) -> bool:
 # ======= STARTUP =======
 @app.on_event("startup")
 async def startup_event():
-    global _mem_baseline_mb, _mem_after_vad_mb, _vad_session
+    global _mem_baseline_mb, _mem_after_vad_mb, _vad_session , _seg_session, _emb_session
+
     tracemalloc.start()
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
     logger.info(f"Startup baseline memory: {_mem_baseline_mb:.1f} MB")
@@ -352,8 +439,24 @@ async def startup_event():
     else:
         logger.warning("VAD model not found at startup")
 
+
+    if SEG_MODEL_PATH.exists():
+        _seg_session = ort.InferenceSession(str(SEG_MODEL_PATH))
+        logger.info("Segmentation Model Loaded")
+    else:
+        logger.warning("Segmentation model not found at startup")
+
+
+    if EMB_MODEL_PATH.exists():
+        _emb_session = ort.InferenceSession(str(EMB_MODEL_PATH))
+        logger.info("Embedding model loaded")
+    else:
+        logger.warning("Embedding model not found at startup")
+
+
+
     _mem_after_vad_mb = _process.memory_info().rss / 1024 / 1024
-    logger.info(f"Memory after VAD load: {_mem_after_vad_mb:.1f} MB")
+    logger.info(f"Memory after all models loaded: {_mem_after_vad_mb:.1f} MB")
 
 
 
