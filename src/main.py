@@ -37,7 +37,7 @@ app = FastAPI()
 # ======= MEMORY TRACKING =======
 _process = psutil.Process(os.getpid())
 _mem_baseline_mb: float = 0.0
-_mem_after_vad_mb: float = 0.0
+_mem_after_models_mb: float = 0.0
 
 BASE_DIR = Path(__file__).parent.parent  # goes up from src/ to ClassRec/
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -134,10 +134,6 @@ async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_promp
                            custom_name:str):
     """Convert audio chunk to WAV, transcribe, and send result to browser via websocket"""
     try:
-        #skip Whisper if no speech detected
-        if not contains_speech(chunk_data):
-            logger.debug("VAD: silence detected, skipping Whisper")
-            return
         audio_file_wav = convert_pcm_to_wav(chunk_data)
         transcripted_text = call_whisper(audio_file_wav, lecture_prompt)
         logger.debug("Got Transcript ")
@@ -203,7 +199,7 @@ def health():
             "current_mb": round(current_mb, 1),
             "baseline_mb": round(_mem_baseline_mb, 1),
             "growth_mb": round(current_mb - _mem_baseline_mb, 1),
-            "after_vad_load_mb": round(_mem_after_vad_mb, 1),
+            "after_models_load_mb": round(_mem_after_models_mb, 1),
             "limit_mb": 512,
             "used_percent": round(current_mb / 512 * 100, 1),
         },
@@ -232,11 +228,39 @@ async def transcribe_audio(
         raise HTTPException(status_code=500, detail=f"Transcription Failed: {str(e)}")
 
 
-# ======= VAD ======
-VAD_MODEL_PATH =  BASE_DIR/"models"/"silero_vad.onnx"
-VAD_WINDOW_SIZE = 512 #audio sample in 1 pass
+# ======= VAD (enrollment only — filters silence from professor capture) =======
+VAD_MODEL_PATH = BASE_DIR/"models"/"silero_vad.onnx"
+VAD_WINDOW_SIZE = 512
 VAD_THRESHOLD = 0.5
 _vad_session = None
+
+def contains_speech(pcm_bytes: bytes) -> bool:
+    """Returns True if the audio chunk likely contains human speech."""
+    global _vad_session
+    if _vad_session is None:
+        if not VAD_MODEL_PATH.exists():
+            logger.warning("VAD model not found")
+            return True
+        _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
+        logger.info("Silero VAD model loaded")
+
+    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    h = np.zeros((2, 1, 64), dtype=np.float32)
+    c = np.zeros((2, 1, 64), dtype=np.float32)
+    sr = np.array(SAMPLE_RATE, dtype=np.int64)
+    max_score = 0.0
+
+    for i in range(0, len(samples) - VAD_WINDOW_SIZE + 1, VAD_WINDOW_SIZE):
+        window = samples[i : i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
+        outs = _vad_session.run(None, {"input": window, "sr": sr, "h": h, "c": c})
+        score = float(outs[0].squeeze())
+        h, c = outs[1], outs[2]
+        if score > max_score:
+            max_score = score
+        if max_score >= VAD_THRESHOLD:
+            break
+
+    return max_score >= VAD_THRESHOLD
 
 
 #======== SPEAKER DIARIZATION=========
@@ -246,40 +270,6 @@ _seg_session = None
 _emb_session = None
 
 
-def contains_speech(pcm_bytes: bytes) -> bool:
-    """Returns True if the audio chunk likely contains human speech."""
-    global _vad_session
-
-    if _vad_session is None:
-        if not VAD_MODEL_PATH.exists():
-            logger.warning("VAD model not found — skipping VAD, sending all audio to Whisper")
-            return True
-        _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
-        logger.info("Silero VAD model loaded")
-
-    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-
-
-    # v4 model uses separate h and c LSTM states, both [2, 1, 64]
-    h = np.zeros((2, 1, 64), dtype=np.float32)
-    c = np.zeros((2, 1, 64), dtype=np.float32)
-    sr = np.array(SAMPLE_RATE, dtype=np.int64)
-    max_score = 0.0
-
-    # Slide a 512-sample window through the whole chunk
-    for i in range(0, len(samples) - VAD_WINDOW_SIZE + 1, VAD_WINDOW_SIZE):
-        window = samples[i : i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
-        outs = _vad_session.run(None, {"input": window, "sr": sr, "h": h, "c": c})
-        score = float(outs[0].squeeze())
-        h, c = outs[1], outs[2]  # carry state forward to next window
-
-        if score > max_score:
-            max_score = score
-        if max_score >= VAD_THRESHOLD:
-            break  # early exit — already confirmed there's speech
-
-    logger.debug(f"VAD max score: {max_score:.3f} → {'SPEECH' if max_score >= VAD_THRESHOLD else 'SILENCE'}")
-    return max_score >= VAD_THRESHOLD
 
 ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 3
 
@@ -320,7 +310,7 @@ MIN_SEGMENT_DURATION =0.5 #0.5 sec of segment size at least for bettte embedding
 def filter_to_professor(pcm_bytes: bytes,professor_embedding: np.ndarray):
     """Segment audio, keep only professor voice, return filtered audio + leftover."""
     if _seg_session is None:
-        logger.Warning("Segmentation model not loaded, skipping Filter")
+        logger.warning("Segmentation model not loaded, skipping Filter")
         return pcm_bytes, b""
 
     # Step 1 Run segmentation model
@@ -478,12 +468,9 @@ async def websocket_transcribe(websocket: WebSocket):
             elif "bytes" in data:
                 packet = data["bytes"]
 
-                # Implement VAD
-                if not contains_speech(packet):
-                    continue
-
                 if enrolling:
-                    enrollment_buffer.extend(packet)
+                    if contains_speech(packet):
+                        enrollment_buffer.extend(packet)
                     continue
 
                 # In case of buffer overflow due to external reasons
@@ -499,6 +486,9 @@ async def websocket_transcribe(websocket: WebSocket):
                 if is_buffer_full(audio_buffer):
                     logger.debug("Audio_buffer Full. Sending to Pyannote")
                     chunk_to_process = leftover + bytes(audio_buffer)
+                    audio_buffer.clear()
+                    
+
 
                     # Clear buffer IMMEDIATELY for next chunk
                     audio_buffer.clear()
@@ -517,7 +507,7 @@ async def websocket_transcribe(websocket: WebSocket):
 # ======= STARTUP =======
 @app.on_event("startup")
 async def startup_event():
-    global _mem_baseline_mb, _mem_after_vad_mb, _vad_session , _seg_session, _emb_session
+    global _mem_baseline_mb, _mem_after_models_mb, _vad_session, _seg_session, _emb_session
 
     tracemalloc.start()
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
@@ -525,10 +515,9 @@ async def startup_event():
 
     if VAD_MODEL_PATH.exists():
         _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
-        logger.info("Silero VAD model pre-loaded at startup")
+        logger.info("VAD model loaded (enrollment only)")
     else:
         logger.warning("VAD model not found at startup")
-
 
     if SEG_MODEL_PATH.exists():
         _seg_session = ort.InferenceSession(str(SEG_MODEL_PATH))
@@ -545,8 +534,8 @@ async def startup_event():
 
 
 
-    _mem_after_vad_mb = _process.memory_info().rss / 1024 / 1024
-    logger.info(f"Memory after all models loaded: {_mem_after_vad_mb:.1f} MB")
+    _mem_after_models_mb = _process.memory_info().rss / 1024 / 1024
+    logger.info(f"Memory after all models loaded: {_mem_after_models_mb:.1f} MB")
 
 
 
