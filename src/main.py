@@ -294,15 +294,20 @@ def compute_professor_embedding(pcm_bytes: bytes) -> np.ndarray | None:
     return avg
 
 def get_embedding(pcm_bytes:bytes) -> np.ndarray | None:
-    """Run 3s audio through embedding model, return 256-number vector."""
-    if _emb_session is  None:
+    """Run audio through embedding model, return 256-number speaker vector."""
+    if _emb_session is None:
         logger.warning("Embedding model not loaded")
         return None
 
-    samples = np.frombuffer(pcm_bytes, dtype = np.int16).astype(np.float32)/ 32768.0
-    samples = samples.reshape(1,1,-1)
-    outputs = _emb_session.run(None, {"input": samples})
-    embedding = outputs[0].squeeze()  # shape: [256]
+    import librosa
+
+    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    mel_spec = librosa.feature.melspectrogram(y=samples, sr=SAMPLE_RATE, n_fft=512, hop_length=160, win_length=400, n_mels=80)
+    mel_spec = librosa.power_to_db(mel_spec)
+
+    features = mel_spec.T[np.newaxis, :, :]
+    outputs = _emb_session.run(None, {"input_features": features})
+    embedding = outputs[0].squeeze()
     return embedding
 
 
@@ -467,6 +472,7 @@ async def websocket_transcribe(websocket: WebSocket):
                 if enrolling:
                     if contains_speech(packet):
                         enrollment_buffer.extend(packet)
+                        logger.debug("Added packet to enrollment_buffer");
                     continue
 
                 # In case of buffer overflow due to external reasons
