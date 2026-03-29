@@ -489,6 +489,8 @@ async def websocket_transcribe(websocket: WebSocket):
                     logger.debug("Audio_buffer Full. Sending to Pyannote")
                     chunk_to_process = leftover + bytes(audio_buffer)
                     audio_buffer.clear()
+                    logger.debug(f"Voice lock is : {voice_lock_active}")
+                    logger.debug(f" professor embedding is : {professor_embedding}")
                     if voice_lock_active and professor_embedding is not None:
                         logger.debug("Filtering ")
                         chunk_to_process, leftover = filter_to_professor(chunk_to_process, professor_embedding)

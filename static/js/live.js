@@ -463,9 +463,15 @@
            Logger.debug("Into Recording Mode");
            const stream = pendingStream || await getMicrophoneAccess();
            pendingStream = null;
-           implementWebsocketConnection(stream);
-           isRecording = true;
-           startUsageTracking();
+           if (websocket && websocket.readyState === WebSocket.OPEN) {
+               isRecording = true;
+               startUsageTracking();
+               setupAudioProcessing(stream);
+           } else {
+               implementWebsocketConnection(stream);
+               isRecording = true;
+               startUsageTracking();
+           }
        }
        catch(error){
            alert('Error: ' + error.message);
@@ -505,7 +511,6 @@
                lockBadge.classList.add('visible');
                lockHint.classList.remove('visible');
                if (audioContext) audioContext.close();
-               websocket.close();
                isRecording = false;
                stopUsageTracking();
                statusDiv.textContent = 'Voice locked! Click mic to record.';
@@ -527,7 +532,8 @@
        };
 
        websocket.onerror = () => { stopRecording(); alert('Cannot connect to server. Is it running?'); };
-       websocket.onclose = () => {
+       websocket.onclose = (event) => {
+           console.log('Enrollment WS closed. code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean, 'isRecording:', isRecording);
            if (isRecording) {
                isRecording = false;
                stopUsageTracking();
