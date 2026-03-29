@@ -271,27 +271,36 @@ _emb_session = None
 
 
 
-ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 1
+ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 3
 
-def compute_professor_embedding(pcm_bytes: bytes) -> np.ndarray | None:
-    """Split enrollment audio into 1s windows, embed each, return average."""
+def compute_professor_embedding(pcm_bytes: bytes) -> tuple[np.ndarray, float] | tuple[None, None]:
+    """Split enrollment audio into 1s windows, embed each, return (average embedding, adaptive threshold)."""
     logger.info(f"Enrollment buffer: {len(pcm_bytes)} bytes ({len(pcm_bytes)/BYTES_PER_SECOND:.1f}s)")
     if len(pcm_bytes) < ENROLL_WINDOW_BYTES:
         logger.warning(f"Enrollment audio too short: need {ENROLL_WINDOW_BYTES} bytes, got {len(pcm_bytes)}")
-        return None
+        return None, None
     embeddings = []
     for i in range(0, len(pcm_bytes)-ENROLL_WINDOW_BYTES+1, ENROLL_WINDOW_BYTES):
         window = pcm_bytes[i: i + ENROLL_WINDOW_BYTES]
         emb = get_embedding(window)
         if emb is not None:
+            emb = emb / np.linalg.norm(emb)
             embeddings.append(emb)
 
     if not embeddings:
-        return None
+        return None, None
 
-    avg = np.mean(embeddings, axis = 0)
-    avg = avg/ np.linalg.norm(avg)
-    return avg
+    avg = np.mean(embeddings, axis=0)
+    avg = avg / np.linalg.norm(avg)
+
+    # compute similarity of each enrollment window against the final avg
+    # the worst (min) score tells us the lower bound of this voice
+    similarities = [float(np.dot(e, avg)) for e in embeddings]
+    min_similarity = min(similarities)
+    adaptive_threshold = min_similarity * 0.9  # 10% buffer below worst case
+    logger.info(f"Enrollment similarities: min={min_similarity:.3f}, threshold set to {adaptive_threshold:.3f}")
+
+    return avg, adaptive_threshold
 
 def get_embedding(pcm_bytes:bytes) -> np.ndarray | None:
     """Run audio through embedding model, return 256-number speaker vector."""
@@ -313,17 +322,20 @@ def get_embedding(pcm_bytes:bytes) -> np.ndarray | None:
 
 SIMILARITY_THRESHOLD = 0.75
 MIN_SEGMENT_DURATION =0.5 #0.5 sec of segment size at least for bettte embedding
-def filter_to_professor(pcm_bytes: bytes,professor_embedding: np.ndarray):
+def filter_to_professor(pcm_bytes: bytes, professor_embedding: np.ndarray, threshold: float = SIMILARITY_THRESHOLD):
     """Segment audio, keep only professor voice, return filtered audio + leftover."""
     if _seg_session is None:
         logger.warning("Segmentation model not loaded, skipping Filter")
         return pcm_bytes, b""
 
     # Step 1 Run segmentation model
+    logger.info(f"[filter] Step 1: Running segmentation on {len(pcm_bytes)/BYTES_PER_SECOND:.1f}s of audio")
     samples = np.frombuffer(pcm_bytes, dtype = np.int16).astype(np.float32)/32768.0
-    samples = samples.reshape(1, -1) #batch, samples
+    samples = samples.reshape(1, 1, -1) #batch, channels, samples
     output = _seg_session.run(None, {"input_values" : samples})
     segmentation = output[0].squeeze(0) # shape: [num_frames, frame_array]
+    segmentation = 1 / (1 + np.exp(-segmentation))  # convert logits to probabilities via sigmoid
+    logger.info(f"[filter] Step 1 done: segmentation output shape {segmentation.shape}, max confidence across all frames: {segmentation.max():.3f}, mean: {segmentation.mean():.3f}")
 
     # Step 2 : Convert Frames to Time Segments
     num_frames = segmentation.shape[0]
@@ -335,20 +347,18 @@ def filter_to_professor(pcm_bytes: bytes,professor_embedding: np.ndarray):
     seg_start = 0.0
 
     for i , frame in enumerate(segmentation):
-        is_speech = frame.max() > 0.5 #0.5 is confidence score
+        is_speech = frame.max() > 0.3  # 0.3 threshold after sigmoid (model was uncertain at boundary)
         if is_speech and not in_speech:
             seg_start = i * frame_duration
             in_speech = True
-        # so for next frame --> It is already in speech and if that frame is also is speech, then 1st conditon wont run
-        #2nd condtion also doesnt run, In fact we have to do nothing, we only need to know start and end timestamp of
         elif not is_speech and in_speech:
             segments.append((seg_start,i*frame_duration))
             in_speech = False
 
-        #for last frame 293, we dont have next frame,and append only happens when silence detected in next frame,
-        # we dont have next frame lol
     if in_speech:
         segments.append((seg_start, duration))
+
+    logger.info(f"[filter] Step 2 done: found {len(segments)} speech segments: {[(f'{s:.1f}', f'{e:.1f}') for s,e in segments]}")
 
     #filter segments by professor similarity
     professor_audio = b""
@@ -359,27 +369,33 @@ def filter_to_professor(pcm_bytes: bytes,professor_embedding: np.ndarray):
         is_last = index == len(segments) - 1
 
         if seg_duration < MIN_SEGMENT_DURATION and is_last:
-            leftover = pcm_bytes[int(start * BYTES_PER_SECOND): ]
+            logger.info(f"[filter] Segment {start:.1f}s-{end:.1f}s ({seg_duration:.2f}s) — too short + last, saving as leftover")
+            leftover = pcm_bytes[(int(start * BYTES_PER_SECOND) // 2) * 2: ]
             continue
 
         if seg_duration < MIN_SEGMENT_DURATION:
+            logger.info(f"[filter] Segment {start:.1f}s-{end:.1f}s ({seg_duration:.2f}s) — too short, skipping")
             continue
 
-        start_byte  = int(start * BYTES_PER_SECOND)
-        end_byte = int(end * BYTES_PER_SECOND)
+        start_byte = (int(start * BYTES_PER_SECOND) // 2) * 2
+        end_byte   = (int(end   * BYTES_PER_SECOND) // 2) * 2
         seg_bytes = pcm_bytes[start_byte:end_byte]
 
-        #Now we got the segment where speaker is speaking, we extracted original audio becasue we cant conitnue with
-        # numpy segment from the segmentation model in different format
         emb = get_embedding(seg_bytes)
+
         if emb is None:
+            logger.warning(f"[filter] Segment {start:.1f}s-{end:.1f}s — embedding failed, skipping")
             continue
+        #we havent normalized the emb yet, normalize it
+        emb = emb / np.linalg.norm(emb)
 
-        similarity = np.dot(emb, professor_embedding) #Cosine dot multiplication
-        logger.debug(f"Segment {start:.1f}s-{end:.1f}s similarity: {similarity:.3f}")
+        similarity = np.dot(emb, professor_embedding)
+        logger.info(f"[filter] Segment {start:.1f}s-{end:.1f}s similarity: {similarity:.3f} (threshold: {threshold:.3f}) → {'PASS' if similarity >= threshold else 'FAIL'}")
 
-        if similarity >= SIMILARITY_THRESHOLD:
+        if similarity >= threshold:
             professor_audio += seg_bytes
+
+    logger.info(f"[filter] Done: {len(professor_audio)/BYTES_PER_SECOND:.1f}s of professor audio kept out of {duration:.1f}s total")
     return professor_audio , leftover
 
 
@@ -409,6 +425,7 @@ async def websocket_transcribe(websocket: WebSocket):
     enrolling = False
     enrollment_buffer = bytearray()
     professor_embedding = None
+    professor_threshold = SIMILARITY_THRESHOLD
     voice_lock_active = False
 
     try:
@@ -437,10 +454,11 @@ async def websocket_transcribe(websocket: WebSocket):
                     elif msg.type=="enroll_end":
                         enrolling = False
                         try:
-                            professor_embedding = compute_professor_embedding(bytes(enrollment_buffer))
+                            professor_embedding, professor_threshold = compute_professor_embedding(bytes(enrollment_buffer))
                         except Exception as emb_err:
                             logger.error(f"Embedding error: {emb_err}")
                             professor_embedding = None
+                            professor_threshold = SIMILARITY_THRESHOLD
                         if professor_embedding is not None:
                             voice_lock_active = True
                             await websocket.send_json({"type": "enroll_success"})
@@ -493,7 +511,7 @@ async def websocket_transcribe(websocket: WebSocket):
                     logger.debug(f" professor embedding is : {professor_embedding}")
                     if voice_lock_active and professor_embedding is not None:
                         logger.debug("Filtering ")
-                        chunk_to_process, leftover = filter_to_professor(chunk_to_process, professor_embedding)
+                        chunk_to_process, leftover = filter_to_professor(chunk_to_process, professor_embedding, professor_threshold)
 
                     else:
                         logger.debug("Not Using Professor VOice Lock Featrue  ")

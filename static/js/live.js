@@ -466,6 +466,7 @@
            if (websocket && websocket.readyState === WebSocket.OPEN) {
                isRecording = true;
                startUsageTracking();
+               setRecordingUI();
                setupAudioProcessing(stream);
            } else {
                implementWebsocketConnection(stream);
