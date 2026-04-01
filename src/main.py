@@ -297,7 +297,7 @@ def compute_professor_embedding(pcm_bytes: bytes) -> tuple[np.ndarray, float] | 
     # the worst (min) score tells us the lower bound of this voice
     similarities = [float(np.dot(e, avg)) for e in embeddings]
     min_similarity = min(similarities)
-    adaptive_threshold = min_similarity * 0.9  # 10% buffer below worst case
+    adaptive_threshold = min(min_similarity * 0.9, 0.75)  # cap at 0.75 to avoid over-fitting to clean enrollment
     logger.info(f"Enrollment similarities: min={min_similarity:.3f}, threshold set to {adaptive_threshold:.3f}")
 
     return avg, adaptive_threshold
