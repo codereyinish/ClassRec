@@ -1,4 +1,4 @@
-from fastapi import FastAPI,  File, UploadFile, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -7,8 +7,9 @@ import os
 from dotenv import load_dotenv
 import io
 import asyncio
-import array
 import wave
+import tempfile
+import soundfile as sf
 from typing import Tuple
 from validators import validate_audio_file
 from pathlib import Path
@@ -20,13 +21,16 @@ import onnxruntime as ort
 import numpy as np
 import psutil
 import tracemalloc
+import librosa
+import stable_whisper
+import torch
 
 sentry_sdk.init(
     dsn="https://f62227a4abc04cfda1165ef380cdc745@o4511040460488704.ingest.us.sentry.io/4511040467566592",
     send_default_pii=True,
 )
 
-#=======SETUP========
+# ======= SETUP =======
 load_dotenv()
 CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "pk_test_ZXRoaWNhbC1tYWNhdy00OS5jbGVyay5hY2NvdW50cy5kZXYk")
 
@@ -39,26 +43,45 @@ _process = psutil.Process(os.getpid())
 _mem_baseline_mb: float = 0.0
 _mem_after_models_mb: float = 0.0
 
-BASE_DIR = Path(__file__).parent.parent  # goes up from src/ to ClassRec/
+BASE_DIR = Path(__file__).parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["clerk_key"] = CLERK_PUBLISHABLE_KEY
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
-#=======CONSTANTS=========
-SAMPLE_RATE = 16000  # 16kHz
-BYTES_PER_SAMPLE = 2  # Int16
-BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
-CHUNK_DURATION = 10
-MAX_BUFFER_BYTES = BYTES_PER_SECOND * CHUNK_DURATION
+# ======= CONSTANTS =======
+SAMPLE_RATE       = 16000
+BYTES_PER_SAMPLE  = 2
+BYTES_PER_SECOND  = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
+CHUNK_DURATION    = 10
+MAX_BUFFER_BYTES  = BYTES_PER_SECOND * CHUNK_DURATION
+
+WHISPER_MODEL     = 'small.en'
+
+# VAD
+VAD_WINDOW_SIZE   = 512
+VAD_THRESHOLD     = 0.2
+VAD_PAD_SEC       = 0.2
+
+# Segmentation
+SEG_THRESHOLD     = 0.3
+MIN_REGION_SEC    = 1.5
+
+# Embedding
+EMBED_WINDOW_SAMP = int(SAMPLE_RATE * 1.2)
+EMBED_STEP_SAMP   = int(SAMPLE_RATE * 0.6)
+MIN_SEGMENT_SEC   = 0.5
+
+# Similarity
+SIMILARITY_THRESHOLD = 0.35
 
 
-#=======PYDANTIC DATA VALIDATION=========
+# ======= PYDANTIC DATA VALIDATION =======
 VALID_TAGS = {"exam", "assignment", "important", "attendance", "classwork"}
 
-class  TagConfig(BaseModel):
+class TagConfig(BaseModel):
     tags: list[str] = []
-    name: str= Field(default="",max_length= 50)
+    name: str = Field(default="", max_length=50)
 
     @field_validator("tags")
     @classmethod
@@ -66,123 +89,237 @@ class  TagConfig(BaseModel):
         return [t for t in tags if t in VALID_TAGS]
 
 class ContextMessage(BaseModel):
-    type:str
-    prompt:str =  Field(default="", max_length=300)
+    type: str
+    prompt: str = Field(default="", max_length=300)
     tagConfig: TagConfig = Field(default_factory=TagConfig)
 
 
-
-#=========AUDIO HELPERS =========
+# ======= AUDIO HELPERS =======
 def convert_pcm_to_wav(pcm_data: bytes) -> io.BytesIO:
-    """Convert raw PCM bytes to WAV format"""
+    """Convert raw PCM bytes to WAV format (used for file upload endpoint)."""
     audio_file = io.BytesIO()
     with wave.open(audio_file, "wb") as wav_file:
-        wav_file.setnchannels(1)# Mono
-        wav_file.setsampwidth(2)# 2 bytes = 16-bit
-        wav_file.setframerate(16000) # 16kHz
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(16000)
         wav_file.writeframes(pcm_data)
         audio_file.seek(0)
         audio_file.name = "audio.wav"
         return audio_file
 
+def pcm_to_float(pcm_bytes: bytes) -> np.ndarray:
+    """
+    Convert raw PCM int16 bytes → float32 numpy array.
+    Browser sends 16-bit PCM. Models expect float32 in [-1, 1].
+    """
+    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    if np.abs(samples).max() > 0:
+        samples = samples / np.abs(samples).max()
+    return samples
 
 def is_buffer_full(audio_buffer: bytearray) -> bool:
-    """Check if audio buffer has reached chunk duration"""
     return len(audio_buffer) >= MAX_BUFFER_BYTES
 
 
+# ======= STEP 1: WHISPER LOCAL =======
+# faster-whisper is loaded at startup into _whisper_model.
+# stable-ts wraps it to refine word timestamps by snapping to audio energy valleys,
+# giving ±100-200ms accuracy instead of Whisper's default ±500-1000ms.
+_whisper_model = None
 
-# ========TRANSCRIPTION=========
-def call_whisper(audio_file: io.BytesIO,prompt: str="") -> str:
-    """Send audio to Whisper API and return transcript text"""
-    logger.debug(f"Prompt is {prompt}")
-    transcript = client.audio.transcriptions.create(
-        model = "whisper-1",
-        file = audio_file,
-        language = "en",
-        prompt = prompt
+def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
+    """
+    Transcribe full chunk audio with faster-whisper + stable-ts.
+    Returns list of {"word": str, "start": float, "end": float}.
+
+    Why transcribe the full chunk first (before filtering)?
+    Because Whisper needs full context to be accurate. If we sent only
+    the professor's audio segments, Whisper would lose sentence context
+    and make more errors. We transcribe everything, then filter by timestamps.
+    """
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+        sf.write(f.name, samples, SAMPLE_RATE)
+        tmp_path = f.name
+
+    result = _whisper_model.transcribe(
+        tmp_path,
+        language='en',
+        word_timestamps=True,
+        regroup=False  # keep original segment order, stable-ts refines timestamps only
     )
-    return transcript.text
+    os.unlink(tmp_path)
+
+    words = []
+    for segment in result.segments:
+        for w in segment.words:
+            words.append({'word': w.word, 'start': w.start, 'end': w.end})
+
+    logger.debug(f"[whisper] {len(words)} words transcribed")
+    return words
 
 
-# ========TEXT ANALYSIS=========
-def analyze_text(text: str, selected_tags:list, custom_name:str) -> list:
-    """Detects keyword and return the list of tags"""
+# ======= TEXT ANALYSIS =======
+def analyze_text(text: str, selected_tags: list, custom_name: str) -> list:
+    """Detect keywords and return matching tag list."""
     text_lower = text.lower()
     tags = []
-
     keyword_map = {
-        "exam": ["exam", "midterm", "final", "quiz", "test", "will be on"],
+        "exam":       ["exam", "midterm", "final", "quiz", "test", "will be on"],
         "assignment": ["homework", "due", "submit", "assignment", "due date", "turn in"],
-        "important": ["important", "remember this", "key concept", "pay attention"],
+        "important":  ["important", "remember this", "key concept", "pay attention"],
         "attendance": ["attendance", "sign in", "roll call", "present"],
-        "classwork": ["classwork", "in class", "class activity"],
+        "classwork":  ["classwork", "in class", "class activity"],
     }
-
     for tag, keywords in keyword_map.items():
-       if tag in selected_tags and  any(kw in text_lower for kw in keywords ):
-           tags.append(tag)
-
+        if tag in selected_tags and any(kw in text_lower for kw in keywords):
+            tags.append(tag)
     if custom_name and custom_name.lower() in text_lower:
         tags.append("name")
-    logger.debug(f"tags collected in this chunk are {tags} ")
+    logger.debug(f"tags collected: {tags}")
     return tags
 
 
+# ======= TRANSCRIBE CHUNK (full pipeline) =======
+async def transcribe_chunk(
+    pcm_bytes: bytes,
+    websocket: WebSocket,
+    lecture_prompt: str,
+    selected_tags: list,
+    custom_name: str,
+    professor_embedding: np.ndarray | None,
+    similarity_threshold: float,
+    session_state: dict,
+):
+    """
+    Full per-chunk pipeline:
 
-async def transcribe_chunk(chunk_data:bytes, websocket: WebSocket, lecture_prompt:str, selected_tags:list,
-                           custom_name:str):
-    """Convert audio chunk to WAV, transcribe, and send result to browser via websocket"""
+      Step 1 — Whisper:      full chunk audio → words with timestamps
+      Step 2 — VAD:          find speech regions in the chunk
+      Step 3 — Segmentation: split each VAD region at speaker changes → timestamp segments
+      Step 4 — Embedding:    compare each segment vs enrolled professor embedding
+      Step 5 — Word stitch:  keep only words whose midpoint falls in a professor segment
+      Step 6 — Hallucination filter: remove known Whisper hallucination phrases
+      Step 7 — Dedup:        remove words repeated from previous chunk boundary
+      Step 8 — Send:         send filtered transcript + tags to browser
+
+    When voice lock is off (professor_embedding is None), skip steps 2-7 and send raw Whisper output.
+    """
     try:
-        audio_file_wav = convert_pcm_to_wav(chunk_data)
-        transcripted_text = call_whisper(audio_file_wav, lecture_prompt)
-        logger.debug("Got Transcript ")
-        if transcripted_text.strip(): # don't send empty transcriptions
-            detected_tags = analyze_text(transcripted_text, selected_tags, custom_name)
+        samples = pcm_to_float(pcm_bytes)
+
+        # Step 1: Whisper — always runs on full chunk for best accuracy
+        words = transcribe_with_timestamps(samples)
+        if not words:
+            logger.debug("[chunk] no words from Whisper")
+            return
+
+        raw_transcript = ' '.join(w['word'] for w in words).strip()
+        logger.debug(f"[raw whisper] {raw_transcript}")
+
+        # Voice lock off — send raw transcript without speaker filtering
+        if professor_embedding is None:
+            detected_tags = analyze_text(raw_transcript, selected_tags, custom_name)
             await websocket.send_json({
                 "type": "transcription",
-                "text": transcripted_text,
+                "text": raw_transcript,
                 "tags": detected_tags
             })
-            logger.debug("Transcript + tags sent to Frontend")
+            return
+
+        # Step 2: VAD — find speech regions, filter silence
+        vad_h = session_state.get('vad_h', np.zeros((2, 1, 64), dtype=np.float32))
+        vad_c = session_state.get('vad_c', np.zeros((2, 1, 64), dtype=np.float32))
+        vad_regions, region_end_states = get_vad_regions(samples, vad_h, vad_c)
+        logger.debug(f"[vad] {len(vad_regions)} regions")
+        if not vad_regions:
+            logger.debug("[chunk] no speech regions detected by VAD")
+            return
+
+        # Step 3: Segmentation — split VAD regions at speaker change points
+        segments = get_segments(samples, vad_regions)
+
+        # Step 4: ECAPA-TDNN — compare each segment vs professor embedding
+        professor_segments = get_professor_segments(
+            samples, segments, professor_embedding, similarity_threshold
+        )
+
+        if not professor_segments:
+            logger.debug("[chunk] no professor detected in this chunk")
+            return
+
+        # Save VAD state from the last confident professor region so the next
+        # chunk starts warm. Guard: sim >= 0.40 to avoid saving state from a
+        # borderline detection that could be a non-professor speaker.
+        VAD_STATE_MIN_SIM = 0.40
+        last_sim = float(np.dot(
+            get_embedding(samples[int(professor_segments[-1][0]*SAMPLE_RATE):
+                                  int(professor_segments[-1][1]*SAMPLE_RATE)]),
+            professor_embedding
+        )) if professor_segments else 0.0
+        if last_sim >= VAD_STATE_MIN_SIM and region_end_states:
+            last_prof_end = professor_segments[-1][1]
+            for idx, (vs, ve) in enumerate(vad_regions):
+                if vs <= last_prof_end <= ve + 0.5:
+                    h, c = region_end_states[idx]
+                    session_state['vad_h'] = h
+                    session_state['vad_c'] = c
+                    break
+
+        # Step 5: Word stitch — keep words whose midpoint falls in a professor segment
+        transcript, _ = stitch_professor_words(words, professor_segments, vad_regions)
+        if not transcript:
+            logger.debug("[chunk] no words remained after stitch")
+            return
+
+        # Step 6: Hallucination filter
+        transcript = filter_hallucinations(transcript)
+        if not transcript:
+            logger.debug("[chunk] transcript empty after hallucination filter")
+            return
+
+        # Step 7: Dedup — remove words repeated at the 2s chunk overlap boundary
+        transcript = deduplicate_overlap(session_state.get('last_transcript', ''), transcript)
+        session_state['last_transcript'] = transcript
+
+        # Step 8: Send to browser
+        if transcript.strip():
+            detected_tags = analyze_text(transcript, selected_tags, custom_name)
+            await websocket.send_json({
+                "type": "transcription",
+                "text": transcript,
+                "tags": detected_tags
+            })
+            logger.debug(f"[filtered] {transcript}")
 
     except Exception as e:
         logger.exception(f"transcribe_chunk error: {e}")
         await websocket.send_json({
-        "type": "error",
-        "message": "Transcription failed. Please try again."
+            "type": "error",
+            "message": "Transcription failed. Please try again."
         })
 
 
-
-
-# ========== ROUTES ==========
-@app.get("/", response_class = HTMLResponse)
+# ======= ROUTES =======
+@app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Homepage - Choose transcription method"""
     return templates.TemplateResponse("index.html", {"request": request})
 
-@app.get("/upload", response_class = HTMLResponse)
+@app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request):
-    """File Upload transcription page"""
-    return templates.TemplateResponse("upload.html", {"request":request})
+    return templates.TemplateResponse("upload.html", {"request": request})
 
-
-@app.get("/live", response_class= HTMLResponse)
-async def live_page(request:Request):
-    """Live Recording Transcription Page"""
+@app.get("/live", response_class=HTMLResponse)
+async def live_page(request: Request):
     return templates.TemplateResponse("live.html", {"request": request})
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return FileResponse("static/favicon.ico")
 
-
 @app.get("/health")
 def health():
-    """Health check endpoint with live memory breakdown"""
+    """Health check with live memory breakdown."""
     current_mb = _process.memory_info().rss / 1024 / 1024
-
     breakdown = []
     if tracemalloc.is_tracing():
         snapshot = tracemalloc.take_snapshot()
@@ -192,7 +329,6 @@ def health():
                 "file": filename.split("/")[-1],
                 "size_mb": round(stat.size / 1024 / 1024, 2),
             })
-
     return {
         "status": "healthy",
         "memory": {
@@ -200,238 +336,375 @@ def health():
             "baseline_mb": round(_mem_baseline_mb, 1),
             "growth_mb": round(current_mb - _mem_baseline_mb, 1),
             "after_models_load_mb": round(_mem_after_models_mb, 1),
-            "limit_mb": 512,
-            "used_percent": round(current_mb / 512 * 100, 1),
+            "limit_mb": 2048,
+            "used_percent": round(current_mb / 2048 * 100, 1),
         },
         "top_allocators": breakdown,
     }
 
 
-#========FILE UPLOAD TRANSCRIPTION===========
+# ======= FILE UPLOAD (still uses OpenAI Whisper API — no local model needed for one-shot upload) =======
 @app.post("/transcribe")
 async def transcribe_audio(
-        file: UploadFile,
-        validated_data: Tuple[bytes, str, float, str] = Depends(validate_audio_file)
+    file: UploadFile,
+    validated_data: Tuple[bytes, str, float, str] = Depends(validate_audio_file)
 ):
     contents, mime, file_size_mb, correct_ext = validated_data
     try:
-        audio_file = io.BytesIO(contents) #make file like object for bytes
-        audio_file.name = f"audio.{correct_ext}" #use generic audio name + proper extension
-
-        transcripted_text = call_whisper(audio_file)
-        return{
+        audio_file = io.BytesIO(contents)
+        audio_file.name = f"audio.{correct_ext}"
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            language="en",
+        )
+        return {
             "filename": file.filename,
-            "transcription": transcripted_text,
+            "transcription": transcript.text,
             "file_size_mb": round(file_size_mb, 2)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription Failed: {str(e)}")
 
 
-# ======= VAD (enrollment only — filters silence from professor capture) =======
-VAD_MODEL_PATH = BASE_DIR/"models"/"silero_vad.onnx"
-VAD_WINDOW_SIZE = 512
-VAD_THRESHOLD = 0.5
+# ======= VAD =======
+VAD_MODEL_PATH = BASE_DIR / "models" / "silero_vad.onnx"
 _vad_session = None
 
 def contains_speech(pcm_bytes: bytes) -> bool:
-    """Returns True if the audio chunk likely contains human speech."""
+    """
+    Quick speech check for enrollment packets — filters silence before adding to enrollment buffer.
+    Uses a higher threshold (0.5) to only keep clearly voiced audio.
+    """
     global _vad_session
     if _vad_session is None:
         if not VAD_MODEL_PATH.exists():
-            logger.warning("VAD model not found")
             return True
         _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
-        logger.info("Silero VAD model loaded")
 
     samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-    h = np.zeros((2, 1, 64), dtype=np.float32)
-    c = np.zeros((2, 1, 64), dtype=np.float32)
+    h  = np.zeros((2, 1, 64), dtype=np.float32)
+    c  = np.zeros((2, 1, 64), dtype=np.float32)
     sr = np.array(SAMPLE_RATE, dtype=np.int64)
     max_score = 0.0
 
     for i in range(0, len(samples) - VAD_WINDOW_SIZE + 1, VAD_WINDOW_SIZE):
-        window = samples[i : i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
+        window = samples[i: i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
         outs = _vad_session.run(None, {"input": window, "sr": sr, "h": h, "c": c})
         score = float(outs[0].squeeze())
         h, c = outs[1], outs[2]
         if score > max_score:
             max_score = score
-        if max_score >= VAD_THRESHOLD:
+        if max_score >= 0.5:
             break
 
-    return max_score >= VAD_THRESHOLD
+    return max_score >= 0.5
 
 
-#======== SPEAKER DIARIZATION=========
-SEG_MODEL_PATH = BASE_DIR/"models"/"segmentation.onnx"
-EMB_MODEL_PATH = BASE_DIR/"models"/"embedding.onnx"
-_seg_session = None
-_emb_session = None
+def get_vad_regions(
+    samples: np.ndarray,
+    init_h: np.ndarray,
+    init_c: np.ndarray,
+) -> tuple[list[tuple[float, float]], list[tuple]]:
+    """
+    Slide VAD across the full chunk, return (regions, region_end_states).
+
+    init_h / init_c: LSTM state carried from the previous chunk's last
+    professor region — avoids cold-start (zeros) which causes low scores
+    for the first 0.3-0.5s and drops leading words after a speaker change.
+    """
+    h  = init_h.copy()
+    c  = init_c.copy()
+    sr = np.array(SAMPLE_RATE, dtype=np.int64)
+
+    frame_times, frame_scores, frame_states = [], [], []
+    for i in range(0, len(samples) - VAD_WINDOW_SIZE + 1, VAD_WINDOW_SIZE):
+        w    = samples[i: i + VAD_WINDOW_SIZE].reshape(1, VAD_WINDOW_SIZE)
+        outs = _vad_session.run(None, {'input': w, 'sr': sr, 'h': h, 'c': c})
+        h, c = outs[1], outs[2]
+        frame_times.append(i / SAMPLE_RATE)
+        frame_scores.append(float(outs[0].squeeze()))
+        frame_states.append((h.copy(), c.copy()))
+
+    raw_regions, in_speech, start = [], False, 0.0
+    for t, score in zip(frame_times, frame_scores):
+        if score >= VAD_THRESHOLD and not in_speech:
+            start, in_speech = t, True
+        elif score < VAD_THRESHOLD and in_speech:
+            raw_regions.append((start, t))
+            in_speech = False
+    if in_speech:
+        raw_regions.append((start, len(samples) / SAMPLE_RATE))
+
+    if not raw_regions:
+        return [], []
+
+    total  = len(samples) / SAMPLE_RATE
+    padded = [(max(0.0, s - VAD_PAD_SEC), min(total, e + VAD_PAD_SEC)) for s, e in raw_regions]
+
+    merged = [padded[0]]
+    for (s, e) in padded[1:]:
+        prev_s, prev_e = merged[-1]
+        if s <= prev_e:
+            merged[-1] = (prev_s, max(prev_e, e))
+        else:
+            merged.append((s, e))
+
+    def state_at(t: float):
+        idx = min(range(len(frame_times)), key=lambda i: abs(frame_times[i] - t))
+        return frame_states[idx]
+
+    region_end_states = [state_at(e) for (_, e) in merged]
+    return merged, region_end_states
 
 
+# ======= SEGMENTATION =======
+SEG_MODEL_PATH = BASE_DIR / "models" / "segmentation.onnx"
+_seg_session   = None
 
-ENROLL_WINDOW_BYTES = BYTES_PER_SECOND * 3
+def split_by_speaker_change(region_samples: np.ndarray, region_start: float) -> list[tuple[float, float]]:
+    """
+    Run pyannote segmentation ONNX on a VAD region.
+    The model outputs per-frame probabilities across speaker channels.
+    When the dominant channel (argmax) switches, that's a speaker change.
+    Returns list of (start_sec, end_sec) sub-segments.
 
-def compute_professor_embedding(pcm_bytes: bytes) -> tuple[np.ndarray, float] | tuple[None, None]:
-    """Split enrollment audio into 1s windows, embed each, return (average embedding, adaptive threshold)."""
-    logger.info(f"Enrollment buffer: {len(pcm_bytes)} bytes ({len(pcm_bytes)/BYTES_PER_SECOND:.1f}s)")
-    if len(pcm_bytes) < ENROLL_WINDOW_BYTES:
-        logger.warning(f"Enrollment audio too short: need {ENROLL_WINDOW_BYTES} bytes, got {len(pcm_bytes)}")
-        return None, None
-    embeddings = []
-    for i in range(0, len(pcm_bytes)-ENROLL_WINDOW_BYTES+1, ENROLL_WINDOW_BYTES):
-        window = pcm_bytes[i: i + ENROLL_WINDOW_BYTES]
-        emb = get_embedding(window)
-        if emb is not None:
-            emb = emb / np.linalg.norm(emb)
-            embeddings.append(emb)
+    Why do we need this?
+    A single VAD region may contain both professor and student speech.
+    Segmentation splits it so we can embed each piece separately and
+    identify which piece belongs to the professor.
+    """
+    duration   = len(region_samples) / SAMPLE_RATE
+    inp        = region_samples.reshape(1, 1, -1).astype(np.float32)
+    output     = _seg_session.run(None, {'input_values': inp})
+    seg        = output[0].squeeze(0)
+    seg        = 1.0 / (1.0 + np.exp(-seg))  # sigmoid: logits → probabilities
 
-    if not embeddings:
-        return None, None
+    num_frames    = seg.shape[0]
+    frame_dur     = duration / num_frames
+    sub_segments  = []
+    in_speech     = False
+    seg_start     = 0.0
+    prev_dominant = -1
 
-    avg = np.mean(embeddings, axis=0)
-    avg = avg / np.linalg.norm(avg)
+    for i, frame in enumerate(seg):
+        t         = i * frame_dur
+        is_speech = float(frame.max()) > SEG_THRESHOLD
+        dominant  = int(np.argmax(frame))
 
-    # compute similarity of each enrollment window against the final avg
-    # the worst (min) score tells us the lower bound of this voice
-    similarities = [float(np.dot(e, avg)) for e in embeddings]
-    min_similarity = min(similarities)
-    adaptive_threshold = min(min_similarity * 0.9, 0.75)  # cap at 0.75 to avoid over-fitting to clean enrollment
-    logger.info(f"Enrollment similarities: min={min_similarity:.3f}, threshold set to {adaptive_threshold:.3f}")
-
-    return avg, adaptive_threshold
-
-def get_embedding(pcm_bytes:bytes) -> np.ndarray | None:
-    """Run audio through embedding model, return 256-number speaker vector."""
-    if _emb_session is None:
-        logger.warning("Embedding model not loaded")
-        return None
-
-    import librosa
-
-    samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-    mel_spec = librosa.feature.melspectrogram(y=samples, sr=SAMPLE_RATE, n_fft=512, hop_length=160, win_length=400, n_mels=80)
-    mel_spec = librosa.power_to_db(mel_spec)
-
-    features = mel_spec.T[np.newaxis, :, :]
-    outputs = _emb_session.run(None, {"input_features": features})
-    embedding = outputs[0].squeeze()
-    return embedding
-
-
-SIMILARITY_THRESHOLD = 0.75
-MIN_SEGMENT_DURATION =0.5 #0.5 sec of segment size at least for bettte embedding
-def filter_to_professor(pcm_bytes: bytes, professor_embedding: np.ndarray, threshold: float = SIMILARITY_THRESHOLD):
-    """Segment audio, keep only professor voice, return filtered audio + leftover."""
-    if _seg_session is None:
-        logger.warning("Segmentation model not loaded, skipping Filter")
-        return pcm_bytes, b""
-
-    # Step 1 Run segmentation model
-    logger.info(f"[filter] Step 1: Running segmentation on {len(pcm_bytes)/BYTES_PER_SECOND:.1f}s of audio")
-    samples = np.frombuffer(pcm_bytes, dtype = np.int16).astype(np.float32)/32768.0
-    samples = samples.reshape(1, 1, -1) #batch, channels, samples
-    output = _seg_session.run(None, {"input_values" : samples})
-    segmentation = output[0].squeeze(0) # shape: [num_frames, frame_array]
-    segmentation = 1 / (1 + np.exp(-segmentation))  # convert logits to probabilities via sigmoid
-    logger.info(f"[filter] Step 1 done: segmentation output shape {segmentation.shape}, max confidence across all frames: {segmentation.max():.3f}, mean: {segmentation.mean():.3f}")
-
-    # Step 2 : Convert Frames to Time Segments
-    num_frames = segmentation.shape[0]
-    duration = len(pcm_bytes)/ BYTES_PER_SECOND
-    frame_duration = duration/ num_frames
-
-    segments = []
-    in_speech = False
-    seg_start = 0.0
-
-    for i , frame in enumerate(segmentation):
-        is_speech = frame.max() > 0.3  # 0.3 threshold after sigmoid (model was uncertain at boundary)
         if is_speech and not in_speech:
-            seg_start = i * frame_duration
-            in_speech = True
+            seg_start     = t
+            in_speech     = True
+            prev_dominant = dominant
+        elif is_speech and in_speech:
+            if dominant != prev_dominant:  # speaker changed
+                sub_segments.append((region_start + seg_start, region_start + t))
+                seg_start     = t
+                prev_dominant = dominant
         elif not is_speech and in_speech:
-            segments.append((seg_start,i*frame_duration))
+            sub_segments.append((region_start + seg_start, region_start + t))
             in_speech = False
 
     if in_speech:
-        segments.append((seg_start, duration))
+        sub_segments.append((region_start + seg_start, region_start + duration))
 
-    logger.info(f"[filter] Step 2 done: found {len(segments)} speech segments: {[(f'{s:.1f}', f'{e:.1f}') for s,e in segments]}")
+    return sub_segments if sub_segments else [(region_start, region_start + duration)]
 
-    #filter segments by professor similarity
-    professor_audio = b""
-    leftover = b""
 
-    for index, (start,end) in enumerate(segments):
-        seg_duration = end - start
-        is_last = index == len(segments) - 1
-
-        if seg_duration < MIN_SEGMENT_DURATION and is_last:
-            logger.info(f"[filter] Segment {start:.1f}s-{end:.1f}s ({seg_duration:.2f}s) — too short + last, saving as leftover")
-            leftover = pcm_bytes[(int(start * BYTES_PER_SECOND) // 2) * 2: ]
+def get_segments(samples: np.ndarray, vad_regions: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Run segmentation on each VAD region, collect all sub-segments."""
+    final_segments = []
+    for (start, end) in vad_regions:
+        duration = end - start
+        if duration < MIN_SEGMENT_SEC:
             continue
+        if duration >= MIN_REGION_SEC:
+            region_samples = samples[int(start * SAMPLE_RATE): int(end * SAMPLE_RATE)]
+            sub = split_by_speaker_change(region_samples, region_start=start)
+            final_segments.extend(sub)
+        else:
+            final_segments.append((start, end))
+    return final_segments
 
-        if seg_duration < MIN_SEGMENT_DURATION:
-            logger.info(f"[filter] Segment {start:.1f}s-{end:.1f}s ({seg_duration:.2f}s) — too short, skipping")
+
+# ======= ECAPA-TDNN EMBEDDING =======
+_ecapa_model = None
+
+def get_embedding(samples: np.ndarray) -> np.ndarray | None:
+    """
+    Run audio samples through ECAPA-TDNN model.
+    Returns normalized 192-dimensional speaker embedding vector.
+    """
+    if len(samples) < int(SAMPLE_RATE * MIN_SEGMENT_SEC):
+        return None
+    tensor = torch.tensor(samples).unsqueeze(0)
+    with torch.no_grad():
+        emb = _ecapa_model.encode_batch(tensor).squeeze().numpy()
+    return emb / np.linalg.norm(emb)
+
+
+def compute_professor_embedding(pcm_bytes: bytes) -> tuple[np.ndarray, float] | tuple[None, None]:
+    """
+    Process enrollment audio into a single embedding.
+    Concatenates all VAD speech regions → single ECAPA-TDNN embedding.
+    Returns (professor_embedding, similarity_threshold).
+    """
+    samples     = pcm_to_float(pcm_bytes)
+    vad_regions = get_vad_regions(samples)
+
+    if not vad_regions:
+        logger.warning("[enroll] no speech detected during enrollment")
+        return None, None
+
+    voiced_chunks = [samples[int(s * SAMPLE_RATE): int(e * SAMPLE_RATE)] for s, e in vad_regions]
+    voiced        = np.concatenate(voiced_chunks)
+    emb           = get_embedding(voiced)
+
+    if emb is None:
+        logger.warning(f"[enroll] could not extract embedding from {len(voiced)/SAMPLE_RATE:.1f}s voiced audio")
+        return None, None
+
+    logger.info(f"[enroll] embedding computed from {len(voiced)/SAMPLE_RATE:.1f}s voiced audio, threshold={SIMILARITY_THRESHOLD}")
+    return emb, SIMILARITY_THRESHOLD
+
+
+def get_professor_segments(
+    samples: np.ndarray,
+    segments: list[tuple[float, float]],
+    professor_embedding: np.ndarray,
+    similarity_threshold: float,
+) -> list[tuple[float, float]]:
+    """
+    For each segment, embed it and compare against the single professor embedding.
+    Returns list of (start_sec, end_sec) for segments that pass the threshold.
+    """
+    professor_segments = []
+    for (start, end) in segments:
+        if (end - start) < MIN_SEGMENT_SEC:
             continue
-
-        start_byte = (int(start * BYTES_PER_SECOND) // 2) * 2
-        end_byte   = (int(end   * BYTES_PER_SECOND) // 2) * 2
-        seg_bytes = pcm_bytes[start_byte:end_byte]
-
-        emb = get_embedding(seg_bytes)
-
+        chunk = samples[int(start * SAMPLE_RATE): int(end * SAMPLE_RATE)]
+        emb   = get_embedding(chunk)
         if emb is None:
-            logger.warning(f"[filter] Segment {start:.1f}s-{end:.1f}s — embedding failed, skipping")
             continue
-        #we havent normalized the emb yet, normalize it
-        emb = emb / np.linalg.norm(emb)
-
-        similarity = np.dot(emb, professor_embedding)
-        logger.info(f"[filter] Segment {start:.1f}s-{end:.1f}s similarity: {similarity:.3f} (threshold: {threshold:.3f}) → {'PASS' if similarity >= threshold else 'FAIL'}")
-
-        if similarity >= threshold:
-            professor_audio += seg_bytes
-
-    logger.info(f"[filter] Done: {len(professor_audio)/BYTES_PER_SECOND:.1f}s of professor audio kept out of {duration:.1f}s total")
-    return professor_audio , leftover
+        sim     = float(np.dot(emb, professor_embedding))
+        is_prof = sim >= similarity_threshold
+        logger.debug(f"[emb] {start:.1f}s-{end:.1f}s sim={sim:.3f} → {'PROFESSOR' if is_prof else 'other'}")
+        if is_prof:
+            professor_segments.append((start, end))
+    return professor_segments
 
 
+# ======= WORD STITCH =======
+def stitch_professor_words(
+    words: list[dict],
+    professor_segments: list[tuple[float, float]],
+    vad_regions: list[tuple[float, float]],
+) -> tuple[str, list[str]]:
+    """
+    Keep only words whose midpoint timestamp falls inside a professor segment.
+    0.5s buffer on segment end to catch words slightly past the boundary.
+
+    For the first professor segment, effective_start is stretched back to the
+    first VAD region start — covers words in short leading VAD regions that
+    were dropped before segmentation (VAD/segmentation cold-start latency).
+    """
+    first_vad_start = vad_regions[0][0] if vad_regions else 0.0
+    kept = []
+    for w in words:
+        mid = (w['start'] + w['end']) / 2.0
+        for i, (seg_start, seg_end) in enumerate(professor_segments):
+            effective_start = first_vad_start if i == 0 else seg_start
+            if effective_start <= mid <= seg_end + 0.5:
+                kept.append(w['word'])
+                break
+    return ' '.join(kept).strip(), kept
+
+
+# ======= HALLUCINATION FILTER =======
+WHISPER_HALLUCINATIONS = {
+    "thanks for watching",
+    "thank you for watching",
+    "please subscribe",
+    "like and subscribe",
+    "subscribe to",
+    "don't forget to subscribe",
+    "see you in the next",
+    "see you next time",
+    "thanks for listening",
+    "thank you for listening",
+    "i'll see you in the next video",
+}
+
+def filter_hallucinations(transcript: str) -> str:
+    """Remove known Whisper hallucination phrases that appear in silent/low-energy audio."""
+    lower = transcript.lower()
+    for phrase in WHISPER_HALLUCINATIONS:
+        idx = lower.find(phrase)
+        if idx != -1:
+            transcript = (transcript[:idx] + transcript[idx + len(phrase):]).strip()
+            lower = transcript.lower()
+            logger.debug(f"[hallucination] removed: '{phrase}'")
+    return transcript
+
+
+# ======= DEDUP =======
+def deduplicate_overlap(prev_transcript: str, curr_transcript: str, overlap_words: int = 8) -> str:
+    """
+    Remove words at the start of curr_transcript that also appear at the end of prev_transcript.
+
+    Why needed? We record 12s but advance only 10s per chunk — 2s overlap.
+    Without dedup, the last 2s of chunk N would appear again at the start of chunk N+1.
+    """
+    if not prev_transcript:
+        return curr_transcript
+    prev_words = prev_transcript.lower().split()
+    curr_words = curr_transcript.split()
+    curr_lower = curr_transcript.lower().split()
+    max_check  = min(overlap_words, len(prev_words), len(curr_words))
+    for n in range(max_check, 1, -1):
+        if prev_words[-n:] == curr_lower[:n]:
+            logger.debug(f"[dedup] removed {n} repeated words from chunk start")
+            return ' '.join(curr_words[n:]).strip()
+    return curr_transcript
 
 
 def show_Graphical_Audio_Progress(filled):
-    total = BYTES_PER_SECOND * CHUNK_DURATION
+    total   = BYTES_PER_SECOND * CHUNK_DURATION
     percent = int((filled / total) * 100)
-    bar = '█' * (percent // 10) + '░' * (10 - percent // 10)
-
-    # \r overwrites the same line — no spam
+    bar     = '█' * (percent // 10) + '░' * (10 - percent // 10)
     print(f"\r  🎙️ Audio Buffer  [{bar}] {percent}%  ({filled}/{total} bytes)", end='', flush=True)
 
 
-
-
-#========LIVE TRANSCRIPTION========
+# ======= WEBSOCKET =======
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
-    """ Collect the audio into audio_buffer via websocket, transcribe it after fillup"""
+    """
+    WebSocket handler — one connection per recording session.
+    Session state is kept in local variables (not global) so multiple
+    users can record simultaneously without interfering.
+    """
     await websocket.accept()
-    audio_buffer = bytearray()
-    lecture_prompt = ""
-    selected_tags = []
-    custom_name = ""
-    leftover = b"" #bytes zero bytes
-    enrolling = False
+
+    audio_buffer      = bytearray()
+    lecture_prompt    = ""
+    selected_tags     = []
+    custom_name       = ""
+    enrolling         = False
     enrollment_buffer = bytearray()
-    professor_embedding = None
-    professor_threshold = SIMILARITY_THRESHOLD
-    voice_lock_active = False
+
+    # Per-session speaker state
+    professor_embedding: np.ndarray | None = None
+    similarity_threshold = SIMILARITY_THRESHOLD
+    voice_lock_active    = False
+    session_state        = {
+        'last_transcript': '',
+        'vad_h': np.zeros((2, 1, 64), dtype=np.float32),
+        'vad_c': np.zeros((2, 1, 64), dtype=np.float32),
+    }
 
     try:
         while True:
-            # Receive audio chunk from browser
-            data  = await websocket.receive()
+            data = await websocket.receive()
 
             if data.get("type") == "websocket.disconnect":
                 break
@@ -440,41 +713,49 @@ async def websocket_transcribe(websocket: WebSocket):
                 try:
                     raw = json.loads(data["text"])
                     msg = ContextMessage(**raw)
-                    logger.debug("Data Received: Text")
-                    if msg.type== "context":
-                        lecture_prompt = msg.prompt
-                        selected_tags = msg.tagConfig.tags
-                        custom_name = msg.tagConfig.name
 
-                    elif msg.type=="enroll_start":
+                    if msg.type == "context":
+                        lecture_prompt = msg.prompt
+                        selected_tags  = msg.tagConfig.tags
+                        custom_name    = msg.tagConfig.name
+
+                    elif msg.type == "enroll_start":
                         enrolling = True
                         enrollment_buffer.clear()
                         logger.info("Enrollment started")
 
-                    elif msg.type=="enroll_end":
+                    elif msg.type == "enroll_end":
                         enrolling = False
                         try:
-                            professor_embedding, professor_threshold = compute_professor_embedding(bytes(enrollment_buffer))
+                            professor_embedding, similarity_threshold = compute_professor_embedding(
+                                bytes(enrollment_buffer)
+                            )
                         except Exception as emb_err:
                             logger.error(f"Embedding error: {emb_err}")
-                            professor_embedding = None
-                            professor_threshold = SIMILARITY_THRESHOLD
+                            professor_embedding  = None
+                            similarity_threshold = SIMILARITY_THRESHOLD
+
                         if professor_embedding is not None:
                             voice_lock_active = True
+                            session_state     = {'last_transcript': ''}
                             await websocket.send_json({"type": "enroll_success"})
-                            logger.info("Professor voice Locked")
+                            logger.info(f"Professor voice locked (threshold={similarity_threshold:.3f})")
                         else:
-                            await websocket.send_json({"type": "enroll_failed", "message": "Not enough audio captured"})
-                            enrollment_buffer.clear()
+                            await websocket.send_json({
+                                "type": "enroll_failed",
+                                "message": "Not enough audio captured"
+                            })
 
                     elif msg.type == "voice_lock_off":
-                        voice_lock_active = False
+                        voice_lock_active   = False
                         professor_embedding = None
                         enrollment_buffer.clear()
+                        session_state       = {
+                            'last_transcript': '',
+                            'vad_h': np.zeros((2, 1, 64), dtype=np.float32),
+                            'vad_c': np.zeros((2, 1, 64), dtype=np.float32),
+                        }
                         logger.info("Voice lock disabled")
-
-
-
 
                 except WebSocketDisconnect:
                     raise
@@ -483,53 +764,46 @@ async def websocket_transcribe(websocket: WebSocket):
                     await websocket.send_json({"type": "error", "message": "Invalid message format"})
                     continue
 
-
             elif "bytes" in data:
                 packet = data["bytes"]
 
                 if enrolling:
                     if contains_speech(packet):
                         enrollment_buffer.extend(packet)
-                        logger.debug("Added packet to enrollment_buffer");
+                        logger.debug("Added packet to enrollment_buffer")
                     continue
 
-                # In case of buffer overflow due to external reasons
                 if len(audio_buffer) > MAX_BUFFER_BYTES:
                     await websocket.send_json({"type": "error", "message": "Audio limit exceeded"})
                     await websocket.close()
                     break
-                audio_buffer.extend(packet)
-                filled = len(audio_buffer)
 
-                show_Graphical_Audio_Progress(filled)
+                audio_buffer.extend(packet)
+                show_Graphical_Audio_Progress(len(audio_buffer))
 
                 if is_buffer_full(audio_buffer):
-                    logger.debug("Audio_buffer Full. Sending to Pyannote")
-                    chunk_to_process = leftover + bytes(audio_buffer)
+                    chunk_to_process = bytes(audio_buffer)
                     audio_buffer.clear()
-                    logger.debug(f"Voice lock is : {voice_lock_active}")
-                    logger.debug(f" professor embedding is : {professor_embedding}")
-                    if voice_lock_active and professor_embedding is not None:
-                        logger.debug("Filtering ")
-                        chunk_to_process, leftover = filter_to_professor(chunk_to_process, professor_embedding, professor_threshold)
 
-                    else:
-                        logger.debug("Not Using Professor VOice Lock Featrue  ")
-                        leftover = b""
-                    if chunk_to_process:
-                        asyncio.create_task(transcribe_chunk(chunk_to_process, websocket, lecture_prompt, selected_tags,
-                                                         custom_name))
+                    asyncio.create_task(transcribe_chunk(
+                        chunk_to_process, websocket,
+                        lecture_prompt, selected_tags, custom_name,
+                        professor_embedding if voice_lock_active else None,
+                        similarity_threshold,
+                        session_state,
+                    ))
 
     except WebSocketDisconnect:
-        print("Client Disconnected from Websocket")
+        print("Client disconnected from WebSocket")
     except Exception as e:
-        print(f"Websocket error : {e}")
+        print(f"WebSocket error: {e}")
 
 
 # ======= STARTUP =======
 @app.on_event("startup")
 async def startup_event():
-    global _mem_baseline_mb, _mem_after_models_mb, _vad_session, _seg_session, _emb_session
+    global _mem_baseline_mb, _mem_after_models_mb
+    global _vad_session, _seg_session, _ecapa_model, _whisper_model
 
     tracemalloc.start()
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
@@ -537,43 +811,27 @@ async def startup_event():
 
     if VAD_MODEL_PATH.exists():
         _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
-        logger.info("VAD model loaded (enrollment only)")
+        logger.info("VAD model loaded")
     else:
-        logger.warning("VAD model not found at startup")
+        logger.warning("VAD model not found")
 
     if SEG_MODEL_PATH.exists():
         _seg_session = ort.InferenceSession(str(SEG_MODEL_PATH))
-        logger.info("Segmentation Model Loaded")
+        logger.info("Segmentation model loaded")
     else:
-        logger.warning("Segmentation model not found at startup")
+        logger.warning("Segmentation model not found")
 
+    from speechbrain.inference.speaker import EncoderClassifier
+    _ecapa_model = EncoderClassifier.from_hparams(
+        source="speechbrain/spkrec-ecapa-voxceleb",
+        savedir=str(BASE_DIR / "models" / "ecapa_tdnn"),
+        run_opts={"device": "cpu"}
+    )
+    _ecapa_model.eval()
+    logger.info("ECAPA-TDNN embedding model loaded")
 
-    if EMB_MODEL_PATH.exists():
-        _emb_session = ort.InferenceSession(str(EMB_MODEL_PATH))
-        logger.info("Embedding model loaded")
-    else:
-        logger.warning("Embedding model not found at startup")
-
-
+    _whisper_model = stable_whisper.load_faster_whisper(WHISPER_MODEL)
+    logger.info(f"Whisper {WHISPER_MODEL} loaded (faster-whisper + stable-ts)")
 
     _mem_after_models_mb = _process.memory_info().rss / 1024 / 1024
     logger.info(f"Memory after all models loaded: {_mem_after_models_mb:.1f} MB")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
