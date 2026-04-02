@@ -550,7 +550,9 @@ def compute_professor_embedding(pcm_bytes: bytes) -> tuple[np.ndarray, float] | 
     Returns (professor_embedding, similarity_threshold).
     """
     samples     = pcm_to_float(pcm_bytes)
-    vad_regions = get_vad_regions(samples)
+    init_h = np.zeros((2, 1, 64), dtype=np.float32)
+    init_c = np.zeros((2, 1, 64), dtype=np.float32)
+    vad_regions, _ = get_vad_regions(samples, init_h, init_c)
 
     if not vad_regions:
         logger.warning("[enroll] no speech detected during enrollment")
