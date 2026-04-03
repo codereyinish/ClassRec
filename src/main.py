@@ -49,7 +49,6 @@ BYTES_PER_SAMPLE  = 2
 BYTES_PER_SECOND  = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
 CHUNK_DURATION    = 10
 CHUNK_BYTES       = BYTES_PER_SECOND * CHUNK_DURATION   # 10s advance per chunk
-OVERLAP_BYTES     = BYTES_PER_SECOND * 2                # 2s tail overlap (prevents Whisper end-of-audio dropout)
 
 WHISPER_MODEL     = 'small.en'
 
@@ -63,8 +62,6 @@ SEG_THRESHOLD     = 0.3
 MIN_REGION_SEC    = 1.5
 
 # Embedding
-EMBED_WINDOW_SAMP = int(SAMPLE_RATE * 1.2)
-EMBED_STEP_SAMP   = int(SAMPLE_RATE * 0.6)
 MIN_SEGMENT_SEC   = 0.5
 
 # Similarity
@@ -616,8 +613,8 @@ def deduplicate_overlap(prev_transcript: str, curr_transcript: str, overlap_word
     """
     Remove words at the start of curr_transcript that also appear at the end of prev_transcript.
 
-    Why needed? We record 12s but advance only 10s per chunk — 2s overlap.
-    Without dedup, the last 2s of chunk N would appear again at the start of chunk N+1.
+    Why needed? Audio buffer is not cleared fully each chunk — leftover bytes from the previous
+    chunk can cause the same words to appear at the start of the next transcript.
     """
     if not prev_transcript:
         return curr_transcript
@@ -697,10 +694,11 @@ async def websocket_transcribe(websocket: WebSocket):
                         except Exception as emb_err:
                             logger.error(f"Embedding error: {emb_err}")
                             professor_embedding  = None
-                            similarity_threshold = SIMILARITY_THRESHOLD
+
 
                         if professor_embedding is not None:
                             voice_lock_active = True
+                            # initiate fresh session_state
                             session_state     = {
                                 'last_transcript': '',
                                 'vad_h': np.zeros((2, 1, 64), dtype=np.float32),
@@ -718,6 +716,7 @@ async def websocket_transcribe(websocket: WebSocket):
                         voice_lock_active   = False
                         professor_embedding = None
                         enrollment_buffer.clear()
+                        # Reset session_state
                         session_state       = {
                             'last_transcript': '',
                             'vad_h': np.zeros((2, 1, 64), dtype=np.float32),
@@ -738,7 +737,7 @@ async def websocket_transcribe(websocket: WebSocket):
                 if enrolling:
                     enrollment_buffer.extend(packet)
                     continue
-
+                # Safety guard to check the size of the chunk
                 if len(audio_buffer) > CHUNK_BYTES * 4:
                     await websocket.send_json({"type": "error", "message": "Audio limit exceeded"})
                     await websocket.close()
@@ -748,10 +747,7 @@ async def websocket_transcribe(websocket: WebSocket):
                 show_Graphical_Audio_Progress(len(audio_buffer))
 
                 if len(audio_buffer) >= CHUNK_BYTES:
-                    # Send full buffer (up to 12s = 10s advance + 2s overlap tail)
                     chunk_to_process = bytes(audio_buffer)
-                    # Advance 10s, keep last 2s as overlap for next chunk so
-                    # Whisper sees full word context at chunk boundaries.
                     del audio_buffer[:CHUNK_BYTES]
 
                     asyncio.create_task(transcribe_chunk(
