@@ -130,7 +130,8 @@ def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
         tmp_path,
         language='en',
         word_timestamps=True,
-        regroup=False  # keep original segment order, stable-ts refines timestamps only
+        regroup=False,  # keep original segment order, stable-ts refines timestamps only
+        temperature=0,  # disable retries for consistent latency on CPU
     )
     os.unlink(tmp_path)
 
