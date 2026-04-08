@@ -55,7 +55,7 @@ BYTES_PER_SECOND  = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
 CHUNK_DURATION    = 10
 CHUNK_BYTES       = BYTES_PER_SECOND * CHUNK_DURATION   # 10s advance per chunk
 
-WHISPER_MODEL     = 'small.en'
+WHISPER_MODEL     = 'tiny.en'
 
 # VAD
 VAD_WINDOW_SIZE   = 512
@@ -533,15 +533,10 @@ def compute_professor_embedding(pcm_bytes: bytes) -> tuple[np.ndarray, float] | 
     Concatenates all VAD speech regions → single ECAPA-TDNN embedding.
     Returns (professor_embedding, similarity_threshold).
     """
-    def _mem(): return _process.memory_info().rss / 1024 / 1024
-
-    logger.info(f"[enroll-mem] start: {_mem():.0f}MB")
     samples     = pcm_to_float(pcm_bytes)
-    logger.info(f"[enroll-mem] after pcm_to_float: {_mem():.0f}MB")
     init_h = np.zeros((2, 1, 64), dtype=np.float32)
     init_c = np.zeros((2, 1, 64), dtype=np.float32)
     vad_regions, _ = get_vad_regions(samples, init_h, init_c)
-    logger.info(f"[enroll-mem] after VAD: {_mem():.0f}MB")
 
     if not vad_regions:
         logger.warning("[enroll] no speech detected during enrollment")
@@ -550,7 +545,6 @@ def compute_professor_embedding(pcm_bytes: bytes) -> tuple[np.ndarray, float] | 
     voiced_chunks = [samples[int(s * SAMPLE_RATE): int(e * SAMPLE_RATE)] for s, e in vad_regions]
     voiced        = np.concatenate(voiced_chunks)
     emb           = get_embedding(voiced)
-    logger.info(f"[enroll-mem] after ECAPA embedding: {_mem():.0f}MB")
 
     if emb is None:
         logger.warning(f"[enroll] could not extract embedding from {len(voiced)/SAMPLE_RATE:.1f}s voiced audio")
