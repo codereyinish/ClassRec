@@ -11,10 +11,9 @@ numpy>=1.24.0
 psutil==5.9.8
 librosa>=0.10.0
 soundfile==0.13.1
-git+https://github.com/jianfch/stable-ts.git
+groq==0.13.0
 torch>=2.1.0
 speechbrain==1.1.0
-faster-whisper==1.2.1
 
 
 

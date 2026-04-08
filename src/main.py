@@ -19,7 +19,7 @@ import onnxruntime as ort
 import numpy as np
 import psutil
 import tracemalloc
-import stable_whisper
+from groq import Groq
 import torch
 import warnings
 warnings.filterwarnings("ignore")
@@ -58,7 +58,7 @@ BYTES_PER_SECOND  = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
 CHUNK_DURATION    = 10
 CHUNK_BYTES       = BYTES_PER_SECOND * CHUNK_DURATION   # 10s advance per chunk
 
-WHISPER_MODEL     = 'small.en'
+WHISPER_MODEL = 'whisper-large-v3-turbo'  # Groq model
 
 # VAD
 VAD_WINDOW_SIZE   = 512
@@ -106,15 +106,14 @@ def pcm_to_float(pcm_bytes: bytes) -> np.ndarray:
     return samples
 
 
-# ======= STEP 1: WHISPER LOCAL =======
-# faster-whisper is loaded at startup into _whisper_model.
-# stable-ts wraps it to refine word timestamps by snapping to audio energy valleys,
-# giving ±100-200ms accuracy instead of Whisper's default ±500-1000ms.
-_whisper_model = None
+# ======= STEP 1: WHISPER VIA GROQ API =======
+# Groq runs Whisper on custom LPU hardware — much faster than local CPU inference.
+# We send each 10s chunk as a WAV file and get back word-level timestamps.
+_groq_client = None
 
 def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
     """
-    Transcribe full chunk audio with faster-whisper + stable-ts.
+    Transcribe full chunk audio via Groq Whisper API.
     Returns list of {"word": str, "start": float, "end": float}.
 
     Why transcribe the full chunk first (before filtering)?
@@ -126,18 +125,21 @@ def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
         sf.write(f.name, samples, SAMPLE_RATE)
         tmp_path = f.name
 
-    result = _whisper_model.transcribe(
-        tmp_path,
-        language='en',
-        word_timestamps=True,
-        regroup=False,  # keep original segment order, stable-ts refines timestamps only
-        temperature=0,  # disable retries for consistent latency on CPU
-    )
-    os.unlink(tmp_path)
+    try:
+        with open(tmp_path, 'rb') as f:
+            response = _groq_client.audio.transcriptions.create(
+                file=("audio.wav", f, "audio/wav"),
+                model=WHISPER_MODEL,
+                response_format="verbose_json",
+                timestamp_granularities=["word"],
+                language="en",
+            )
+    finally:
+        os.unlink(tmp_path)
 
     words = []
-    for segment in result.segments:
-        for w in segment.words:
+    if response.words:
+        for w in response.words:
             words.append({'word': w.word, 'start': w.start, 'end': w.end})
 
     logger.debug(f"[whisper] {len(words)} words transcribed")
@@ -364,16 +366,15 @@ async def transcribe_audio(
             f.write(contents)
             tmp_path = f.name
 
-        result = _whisper_model.transcribe(
-            tmp_path,
-            language='en',
-            word_timestamps=True,
-            regroup=False
-        )
+        with open(tmp_path, 'rb') as audio_file:
+            response = _groq_client.audio.transcriptions.create(
+                file=(file.filename, audio_file),
+                model=WHISPER_MODEL,
+                language="en",
+            )
         os.unlink(tmp_path)
 
-        words = [w.word for segment in result.segments for w in segment.words]
-        transcript = ' '.join(words).strip()
+        transcript = response.text.strip()
 
         return {
             "filename": file.filename,
@@ -800,7 +801,7 @@ async def websocket_transcribe(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     global _mem_baseline_mb, _mem_after_models_mb
-    global _vad_session, _seg_session, _ecapa_model, _whisper_model
+    global _vad_session, _seg_session, _ecapa_model, _groq_client
 
     tracemalloc.start()
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
@@ -827,8 +828,8 @@ async def startup_event():
     _ecapa_model.eval()
     logger.info("ECAPA-TDNN embedding model loaded")
 
-    _whisper_model = stable_whisper.load_faster_whisper(WHISPER_MODEL)
-    logger.info(f"Whisper {WHISPER_MODEL} loaded (faster-whisper + stable-ts)")
+    _groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    logger.info(f"Groq client initialized (model: {WHISPER_MODEL})")
 
     _mem_after_models_mb = _process.memory_info().rss / 1024 / 1024
     logger.info(f"Memory after all models loaded: {_mem_after_models_mb:.1f} MB")
