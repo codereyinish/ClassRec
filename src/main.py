@@ -772,9 +772,9 @@ async def websocket_transcribe(websocket: WebSocket):
                     break
 
                 audio_buffer.extend(packet)
-                show_Graphical_Audio_Progress(len(audio_buffer))
 
                 if len(audio_buffer) >= CHUNK_BYTES:
+                    show_Graphical_Audio_Progress(len(audio_buffer))
                     chunk_to_process = bytes(audio_buffer)
                     del audio_buffer[:CHUNK_BYTES]
 
