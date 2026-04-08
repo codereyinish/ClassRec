@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 import asyncio
 import tempfile
+from functools import partial
 import soundfile as sf
 from typing import Tuple
 from validators import validate_audio_file
@@ -31,6 +32,10 @@ load_dotenv()
 CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "pk_test_ZXRoaWNhbC1tYWNhdy00OS5jbGVyay5hY2NvdW50cy5kZXYk")
 
 app = FastAPI()
+
+# Limit concurrent heavy pipeline runs to avoid OOM on a 2GB server.
+# Each run peaks at ~350MB; 2 slots keeps us under the safe threshold.
+_pipeline_semaphore = asyncio.Semaphore(1)
 
 # ======= MEMORY TRACKING =======
 _process = psutil.Process(os.getpid())
@@ -157,6 +162,100 @@ def analyze_text(text: str, selected_tags: list, custom_name: str) -> list:
 
 
 # ======= TRANSCRIBE CHUNK (full pipeline) =======
+def _run_pipeline_sync(
+    pcm_bytes: bytes,
+    lecture_prompt: str,
+    selected_tags: list,
+    custom_name: str,
+    professor_embedding: np.ndarray | None,
+    similarity_threshold: float,
+    session_state: dict,
+) -> dict | None:
+    """
+    CPU-bound pipeline: Steps 1-7 (all model inference).
+    Runs in a thread pool via run_in_executor so the async event loop
+    stays free to handle other users while models are running.
+    Returns a JSON-ready dict to send, or None if nothing to send.
+    """
+    samples = pcm_to_float(pcm_bytes)
+
+    # Step 1: Whisper — always runs on full chunk for best accuracy
+    words = transcribe_with_timestamps(samples)
+    if not words:
+        logger.debug("[chunk] no words from Whisper")
+        return None
+
+    raw_transcript = ' '.join(w['word'] for w in words).strip()
+    logger.debug(f"[raw whisper] {raw_transcript}")
+
+    # Voice lock off — send raw transcript without speaker filtering
+    if professor_embedding is None:
+        detected_tags = analyze_text(raw_transcript, selected_tags, custom_name)
+        return {"type": "transcription", "text": raw_transcript, "tags": detected_tags}
+
+    # Step 2: VAD — find speech regions, filter silence
+    vad_h = session_state.get('vad_h', np.zeros((2, 1, 64), dtype=np.float32))
+    vad_c = session_state.get('vad_c', np.zeros((2, 1, 64), dtype=np.float32))
+    vad_regions, region_end_states = get_vad_regions(samples, vad_h, vad_c)
+    logger.debug(f"[vad] {len(vad_regions)} regions")
+    if not vad_regions:
+        logger.debug("[chunk] no speech regions detected by VAD")
+        return None
+
+    # Step 3: Segmentation — split VAD regions at speaker change points
+    segments = get_segments(samples, vad_regions)
+
+    # Step 4: ECAPA-TDNN — compare each segment vs professor embedding
+    professor_segments, sim_scores = get_professor_segments(
+        samples, segments, professor_embedding, similarity_threshold
+    )
+
+    if not professor_segments:
+        logger.debug("[chunk] no professor detected in this chunk")
+        # Reset so dedup doesn't fire on the next chunk — if professor was absent
+        # here, the tail of last_transcript could false-match and silently drop
+        # valid words at the start of the next professor chunk.
+        session_state['last_transcript'] = ''
+        return None
+
+    # Save VAD state from the last confident professor region so the next
+    # chunk starts warm. Guard: sim >= 0.40 to avoid saving state from a
+    # borderline detection that could be a non-professor speaker.
+    VAD_STATE_MIN_SIM = 0.40
+    last_sim = sim_scores[-1] if sim_scores else 0.0
+    if last_sim >= VAD_STATE_MIN_SIM and region_end_states:
+        last_prof_end = professor_segments[-1][1]
+        for idx, (vs, ve) in enumerate(vad_regions):
+            if vs <= last_prof_end <= ve + 0.5:
+                h, c = region_end_states[idx]
+                session_state['vad_h'] = h
+                session_state['vad_c'] = c
+                break
+
+    # Step 5: Word stitch — keep words whose midpoint falls in a professor segment
+    transcript, _ = stitch_professor_words(words, professor_segments, vad_regions)
+    if not transcript:
+        logger.debug("[chunk] no words remained after stitch")
+        return None
+
+    # Step 6: Hallucination filter
+    transcript = filter_hallucinations(transcript)
+    if not transcript:
+        logger.debug("[chunk] transcript empty after hallucination filter")
+        return None
+
+    # Step 7: Dedup — remove words repeated at the 2s chunk overlap boundary
+    transcript = deduplicate_overlap(session_state.get('last_transcript', ''), transcript)
+    session_state['last_transcript'] = transcript
+
+    if not transcript.strip():
+        return None
+
+    detected_tags = analyze_text(transcript, selected_tags, custom_name)
+    logger.debug(f"[filtered] {transcript}")
+    return {"type": "transcription", "text": transcript, "tags": detected_tags}
+
+
 async def transcribe_chunk(
     pcm_bytes: bytes,
     websocket: WebSocket,
@@ -170,103 +269,32 @@ async def transcribe_chunk(
     """
     Full per-chunk pipeline:
 
-      Step 1 — Whisper:      full chunk audio → words with timestamps
-      Step 2 — VAD:          find speech regions in the chunk
-      Step 3 — Segmentation: split each VAD region at speaker changes → timestamp segments
-      Step 4 — Embedding:    compare each segment vs enrolled professor embedding
-      Step 5 — Word stitch:  keep only words whose midpoint falls in a professor segment
-      Step 6 — Hallucination filter: remove known Whisper hallucination phrases
-      Step 7 — Dedup:        remove words repeated from previous chunk boundary
-      Step 8 — Send:         send filtered transcript + tags to browser
+      Steps 1-7 — CPU-bound model inference, runs in a thread pool so the
+                  event loop stays free to handle other WebSocket connections.
+      Step 8    — Send result to browser on the main async loop.
 
     When voice lock is off (professor_embedding is None), skip steps 2-7 and send raw Whisper output.
     """
     try:
-        samples = pcm_to_float(pcm_bytes)
+        loop = asyncio.get_event_loop()
+        async with _pipeline_semaphore:
+            result = await loop.run_in_executor(
+                None,
+                partial(
+                    _run_pipeline_sync,
+                    pcm_bytes,
+                    lecture_prompt,
+                    selected_tags,
+                    custom_name,
+                    professor_embedding,
+                    similarity_threshold,
+                    session_state,
+                )
+            )
 
-        # Step 1: Whisper — always runs on full chunk for best accuracy
-        words = transcribe_with_timestamps(samples)
-        if not words:
-            logger.debug("[chunk] no words from Whisper")
-            return
-
-        raw_transcript = ' '.join(w['word'] for w in words).strip()
-        logger.debug(f"[raw whisper] {raw_transcript}")
-
-        # Voice lock off — send raw transcript without speaker filtering
-        if professor_embedding is None:
-            detected_tags = analyze_text(raw_transcript, selected_tags, custom_name)
-            await websocket.send_json({
-                "type": "transcription",
-                "text": raw_transcript,
-                "tags": detected_tags
-            })
-            return
-
-        # Step 2: VAD — find speech regions, filter silence
-        vad_h = session_state.get('vad_h', np.zeros((2, 1, 64), dtype=np.float32))
-        vad_c = session_state.get('vad_c', np.zeros((2, 1, 64), dtype=np.float32))
-        vad_regions, region_end_states = get_vad_regions(samples, vad_h, vad_c)
-        logger.debug(f"[vad] {len(vad_regions)} regions")
-        if not vad_regions:
-            logger.debug("[chunk] no speech regions detected by VAD")
-            return
-
-        # Step 3: Segmentation — split VAD regions at speaker change points
-        segments = get_segments(samples, vad_regions)
-
-        # Step 4: ECAPA-TDNN — compare each segment vs professor embedding
-        professor_segments, sim_scores = get_professor_segments(
-            samples, segments, professor_embedding, similarity_threshold
-        )
-
-        if not professor_segments:
-            logger.debug("[chunk] no professor detected in this chunk")
-            # Reset so dedup doesn't fire on the next chunk — if professor was absent
-            # here, the tail of last_transcript could false-match and silently drop
-            # valid words at the start of the next professor chunk.
-            session_state['last_transcript'] = ''
-            return
-
-        # Save VAD state from the last confident professor region so the next
-        # chunk starts warm. Guard: sim >= 0.40 to avoid saving state from a
-        # borderline detection that could be a non-professor speaker.
-        VAD_STATE_MIN_SIM = 0.40
-        last_sim = sim_scores[-1] if sim_scores else 0.0
-        if last_sim >= VAD_STATE_MIN_SIM and region_end_states:
-            last_prof_end = professor_segments[-1][1]
-            for idx, (vs, ve) in enumerate(vad_regions):
-                if vs <= last_prof_end <= ve + 0.5:
-                    h, c = region_end_states[idx]
-                    session_state['vad_h'] = h
-                    session_state['vad_c'] = c
-                    break
-
-        # Step 5: Word stitch — keep words whose midpoint falls in a professor segment
-        transcript, _ = stitch_professor_words(words, professor_segments, vad_regions)
-        if not transcript:
-            logger.debug("[chunk] no words remained after stitch")
-            return
-
-        # Step 6: Hallucination filter
-        transcript = filter_hallucinations(transcript)
-        if not transcript:
-            logger.debug("[chunk] transcript empty after hallucination filter")
-            return
-
-        # Step 7: Dedup — remove words repeated at the 2s chunk overlap boundary
-        transcript = deduplicate_overlap(session_state.get('last_transcript', ''), transcript)
-        session_state['last_transcript'] = transcript
-
-        # Step 8: Send to browser
-        if transcript.strip():
-            detected_tags = analyze_text(transcript, selected_tags, custom_name)
-            await websocket.send_json({
-                "type": "transcription",
-                "text": transcript,
-                "tags": detected_tags
-            })
-            logger.debug(f"[filtered] {transcript}")
+            # Step 8: Send to browser — must happen on the async loop, not in the thread
+            if result is not None:
+                await websocket.send_json(result)
 
     except Exception as e:
         logger.exception(f"transcribe_chunk error: {e}")
