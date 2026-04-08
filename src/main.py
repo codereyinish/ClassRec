@@ -21,6 +21,9 @@ import psutil
 import tracemalloc
 import stable_whisper
 import torch
+import warnings
+warnings.filterwarnings("ignore")
+torch.backends.nnpack.enabled = False
 
 sentry_sdk.init(
     dsn="https://f62227a4abc04cfda1165ef380cdc745@o4511040460488704.ingest.us.sentry.io/4511040467566592",
