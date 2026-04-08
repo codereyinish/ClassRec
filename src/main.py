@@ -22,7 +22,9 @@ import tracemalloc
 from groq import Groq
 import torch
 import warnings
+import os
 warnings.filterwarnings("ignore")
+os.environ["PYTORCH_JIT"] = "0"
 torch.backends.nnpack.enabled = False
 
 sentry_sdk.init(
@@ -140,7 +142,10 @@ def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
     words = []
     if response.words:
         for w in response.words:
-            words.append({'word': w.word, 'start': w.start, 'end': w.end})
+            if isinstance(w, dict):
+                words.append({'word': w['word'], 'start': w['start'], 'end': w['end']})
+            else:
+                words.append({'word': w.word, 'start': w.start, 'end': w.end})
 
     logger.debug(f"[whisper] {len(words)} words transcribed")
     return words
