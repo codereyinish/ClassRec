@@ -1,7 +1,6 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
-openai==1.57.0
 python-dotenv==1.0.0
 python-magic==0.4.27
 Jinja2==3.1.6
@@ -9,9 +8,9 @@ sentry-sdk[fastapi]
 onnxruntime==1.20.1
 numpy>=1.24.0
 psutil==5.9.8
-librosa>=0.10.0
 soundfile==0.13.1
-groq==0.13.0
+requests>=2.31.0
+modal>=0.64.0
 torch>=2.1.0
 speechbrain==1.1.0
 

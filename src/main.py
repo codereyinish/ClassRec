@@ -5,13 +5,14 @@ from fastapi.staticfiles import StaticFiles
 import os
 from dotenv import load_dotenv
 import asyncio
-import tempfile
 from functools import partial
 import soundfile as sf
 from typing import Tuple
 from validators import validate_audio_file
 from pathlib import Path
 import json
+import io
+import requests
 from logger import logger
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
@@ -19,12 +20,9 @@ import onnxruntime as ort
 import numpy as np
 import psutil
 import tracemalloc
-from groq import Groq
 import torch
 import warnings
-import os
 warnings.filterwarnings("ignore")
-os.environ["PYTORCH_JIT"] = "0"
 torch.backends.nnpack.enabled = False
 
 sentry_sdk.init(
@@ -60,7 +58,7 @@ BYTES_PER_SECOND  = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
 CHUNK_DURATION    = 10
 CHUNK_BYTES       = BYTES_PER_SECOND * CHUNK_DURATION   # 10s advance per chunk
 
-WHISPER_MODEL = 'whisper-large-v3-turbo'  # Groq model
+MODAL_WHISPER_URL = os.getenv("MODAL_WHISPER_URL", "")  # set after: modal deploy modal_whisper.py
 
 # VAD
 VAD_WINDOW_SIZE   = 512
@@ -75,7 +73,7 @@ MIN_REGION_SEC    = 1.5
 MIN_SEGMENT_SEC   = 0.5
 
 # Similarity
-SIMILARITY_THRESHOLD = 0.35
+SIMILARITY_THRESHOLD = 0.20
 
 
 # ======= PYDANTIC DATA VALIDATION =======
@@ -108,44 +106,37 @@ def pcm_to_float(pcm_bytes: bytes) -> np.ndarray:
     return samples
 
 
-# ======= STEP 1: WHISPER VIA GROQ API =======
-# Groq runs Whisper on custom LPU hardware — much faster than local CPU inference.
-# We send each 10s chunk as a WAV file and get back word-level timestamps.
-_groq_client = None
+# ======= STEP 1: WHISPER VIA MODAL (faster-whisper large-v3 + stable-ts on T4 GPU) =======
+# Transcription runs remotely on Modal — no GPU or Whisper model on this server.
+# _modal_session is a requests.Session for connection reuse across chunks.
+_modal_session: requests.Session | None = None
+
 
 def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
     """
-    Transcribe full chunk audio via Groq Whisper API.
+    Send audio to the Modal Whisper endpoint and return word-level timestamps.
     Returns list of {"word": str, "start": float, "end": float}.
 
-    Why transcribe the full chunk first (before filtering)?
-    Because Whisper needs full context to be accurate. If we sent only
-    the professor's audio segments, Whisper would lose sentence context
-    and make more errors. We transcribe everything, then filter by timestamps.
+    Why send the full chunk before any speaker filtering?
+    Whisper needs full audio context to be accurate. We transcribe everything,
+    then main.py filters by speaker timestamps using the local ECAPA-TDNN pipeline.
+
+    Cold start: first request after idle spins up a T4 container (~3-5s).
+    Warm requests: ~1-2s round-trip for a 10s chunk.
     """
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-        sf.write(f.name, samples, SAMPLE_RATE)
-        tmp_path = f.name
+    buf = io.BytesIO()
+    sf.write(buf, samples, SAMPLE_RATE, format="WAV")
+    wav_bytes = buf.getvalue()
 
-    try:
-        with open(tmp_path, 'rb') as f:
-            response = _groq_client.audio.transcriptions.create(
-                file=("audio.wav", f, "audio/wav"),
-                model=WHISPER_MODEL,
-                response_format="verbose_json",
-                timestamp_granularities=["word"],
-                language="en",
-            )
-    finally:
-        os.unlink(tmp_path)
-
-    words = []
-    if response.words:
-        for w in response.words:
-            if isinstance(w, dict):
-                words.append({'word': w['word'], 'start': w['start'], 'end': w['end']})
-            else:
-                words.append({'word': w.word, 'start': w.start, 'end': w.end})
+    logger.debug(f"[whisper] calling Modal ({len(samples)/SAMPLE_RATE:.1f}s audio)")
+    response = _modal_session.post(
+        MODAL_WHISPER_URL,
+        data=wav_bytes,
+        headers={"Content-Type": "audio/wav"},
+        timeout=90,  # generous: first warm-up can take ~20s
+    )
+    response.raise_for_status()
+    words = response.json()
 
     logger.debug(f"[whisper] {len(words)} words transcribed")
     return words
@@ -208,7 +199,7 @@ def _run_pipeline_sync(
     vad_h = session_state.get('vad_h', np.zeros((2, 1, 64), dtype=np.float32))
     vad_c = session_state.get('vad_c', np.zeros((2, 1, 64), dtype=np.float32))
     vad_regions, region_end_states = get_vad_regions(samples, vad_h, vad_c)
-    logger.debug(f"[vad] {len(vad_regions)} regions")
+    logger.debug(f"[vad] {len(vad_regions)} regions: {[(round(s,1), round(e,1)) for s,e in vad_regions]}")
     if not vad_regions:
         logger.debug("[chunk] no speech regions detected by VAD")
         return None
@@ -359,7 +350,7 @@ def health():
     }
 
 
-# ======= FILE UPLOAD (local Whisper — same model as live pipeline) =======
+# ======= FILE UPLOAD (Modal Whisper — same large-v3 model as live pipeline) =======
 @app.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile,
@@ -367,19 +358,19 @@ async def transcribe_audio(
 ):
     contents, mime, file_size_mb, correct_ext = validated_data
     try:
-        with tempfile.NamedTemporaryFile(suffix=f'.{correct_ext}', delete=False) as f:
-            f.write(contents)
-            tmp_path = f.name
-
-        with open(tmp_path, 'rb') as audio_file:
-            response = _groq_client.audio.transcriptions.create(
-                file=(file.filename, audio_file),
-                model=WHISPER_MODEL,
-                language="en",
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: _modal_session.post(
+                MODAL_WHISPER_URL,
+                data=contents,
+                headers={"Content-Type": mime},
+                timeout=120,
             )
-        os.unlink(tmp_path)
-
-        transcript = response.text.strip()
+        )
+        response.raise_for_status()
+        words = response.json()
+        transcript = " ".join(w["word"] for w in words).strip()
 
         return {
             "filename": file.filename,
@@ -515,9 +506,11 @@ def get_segments(samples: np.ndarray, vad_regions: list[tuple[float, float]]) ->
         if duration >= MIN_REGION_SEC:
             region_samples = samples[int(start * SAMPLE_RATE): int(end * SAMPLE_RATE)]
             sub = split_by_speaker_change(region_samples, region_start=start)
+            logger.debug(f"[seg] region {start:.1f}s-{end:.1f}s → {len(sub)} sub-segments")
             final_segments.extend(sub)
         else:
             final_segments.append((start, end))
+    logger.debug(f"[segments] {len(final_segments)}: {[(f'{s:.1f}', f'{e:.1f}') for s,e in final_segments]}")
     return final_segments
 
 
@@ -589,6 +582,7 @@ def get_professor_segments(
         if is_prof:
             professor_segments.append((start, end))
             sim_scores.append(sim)
+    logger.debug(f"[professor] {[(f'{s:.1f}', f'{e:.1f}') for s,e in professor_segments]}")
     return professor_segments, sim_scores
 
 
@@ -615,6 +609,7 @@ def stitch_professor_words(
             if effective_start <= mid <= seg_end + 0.5:
                 kept.append(w['word'])
                 break
+    logger.debug(f"[stitch] {len(kept)}/{len(words)} words kept")
     return ' '.join(kept).strip(), kept
 
 
@@ -784,7 +779,6 @@ async def websocket_transcribe(websocket: WebSocket):
                 audio_buffer.extend(packet)
 
                 if len(audio_buffer) >= CHUNK_BYTES:
-                    show_Graphical_Audio_Progress(len(audio_buffer))
                     chunk_to_process = bytes(audio_buffer)
                     del audio_buffer[:CHUNK_BYTES]
 
@@ -806,7 +800,7 @@ async def websocket_transcribe(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     global _mem_baseline_mb, _mem_after_models_mb
-    global _vad_session, _seg_session, _ecapa_model, _groq_client
+    global _vad_session, _seg_session, _ecapa_model, _modal_session
 
     tracemalloc.start()
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
@@ -833,8 +827,12 @@ async def startup_event():
     _ecapa_model.eval()
     logger.info("ECAPA-TDNN embedding model loaded")
 
-    _groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    logger.info(f"Groq client initialized (model: {WHISPER_MODEL})")
+    # Whisper runs on Modal — just init an HTTP session for connection reuse
+    _modal_session = requests.Session()
+    if MODAL_WHISPER_URL:
+        logger.info(f"Modal Whisper endpoint configured: {MODAL_WHISPER_URL}")
+    else:
+        logger.warning("MODAL_WHISPER_URL not set — transcription will fail")
 
     _mem_after_models_mb = _process.memory_info().rss / 1024 / 1024
     logger.info(f"Memory after all models loaded: {_mem_after_models_mb:.1f} MB")
