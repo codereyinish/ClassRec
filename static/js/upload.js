@@ -69,8 +69,13 @@
         selectedAudioFile = e.target.files[0];
         if(!selectedAudioFile) return;
 
-        audioFileDuration = await extractAudioDuration(selectedAudioFile);
-        Logger.debug("Audio Duration is" ,audioFileDuration)
+        try {
+            audioFileDuration = await extractAudioDuration(selectedAudioFile);
+            Logger.debug("Audio Duration is", audioFileDuration);
+        } catch (err) {
+            Logger.debug("Could not read audio duration, defaulting to 0", err.message);
+            audioFileDuration = 0;
+        }
     });
 
 
