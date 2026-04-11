@@ -163,7 +163,7 @@ def analyze_text(text: str, selected_tags: list, custom_name: str) -> list:
     return tags
 
 
-# ======= TRANSCRIBE CHUNK (full pipeline) =======
+# ======= TRANSCRIBE CHUNK (full pipeline from VAD to dedup) =======
 def _run_pipeline_sync(
     pcm_bytes: bytes,
     lecture_prompt: str,
@@ -172,6 +172,7 @@ def _run_pipeline_sync(
     professor_embedding: np.ndarray | None,
     similarity_threshold: float,
     session_state: dict,
+    chunk_offset: float,
 ) -> dict | None:
     """
     CPU-bound pipeline: Steps 1-7 (all model inference).
@@ -193,7 +194,8 @@ def _run_pipeline_sync(
     # Voice lock off — send raw transcript without speaker filtering
     if professor_embedding is None:
         detected_tags = analyze_text(raw_transcript, selected_tags, custom_name)
-        return {"type": "transcription", "text": raw_transcript, "tags": detected_tags}
+        word_list = [{"w": w["word"], "s": round(w["start"] + chunk_offset, 3), "e": round(w["end"] + chunk_offset, 3)} for w in words]
+        return {"type": "transcription", "text": raw_transcript, "tags": detected_tags, "words": word_list}
 
     # Step 2: VAD — find speech regions, filter silence
     vad_h = session_state.get('vad_h', np.zeros((2, 1, 64), dtype=np.float32))
@@ -235,7 +237,7 @@ def _run_pipeline_sync(
                 break
 
     # Step 5: Word stitch — keep words whose midpoint falls in a professor segment
-    transcript, _ = stitch_professor_words(words, professor_segments, vad_regions)
+    transcript, kept_words = stitch_professor_words(words, professor_segments, vad_regions)
     if not transcript:
         logger.debug("[chunk] no words remained after stitch")
         return None
@@ -253,9 +255,13 @@ def _run_pipeline_sync(
     if not transcript.strip():
         return None
 
+    # Re-align word dicts to match filtered transcript, then apply chunk offset
+    final_words = words_for_transcript(transcript, kept_words)
+    word_list = [{"w": w["word"], "s": round(w["start"] + chunk_offset, 3), "e": round(w["end"] + chunk_offset, 3)} for w in final_words]
+
     detected_tags = analyze_text(transcript, selected_tags, custom_name)
     logger.debug(f"[filtered] {transcript}")
-    return {"type": "transcription", "text": transcript, "tags": detected_tags}
+    return {"type": "transcription", "text": transcript, "tags": detected_tags, "words": word_list}
 
 
 async def transcribe_chunk(
@@ -267,6 +273,7 @@ async def transcribe_chunk(
     professor_embedding: np.ndarray | None,
     similarity_threshold: float,
     session_state: dict,
+    chunk_offset: float,
 ):
     """
     Full per-chunk pipeline:
@@ -291,6 +298,7 @@ async def transcribe_chunk(
                     professor_embedding,
                     similarity_threshold,
                     session_state,
+                    chunk_offset,
                 )
             )
 
@@ -591,7 +599,7 @@ def stitch_professor_words(
     words: list[dict],
     professor_segments: list[tuple[float, float]],
     vad_regions: list[tuple[float, float]],
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[dict]]:
     """
     Keep only words whose midpoint timestamp falls inside a professor segment.
     0.5s buffer on segment end to catch words slightly past the boundary.
@@ -599,6 +607,7 @@ def stitch_professor_words(
     For the first professor segment, effective_start is stretched back to the
     first VAD region start — covers words in short leading VAD regions that
     were dropped before segmentation (VAD/segmentation cold-start latency).
+    Returns (joined_text, list_of_word_dicts) — full dicts so timestamps survive.
     """
     first_vad_start = vad_regions[0][0] if vad_regions else 0.0
     kept = []
@@ -607,10 +616,28 @@ def stitch_professor_words(
         for i, (seg_start, seg_end) in enumerate(professor_segments):
             effective_start = first_vad_start if i == 0 else seg_start
             if effective_start <= mid <= seg_end + 0.5:
-                kept.append(w['word'])
+                kept.append(w)
                 break
     logger.debug(f"[stitch] {len(kept)}/{len(words)} words kept")
-    return ' '.join(kept).strip(), kept
+    return ' '.join(w['word'] for w in kept).strip(), kept
+
+
+def words_for_transcript(transcript: str, word_dicts: list[dict]) -> list[dict]:
+    """
+    After hallucination filter / dedup trim the transcript string, re-align the
+    word dict list to match only what's actually in the final text.
+    Greedy left-to-right scan — works because filtering never reorders words.
+    """
+    result = []
+    wi = 0
+    for tw in transcript.split():
+        while wi < len(word_dicts):
+            if word_dicts[wi]['word'].strip().lower() == tw.lower():
+                result.append(word_dicts[wi])
+                wi += 1
+                break
+            wi += 1
+    return result
 
 
 # ======= HALLUCINATION FILTER =======
@@ -685,6 +712,7 @@ async def websocket_transcribe(websocket: WebSocket):
     custom_name       = ""
     enrolling         = False
     enrollment_buffer = bytearray()
+    chunk_count       = 0
 
     # Per-session speaker state
     professor_embedding: np.ndarray | None = None
@@ -782,12 +810,16 @@ async def websocket_transcribe(websocket: WebSocket):
                     chunk_to_process = bytes(audio_buffer)
                     del audio_buffer[:CHUNK_BYTES]
 
+                    chunk_offset = chunk_count * CHUNK_DURATION
+                    chunk_count += 1
+
                     asyncio.create_task(transcribe_chunk(
                         chunk_to_process, websocket,
                         lecture_prompt, selected_tags, custom_name,
                         professor_embedding if voice_lock_active else None,
                         similarity_threshold,
                         session_state,
+                        chunk_offset,
                     ))
 
     except WebSocketDisconnect:

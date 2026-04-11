@@ -19,7 +19,7 @@ def setup_logger()  -> logging.Logger:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
-
+    logging.getLogger("faster_whisper").setLevel(logging.WARNING)
     return logging.getLogger('ClassRec')
 
 logger = setup_logger()

@@ -36,6 +36,7 @@
    let isEnrolling = false;
    let enrollAutoStop = null;   // 10s auto-stop for enrollment
    let enrollmentAudioChunks = [];
+   let pcmBlob = null;          // grows incrementally every chunk, no header inside
 
 
     //=====2B. LIVE USAGE TRACING ======
@@ -160,6 +161,34 @@
        str(36,'data'); v.setUint32(40,dataSize,true);
        new Int16Array(wav,44).set(pcm);
        return new Blob([wav], { type:'audio/wav' });
+   }
+
+   function makeWavHeader(dataSize) {
+       // Write just the 44-byte WAV header for a given PCM data size
+       const buf = new ArrayBuffer(44);
+       const v = new DataView(buf);
+       const str = (off, s) => [...s].forEach((c, i) => v.setUint8(off + i, c.charCodeAt(0)));
+       str(0,'RIFF'); v.setUint32(4, 36 + dataSize, true); str(8,'WAVE');
+       str(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+       v.setUint16(22,1,true); v.setUint32(24,16000,true);
+       v.setUint32(28,32000,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+       str(36,'data'); v.setUint32(40,dataSize,true);
+       return buf;
+   }
+
+   function appendChunkToPcmBlob(int16Chunk) {
+       // Reference append — browser holds pointer to old blob, no copy of old data
+       const newPiece = new Blob([int16Chunk.buffer]);
+       pcmBlob = pcmBlob ? new Blob([pcmBlob, newPiece]) : newPiece;
+   }
+
+   function buildWavUrl() {
+       // Prepend a fresh 44-byte header to the current pcmBlob — trivial cost
+       if (!pcmBlob) return;
+       const header  = makeWavHeader(pcmBlob.size);
+       const wavBlob = new Blob([header, pcmBlob], { type: 'audio/wav' });
+       if (window.recordingUrl) URL.revokeObjectURL(window.recordingUrl);
+       window.recordingUrl = URL.createObjectURL(wavBlob);
    }
 
    function onMicUp(e) {
@@ -320,24 +349,39 @@
    }
 
    function highlightKeywords(textEl, tags){
-        const keyword_map = { ...KEYWORD_MAP, name: window.tagConfig?.name ? [window.tagConfig.name] : [] };
-        let highlighted = escapeHtml(textEl.textContent)
+       const keyword_map = { ...KEYWORD_MAP, name: window.tagConfig?.name ? [window.tagConfig.name] : [] };
+       // Highlight inside each word span individually so data-start/data-end attributes survive
+       textEl.querySelectorAll('span.word').forEach(span => {
+           let text = escapeHtml(span.textContent);
            tags.forEach(tag => {
-               (keyword_map[tag]).forEach( kw => {
+               (keyword_map[tag] || []).forEach(kw => {
                    const regex = new RegExp(`(${kw})`, 'gi');
-                   highlighted = highlighted.replace(regex,`<mark class="highlight-${tag}">$1</mark>`);
+                   text = text.replace(regex, `<mark class="highlight-${tag}">$1</mark>`);
                });
            });
-           textEl.innerHTML = highlighted;
+           span.innerHTML = text;
+       });
    }
 
 
-   function displayTranscription(text, tags=[]){
+   function displayTranscription(text, tags=[], words=[]){
        emptyState.style.display = 'none';
        const chunk = getOrCreateChunk();
        const textEl = chunk.querySelector('.transcript-text');
-       textEl.textContent += (textEl.textContent ? ' ' : '') + text;
-       if(tags.length>0){
+       const needsSpace = textEl.innerHTML !== '';
+
+       if (words.length > 0) {
+           // Render each word as a clickable span with timestamp data attributes
+           const spansHtml = words.map(w =>
+               `<span class="word" data-start="${w.s}" data-end="${w.e}">${escapeHtml(w.w)}</span>`
+           ).join(' ');
+           textEl.innerHTML += (needsSpace ? ' ' : '') + spansHtml;
+       } else {
+           // Fallback: no words array, render plain text
+           textEl.textContent += (textEl.textContent ? ' ' : '') + text;
+       }
+
+       if(tags.length > 0){
            applyTags(chunk, tags);
            highlightKeywords(textEl, tags);
        }
@@ -372,7 +416,7 @@
                    //Display i2t
                    Logger.debug("Received transcript from Backend");
                    Logger.debug('Tags detected:' , data.tags  )
-                   displayTranscription(data.text, data.tags || [])
+                   displayTranscription(data.text, data.tags || [], data.words || [])
                }
                else if (data.type === "error"){
                    alert('Transcription error: ' + data.message);
@@ -428,7 +472,9 @@
                    const audioData = e.inputBuffer.getChannelData(0);
                    const int16Chunk = convertToInt16(audioData);
                    websocket.send(int16Chunk.buffer);
-                   if (isEnrolling) enrollmentAudioChunks.push(new Int16Array(int16Chunk));
+                   if (isEnrolling) enrollmentAudioChunks.push(new Int16Array(int16Chunk)); //for Enrollment Audio UI
+                   //preview and bottom one for Live Audio Wav Preview
+                   else appendChunkToPcmBlob(int16Chunk);
                }
            };
    }
@@ -486,6 +532,11 @@
        if (audioContext) audioContext.close();
        if (websocket) websocket.close();
        isRecording = false;
+
+       // Build final WAV URL from accumulated pcmBlob
+       buildWavUrl();
+       pcmBlob = null;
+
        resetUI();
    }
 
