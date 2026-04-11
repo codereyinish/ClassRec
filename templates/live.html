@@ -85,6 +85,21 @@
             </div>
         </div>
     </div>
+
+    <!-- Audio Player Panel -->
+    <div id="audioPanel" class="audio-panel">
+        <div class="audio-panel-body">
+            <canvas id="waveform" class="waveform-canvas"></canvas>
+            <div class="audio-controls">
+                <button class="audio-btn" id="skipBack">− 15s</button>
+                <button class="audio-btn audio-btn-play" id="playPause">▶</button>
+                <button class="audio-btn" id="skipFwd">+ 15s</button>
+                <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+            </div>
+        </div>
+    </div>
+    <audio id="recordingAudio" style="display:none"></audio>
+
     <!-- Popup -->
     <div class="overlay" id="overlay">
         <div class="popup">
