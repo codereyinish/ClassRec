@@ -188,7 +188,8 @@
        const header  = makeWavHeader(pcmBlob.size);
        const wavBlob = new Blob([header, pcmBlob], { type: 'audio/wav' });
        if (window.recordingUrl) URL.revokeObjectURL(window.recordingUrl);
-       window.recordingUrl = URL.createObjectURL(wavBlob);
+       window.recordingBlob = wavBlob;
+       window.recordingUrl  = URL.createObjectURL(wavBlob);
    }
 
    function onMicUp(e) {
@@ -533,9 +534,10 @@
        if (websocket) websocket.close();
        isRecording = false;
 
-       // Build final WAV URL from accumulated pcmBlob
+       // Build final WAV URL and show player panel
        buildWavUrl();
        pcmBlob = null;
+       showAudioPanel();
 
        resetUI();
    }
@@ -677,4 +679,156 @@
    document.getElementById('nameCheck').addEventListener('change', (e) => {
        document.getElementById('nameInput').disabled = !e.target.checked;
        if (e.target.checked) document.getElementById('nameInput').focus();
+   });
+
+
+   // ===== 13. WAVEFORM PLAYER =====
+   const WAVEFORM_PLAYED   = '#52b788';
+   const WAVEFORM_UNPLAYED = '#1b4332';
+   const WAVEFORM_PLAYHEAD = '#52b788';
+
+   let waveformBars  = null;   // Float32Array of downsampled amplitudes
+   let decodedBuffer = null;   // Web Audio API AudioBuffer (for duration)
+   let rafId         = null;   // requestAnimationFrame handle
+
+   const audioEl    = document.getElementById('recordingAudio');
+   const audioPanel = document.getElementById('audioPanel');
+   const canvas     = document.getElementById('waveform');
+   const playPauseBtn = document.getElementById('playPause');
+   const timeDisplay  = document.getElementById('timeDisplay');
+
+   function showAudioPanel() {
+       if (!window.recordingUrl) return;
+       audioEl.src = window.recordingUrl;
+       audioPanel.classList.add('visible');
+       initWaveform();
+   }
+
+   async function initWaveform() {
+       if (!window.recordingBlob && !window.recordingUrl) return;
+
+       // Set canvas pixel dimensions to match its CSS display size
+       canvas.width  = canvas.offsetWidth;
+       canvas.height = canvas.offsetHeight;
+
+       // Decode the WAV blob into raw float samples via Web Audio API
+       const arrayBuf = await window.recordingBlob
+           ? window.recordingBlob.arrayBuffer()
+           : fetch(window.recordingUrl).then(r => r.arrayBuffer());
+
+       const ctx = new AudioContext();
+       decodedBuffer = await ctx.decodeAudioData(arrayBuf);
+       await ctx.close();
+
+       // Downsample: one bar per canvas pixel column
+       const rawData   = decodedBuffer.getChannelData(0);
+       const N         = canvas.width;
+       const blockSize = Math.floor(rawData.length / N);
+       waveformBars    = new Float32Array(N);
+       for (let i = 0; i < N; i++) {
+           let max = 0;
+           const start = i * blockSize;
+           for (let j = start; j < start + blockSize; j++) {
+               if (Math.abs(rawData[j]) > max) max = Math.abs(rawData[j]);
+           }
+           waveformBars[i] = max;
+       }
+
+       drawWaveform(audioEl.currentTime);
+   }
+
+   function drawWaveform(currentTime) {
+       if (!waveformBars || !decodedBuffer) return;
+       const ctx      = canvas.getContext('2d');
+       const W        = canvas.width;
+       const H        = canvas.height;
+       const progress = decodedBuffer.duration > 0 ? currentTime / decodedBuffer.duration : 0;
+       const playheadX = Math.floor(progress * W);
+
+       ctx.clearRect(0, 0, W, H);
+
+       for (let i = 0; i < W; i++) {
+           const barH = waveformBars[i] * H * 0.9;
+           ctx.fillStyle = i < playheadX ? WAVEFORM_PLAYED : WAVEFORM_UNPLAYED;
+           ctx.fillRect(i, (H - barH) / 2, 1, barH);
+       }
+
+       // Playhead line
+       ctx.fillStyle = WAVEFORM_PLAYHEAD;
+       ctx.fillRect(playheadX, 0, 2, H);
+
+       // Time display
+       const cur  = formatTime(currentTime);
+       const dur  = formatTime(decodedBuffer.duration);
+       timeDisplay.textContent = `${cur} / ${dur}`;
+   }
+
+   function formatTime(sec) {
+       const m = Math.floor(sec / 60);
+       const s = Math.floor(sec % 60).toString().padStart(2, '0');
+       return `${m}:${s}`;
+   }
+
+   function startSyncLoop() {
+       function tick() {
+           drawWaveform(audioEl.currentTime);
+           // Highlight active word span
+           const t = audioEl.currentTime;
+           document.querySelectorAll('span.word').forEach(span => {
+               const s = parseFloat(span.dataset.start);
+               const e = parseFloat(span.dataset.end);
+               span.classList.toggle('active', s <= t && t <= e);
+           });
+           rafId = requestAnimationFrame(tick);
+       }
+       rafId = requestAnimationFrame(tick);
+   }
+
+   function stopSyncLoop() {
+       if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+   }
+
+   // Play / pause button
+   playPauseBtn.addEventListener('click', () => {
+       if (audioEl.paused) { audioEl.play(); playPauseBtn.textContent = '⏸'; startSyncLoop(); }
+       else { audioEl.pause(); playPauseBtn.textContent = '▶'; stopSyncLoop(); }
+   });
+
+   audioEl.addEventListener('ended', () => {
+       playPauseBtn.textContent = '▶';
+       stopSyncLoop();
+   });
+
+   // Skip buttons
+   document.getElementById('skipBack').addEventListener('click', () => {
+       audioEl.currentTime = Math.max(0, audioEl.currentTime - 15);
+       drawWaveform(audioEl.currentTime);
+   });
+   document.getElementById('skipFwd').addEventListener('click', () => {
+       audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + 15);
+       drawWaveform(audioEl.currentTime);
+   });
+
+   // Click on canvas → seek
+   canvas.addEventListener('click', (e) => {
+       if (!decodedBuffer) return;
+       const rect     = canvas.getBoundingClientRect();
+       const fraction = (e.clientX - rect.left) / rect.width;
+       audioEl.currentTime = fraction * decodedBuffer.duration;
+       drawWaveform(audioEl.currentTime);
+   });
+
+   // Click word span → seek
+   document.addEventListener('click', (e) => {
+       const span = e.target.closest('span.word');
+       if (!span) return;
+       const t = parseFloat(span.dataset.start);
+       if (isNaN(t)) return;
+       buildWavUrl();
+       showAudioPanel();
+       audioEl.src = window.recordingUrl;
+       audioEl.currentTime = t;
+       audioEl.play();
+       playPauseBtn.textContent = '⏸';
+       startSyncLoop();
    });
