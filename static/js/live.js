@@ -41,6 +41,7 @@
    let lockToggleOn = false;
    let isEnrolling = false;
    let enrollAutoStop = null;   // 10s auto-stop for enrollment
+   let enrollCounterInterval = null;
    let enrollmentAudioChunks = [];
    let pcmBlob = null;          // grows incrementally every chunk, no header inside
 
@@ -114,10 +115,17 @@
        lockToggleOn = lockToggle.checked;
        if (lockToggleOn) {
            lockHint.classList.add('visible');
+           micGlowRing.classList.add('locked');
+           setTimeout(() => lockHint.classList.remove('visible'), 2000);
        } else {
            lockHint.classList.remove('visible');
            lockBadge.classList.remove('visible');
            voiceLockActive = false;
+           micGlowRing.classList.remove('locked', 'enrolling');
+           if (statusDiv.className === 'status error') {
+               statusDiv.textContent = 'Click the microphone to start recording';
+               statusDiv.className = 'status idle';
+           }
            if (websocket && websocket.readyState === WebSocket.OPEN) {
                websocket.send(JSON.stringify({ type: "voice_lock_off" }));
            }
@@ -128,18 +136,29 @@
    function onMicDown(e) {
        if (!lockToggleOn || voiceLockActive) return;
        e.preventDefault();   // block click from firing
+       if (audioContext) { audioContext.close(); audioContext = null; }
+       if (pendingStream) { pendingStream.getTracks().forEach(t => t.stop()); pendingStream = null; }
+       if (websocket) { websocket.onclose = null; websocket.close(); websocket = null; }
+       if (enrollCounterInterval) { clearInterval(enrollCounterInterval); enrollCounterInterval = null; }
        enrollmentAudioChunks = [];
-       statusDiv.textContent = 'Recording sample...';
+       let enrollSecs = 0;
+       statusDiv.textContent = 'Recording sample... 0s';
        statusDiv.className = 'status enrolling';
        lockHint.classList.remove('visible');
+       enrollCounterInterval = setInterval(() => {
+           enrollSecs++;
+           statusDiv.textContent = `Recording sample... ${enrollSecs}s`;
+       }, 1000);
        if (!UsageTracker.canRecordLive()) { window.showUpgradeModal(); return; }
        (async () => {
            try { pendingStream = await getMicrophoneAccess(); }
            catch (err) { alert('Mic denied: ' + err.message); return; }
            isEnrolling = true;
+           micGlowRing.classList.remove('locked');
+           micGlowRing.classList.add('enrolling');
            startEnrolling();
        })();
-       enrollAutoStop = setTimeout(() => onMicUp(null), 10000);  // auto-stop
+       enrollAutoStop = setTimeout(() => onMicUp(null), 20000);  // auto-stop at 20s
    }
 
    function showEnrollmentPlayback() {
@@ -204,20 +223,25 @@
        if (!lockToggleOn || !isEnrolling) return;
        if (e) e.preventDefault();
        isEnrolling = false;
+       micGlowRing.classList.remove('enrolling');
+       micGlowRing.classList.add('locked');
+       if (enrollCounterInterval) { clearInterval(enrollCounterInterval); enrollCounterInterval = null; }
        if (enrollAutoStop) { clearTimeout(enrollAutoStop); enrollAutoStop = null; }
-       if (websocket && websocket.readyState === WebSocket.OPEN) {
-           websocket.send(JSON.stringify({ type: "enroll_end" }));
-       }
        const seconds = (enrollmentAudioChunks.length * 4096) / 16000;
-       if (seconds >= 1.5) {
+       if (seconds >= 10) {
+           isRecording = false;
+           stopUsageTracking();
+           if (websocket && websocket.readyState === WebSocket.OPEN) {
+               websocket.send(JSON.stringify({ type: "enroll_end" }));
+           }
            showEnrollmentPlayback();
-           statusDiv.textContent = 'Processing sample...';
-           statusDiv.className = 'status recording';
-       } else {
-           lockHint.textContent = 'Hold for at least 2 seconds';
-           lockHint.classList.add('visible');
-           statusDiv.textContent = 'Too short — try again';
+           voiceLockActive = true;
+           lockBadge.classList.add('visible');
+           statusDiv.textContent = 'Voice locked! Click mic to record.';
            statusDiv.className = 'status idle';
+       } else {
+           statusDiv.textContent = 'Too short — hold for at least 10 seconds';
+           statusDiv.className = 'status error';
        }
    }
 
@@ -231,7 +255,8 @@
            micGlowRing.classList.replace('recording', 'paused');
            statusDiv.textContent = 'Paused';
            statusDiv.className = 'status paused';
-           clearInterval(liveTimer);   // don't charge paused time
+           clearInterval(liveTimer);
+           console.log('[Recording] Paused at', new Date().toLocaleTimeString());
        } else {
            pauseBtn.textContent = '⏸ Pause';
            pauseBtn.classList.remove('paused');
@@ -239,7 +264,8 @@
            micGlowRing.classList.replace('paused', 'recording');
            statusDiv.textContent = 'Recording... (Click to stop)';
            statusDiv.className = 'status recording';
-           liveTimer = setInterval(trackLiveUsage, 1000);  // resume timer
+           liveTimer = setInterval(trackLiveUsage, 1000);
+           console.log('[Recording] Resumed at', new Date().toLocaleTimeString());
        }
    });
 
@@ -333,6 +359,7 @@
     function setRecordingUI(){
        isPaused = false;
        micBubble.classList.add('recording');
+       micGlowRing.classList.remove('locked', 'enrolling');
        micGlowRing.classList.add('recording');
        pauseBtn.style.display = 'inline-block';
        pauseBtn.textContent = '⏸ Pause';
@@ -347,16 +374,27 @@
        micGlowRing.classList.remove('recording', 'paused');
        pauseBtn.style.display = 'none';
        pauseBtn.classList.remove('paused');
-       statusDiv.textContent = 'Click to start recording';
-       statusDiv.className = 'status idle';
-       lockToggle.checked = false;
-       lockToggleOn = false;
-       lockHint.textContent = 'Hold mic to capture professor\'s voice';
-       lockHint.classList.remove('visible');
-       lockBadge.classList.remove('visible');
-       voiceLockActive = false;
        isEnrolling = false;
        if (enrollAutoStop) { clearTimeout(enrollAutoStop); enrollAutoStop = null; }
+       if (enrollCounterInterval) { clearInterval(enrollCounterInterval); enrollCounterInterval = null; }
+
+       if (voiceLockActive) {
+           // Keep lock state intact — just reset recording UI
+           statusDiv.textContent = 'Voice locked! Click mic to record.';
+           statusDiv.className = 'status idle';
+           lockToggle.checked = true;
+           lockToggleOn = true;
+           micGlowRing.classList.add('locked');
+           lockBadge.classList.add('visible');
+       } else {
+           statusDiv.textContent = 'Click to start recording';
+           statusDiv.className = 'status idle';
+           lockToggle.checked = false;
+           lockToggleOn = false;
+           lockHint.textContent = 'Hold mic to capture professor\'s voice';
+           lockHint.classList.remove('visible');
+           lockBadge.classList.remove('visible');
+       }
    }
 
    //======= 8. Display Transcription
@@ -465,7 +503,6 @@
                    voiceLockActive = true;
                    lockBadge.classList.add('visible');
                    lockHint.classList.remove('visible');
-                   openPopup();   // let user set lecture context now that voice is locked
                }
                else if (data.type === "enroll_failed") {
                    lockHint.textContent = 'Hold for more than 3 seconds';
@@ -602,6 +639,8 @@
            const data = JSON.parse(event.data);
            if (data.type === "enroll_success") {
                voiceLockActive = true;
+               lockToggleOn = true;
+               lockToggle.checked = true;
                lockBadge.classList.add('visible');
                lockHint.classList.remove('visible');
                if (audioContext) audioContext.close();
@@ -628,9 +667,11 @@
        websocket.onerror = () => { stopRecording(); alert('Cannot connect to server. Is it running?'); };
        websocket.onclose = (event) => {
            console.log('Enrollment WS closed. code:', event.code, 'reason:', event.reason, 'wasClean:', event.wasClean, 'isRecording:', isRecording);
-           if (isRecording) {
+           if (isRecording && !voiceLockActive) {
                isRecording = false;
                stopUsageTracking();
+           } else {
+               isRecording = false;
            }
        };
    }
