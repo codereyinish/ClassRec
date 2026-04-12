@@ -252,7 +252,7 @@
     margin-left: -28px;
     margin-right: -28px;
     margin-top: -28px;
-    padding: 14px 28px 0;
+    padding: 4px 28px 0;
     margin-bottom: 16px;
 }
 
@@ -261,7 +261,7 @@
     align-items: center;
     gap: 12px;
     margin-bottom: 0;
-    padding-bottom: 14px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
     position: relative;
 }
@@ -641,6 +641,7 @@ span.word {
 }
 span.word:hover { background: rgba(82,183,136,0.15); }
 span.word.active { background: rgba(82,183,136,0.3); color: #52b788; }
+span.word.live-cursor { color: #52b788; }
 
 /* ===== AUDIO PANEL ===== */
 .audio-panel {
@@ -661,6 +662,21 @@ span.word.active { background: rgba(82,183,136,0.3); color: #52b788; }
     max-height: 180px;
     margin-bottom: 20px;
 }
+.audio-panel-collapse {
+    display: block;
+    margin: 0 auto 6px;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.3);
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s, transform 0.3s;
+    padding: 2px 8px;
+}
+.audio-panel-collapse:hover { color: rgba(255,255,255,0.7); }
+.audio-panel-collapse.collapsed { transform: rotate(180deg); }
+
 .audio-panel-body {
     padding: 0 16px 10px 16px;
     display: flex;

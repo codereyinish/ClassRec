@@ -304,14 +304,20 @@ async def transcribe_chunk(
 
             # Step 8: Send to browser — must happen on the async loop, not in the thread
             if result is not None:
-                await websocket.send_json(result)
+                try:
+                    await websocket.send_json(result)
+                except Exception:
+                    pass  # client disconnected while chunk was processing
 
     except Exception as e:
         logger.exception(f"transcribe_chunk error: {e}")
-        await websocket.send_json({
-            "type": "error",
-            "message": "Transcription failed. Please try again."
-        })
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Transcription failed. Please try again."
+            })
+        except Exception:
+            pass  # client already disconnected
 
 
 # ======= ROUTES =======

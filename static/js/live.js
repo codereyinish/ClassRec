@@ -231,6 +231,7 @@
        if (seconds >= 10) {
            isRecording = false;
            stopUsageTracking();
+           pcmBlob = null;  // discard any stale pcm so waveform doesn't appear
            if (websocket && websocket.readyState === WebSocket.OPEN) {
                websocket.send(JSON.stringify({ type: "enroll_end" }));
            }
@@ -450,7 +451,7 @@
 
        if (words.length > 0) {
            // Render each word as a clickable span with timestamp data attributes
-           const spansHtml = words.map(w =>
+           const spansHtml = words.map((w) =>
                `<span class="word" data-start="${w.s}" data-end="${w.e}">${escapeHtml(w.w)}</span>`
            ).join(' ');
            textEl.innerHTML += (needsSpace ? ' ' : '') + spansHtml;
@@ -703,7 +704,11 @@
    function startSession() {
        lecturePrompt = promptInput.value.trim().slice(0,100);
        collectAlertConfig();
-       const title = previewText.textContent || null;
+       let title = previewText.textContent.trim();
+       if (!title && promptInput.value.trim()) {
+           const words = promptInput.value.trim().split(' ').slice(0, 5);
+           title = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+       }
        closePopup();
        if (title) { titleText.textContent = title; sessionTitle.classList.add('visible'); }
        if (isRecording) {

@@ -162,12 +162,26 @@ function renderNav(clerk) {
         document.getElementById("live-usage-bar").style.width = `${livePercentage}%`;
         document.getElementById("upload-usage-bar").style.width = `${uploadPercentage}%`;
 
-        // Toggle dropdown
+        function refreshUsage() {
+            const liveUsed    = UsageTracker.getLiveMinutes ? UsageTracker.getLiveMinutes() : 0;
+            const uploadUsed  = UsageTracker.getUploadMinutes ? UsageTracker.getUploadMinutes() : 0;
+            const liveLimit   = getLiveLimit();
+            const uploadLimit = getUploadLimit();
+            document.getElementById("live-usage-text").textContent   = `${liveUsed.toFixed(1)} / ${liveLimit} min`;
+            document.getElementById("upload-usage-text").textContent = `${uploadUsed.toFixed(1)} / ${uploadLimit} min`;
+            document.getElementById("live-usage-bar").style.width    = `${Math.min((liveUsed / liveLimit) * 100, 100)}%`;
+            document.getElementById("upload-usage-bar").style.width  = `${Math.min((uploadUsed / uploadLimit) * 100, 100)}%`;
+        }
+
+        // Toggle dropdown + refresh usage on open
         document.getElementById("user-avatar").addEventListener("click", (e) => {
             e.stopPropagation();
             const dd = document.getElementById("user-dropdown");
-            dd.style.display = dd.style.display === "none" ? "block" : "none";
+            const opening = dd.style.display === "none";
+            dd.style.display = opening ? "block" : "none";
+            if (opening) refreshUsage();
         });
+
 
 
         // Sign out

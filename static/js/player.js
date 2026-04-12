@@ -166,20 +166,26 @@ function formatTimeTick(sec) {
 let lastActiveSpan = null;
 
 function startSyncLoop() {
+    stopSyncLoop();
     function tick() {
         const t = audioEl.currentTime;
         drawWaveform(t);
 
+        // Find active word, clear all highlights first
         let activeSpan = null;
-        document.querySelectorAll('span.word').forEach(span => {
+        const spans = document.querySelectorAll('span.word');
+        spans.forEach(span => {
+            span.classList.remove('active');
             const s = parseFloat(span.dataset.start);
             const e = parseFloat(span.dataset.end);
-            const isActive = s <= t && t <= e;
-            span.classList.toggle('active', isActive);
-            if (isActive) activeSpan = span;
+            if (s <= t && t <= e) activeSpan = span;
         });
 
-        // Scroll transcript when the active word chunk changes
+        // Highlight active word; fall back to last played word if gap
+        const toHighlight = activeSpan || lastActiveSpan;
+        if (toHighlight) toHighlight.classList.add('active');
+
+        // Update last and auto-scroll on change
         if (activeSpan && activeSpan !== lastActiveSpan) {
             lastActiveSpan = activeSpan;
             activeSpan.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -205,6 +211,8 @@ playPauseBtn.addEventListener('click', () => {
         audioEl.pause();
         playPauseBtn.textContent = '▶';
         stopSyncLoop();
+        // Keep last word green while paused
+        if (lastActiveSpan) lastActiveSpan.classList.add('active');
     }
 });
 
@@ -212,6 +220,8 @@ audioEl.addEventListener('ended', () => {
     playPauseBtn.textContent = '▶';
     stopSyncLoop();
     if (decodedBuffer) drawWaveform(decodedBuffer.duration);
+    // Keep last word green after playback ends
+    if (lastActiveSpan) lastActiveSpan.classList.add('active');
 });
 
 // ===== SEEK =====
@@ -226,6 +236,21 @@ canvas.addEventListener('click', (e) => {
     drawWaveform(newTime);
 });
 
+// Collapse arrow — hide/show audio panel
+const collapseBtn = document.getElementById('audioPanelCollapse');
+if (collapseBtn && audioPanel) {
+    collapseBtn.addEventListener('click', () => {
+        const isVisible = audioPanel.classList.contains('visible');
+        if (isVisible) {
+            audioPanel.classList.remove('visible');
+            collapseBtn.classList.add('collapsed');
+        } else {
+            audioPanel.classList.add('visible');
+            collapseBtn.classList.remove('collapsed');
+        }
+    });
+}
+
 // Click word span → seek and play
 document.addEventListener('click', (e) => {
     const span = e.target.closest('span.word');
@@ -236,6 +261,7 @@ document.addEventListener('click', (e) => {
     showAudioPanel();
     audioEl.src = window.recordingUrl;
     audioEl.currentTime = t;
+    lastActiveSpan = null;  // reset so stale word doesn't show before first hit
     audioEl.play();
     playPauseBtn.textContent = '⏸';
     startSyncLoop();
