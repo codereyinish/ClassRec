@@ -34,6 +34,7 @@
 
    // ===== 2. STATE =====
    let isRecording = false;
+   let isPaused = false;
    let websocket = null;
    let audioContext = null;
    let voiceLockActive = false;
@@ -97,8 +98,10 @@
 
 
    // ===== 3. DOM ELEMENTS =====
-   const micBubble = document.getElementById('micBubble');
-   const statusDiv = document.getElementById('status');
+   const micBubble   = document.getElementById('micBubble');
+   const micGlowRing = document.getElementById('micGlowRing');
+   const pauseBtn    = document.getElementById('pauseBtn');
+   const statusDiv   = document.getElementById('status');
    const transcriptArea = document.getElementById('transcriptArea');
    const transcriptContent = document.getElementById('transcriptContent');
    const emptyState = document.getElementById('emptyState');
@@ -218,6 +221,28 @@
        }
    }
 
+   // ===== PAUSE / RESUME =====
+   pauseBtn.addEventListener('click', () => {
+       isPaused = !isPaused;
+       if (isPaused) {
+           pauseBtn.textContent = '▶ Resume';
+           pauseBtn.classList.add('paused');
+           micBubble.classList.replace('recording', 'paused');
+           micGlowRing.classList.replace('recording', 'paused');
+           statusDiv.textContent = 'Paused';
+           statusDiv.className = 'status paused';
+           clearInterval(liveTimer);   // don't charge paused time
+       } else {
+           pauseBtn.textContent = '⏸ Pause';
+           pauseBtn.classList.remove('paused');
+           micBubble.classList.replace('paused', 'recording');
+           micGlowRing.classList.replace('paused', 'recording');
+           statusDiv.textContent = 'Recording... (Click to stop)';
+           statusDiv.className = 'status recording';
+           liveTimer = setInterval(trackLiveUsage, 1000);  // resume timer
+       }
+   });
+
    micBubble.addEventListener('mousedown', onMicDown);
    micBubble.addEventListener('mouseup', onMicUp);
    micBubble.addEventListener('touchstart', onMicDown, { passive: false });
@@ -306,13 +331,22 @@
 
     // ===== 7. UI HELPERS =====
     function setRecordingUI(){
+       isPaused = false;
        micBubble.classList.add('recording');
+       micGlowRing.classList.add('recording');
+       pauseBtn.style.display = 'inline-block';
+       pauseBtn.textContent = '⏸ Pause';
+       pauseBtn.classList.remove('paused');
        statusDiv.textContent = 'Recording... (Click to stop)';
        statusDiv.className = 'status recording';
     }
 
    function resetUI(){
-       micBubble.classList.remove('recording');
+       isPaused = false;
+       micBubble.classList.remove('recording', 'paused');
+       micGlowRing.classList.remove('recording', 'paused');
+       pauseBtn.style.display = 'none';
+       pauseBtn.classList.remove('paused');
        statusDiv.textContent = 'Click to start recording';
        statusDiv.className = 'status idle';
        lockToggle.checked = false;
@@ -474,6 +508,7 @@
            processor.connect(audioContext.destination);
 
             processor.onaudioprocess = (e) => {
+               if (isPaused) return;   // freeze everything — WS stays open, embedding safe
                if (websocket && websocket.readyState === WebSocket.OPEN){
                    const audioData = e.inputBuffer.getChannelData(0);
                    const int16Chunk = convertToInt16(audioData);
@@ -586,7 +621,7 @@
            } else if (data.type === "error") {
                alert('Error: ' + data.message);
            } else if (data.type === "transcription") {
-               displayTranscription(data.text, data.tags || []);
+               displayTranscription(data.text, data.tags || [], data.words || []);
            }
        };
 

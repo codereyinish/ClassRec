@@ -11,6 +11,8 @@
         <p>Record and transcribe in real-time</p>
     </div>
 
+    <audio id="recordingAudio" style="display:none"></audio>
+
     <div class="container">
         <!-- Left: Controls -->
         <div class="controls">
@@ -27,10 +29,21 @@
             </div>
 
             <div class="mic-wrapper">
-                <div class="mic-bubble" id="micBubble">🎤</div>
+                <div class="mic-glow-ring" id="micGlowRing">
+                    <div class="mic-bubble" id="micBubble">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="mic-svg">
+                            <rect x="8" y="1" width="8" height="13" rx="4" fill="currentColor"/>
+                            <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+                            <line x1="12" y1="18" x2="12" y2="22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="8" y1="22" x2="16" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                </div>
                 <span class="lock-badge" id="lockBadge">🔒</span>
                 <div class="lock-hint" id="lockHint">Hold mic to capture professor's voice</div>
             </div>
+
+            <button class="pause-btn" id="pauseBtn" style="display:none">⏸ Pause</button>
 
             <div id="status" class="status idle">
                Click the microphone to start recording
@@ -54,6 +67,7 @@
 
         <!-- Right: Transcript -->
         <div class="transcript-area" id="transcriptArea">
+            <div class="transcript-sticky">
             <div class="transcript-header">
                 <h2>Transcription</h2>
                 <div class="session-title" id="sessionTitle">
@@ -77,6 +91,18 @@
                 </div>
             </div>
 
+            <!-- Audio panel slides down below alerts bar -->
+            <div id="audioPanel" class="audio-panel">
+                <div class="audio-panel-body">
+                    <div class="audio-left">
+                        <button class="audio-btn-play" id="playPause">▶</button>
+                        <div class="time-display" id="timeDisplay">0:00.00</div>
+                    </div>
+                    <canvas id="waveform" class="waveform-canvas"></canvas>
+                </div>
+            </div>
+            </div><!-- end transcript-sticky -->
+
             <div id="transcriptContent">
                 <div class="empty-state" id="emptyState">
                     <div class="empty-state-icon">📝</div>
@@ -85,20 +111,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Audio Player Panel -->
-    <div id="audioPanel" class="audio-panel">
-        <div class="audio-panel-body">
-            <canvas id="waveform" class="waveform-canvas"></canvas>
-            <div class="audio-controls">
-                <button class="audio-btn" id="skipBack">− 15s</button>
-                <button class="audio-btn audio-btn-play" id="playPause">▶</button>
-                <button class="audio-btn" id="skipFwd">+ 15s</button>
-                <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
-            </div>
-        </div>
-    </div>
-    <audio id="recordingAudio" style="display:none"></audio>
 
     <!-- Popup -->
     <div class="overlay" id="overlay">

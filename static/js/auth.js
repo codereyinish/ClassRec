@@ -93,7 +93,7 @@ function renderNav(clerk) {
                         <div style="display:flex; justify-content:space-between;
                             color: #7a7a8a; font-size: 11px; margin-bottom: 4px;">
                             <span>Live</span>
-                            <span id="live-usage-text">-- / 10 min</span>
+                            <span id="live-usage-text">-- / -- min</span>
                         </div>
                         <div style="height: 4px; background: #1c1c26; border-radius: 2px;">
                             <div id="live-usage-bar" style="
@@ -109,7 +109,7 @@ function renderNav(clerk) {
                         <div style="display:flex; justify-content:space-between;
                             color: #7a7a8a; font-size: 11px; margin-bottom: 4px;">
                             <span>Upload</span>
-                            <span id="upload-usage-text">-- / 15 min</span>
+                            <span id="upload-usage-text">-- / -- min</span>
                         </div>
                         <div style="height: 4px; background: #1c1c26; border-radius: 2px;">
                             <div id="upload-usage-bar" style="
@@ -146,16 +146,19 @@ function renderNav(clerk) {
             </div>
         `;
 
-        // Populate usage bars from UsageTracker
-        const liveUsed = UsageTracker.getLiveMinutes ? UsageTracker.getLiveMinutes() : 0;
-        const uploadUsed = UsageTracker.getUploadMinutes ? UsageTracker.getUploadMinutes() : 0;
-        const livePercentage = Math.min((liveUsed / 10) * 100, 100);
-        const uploadPercentage = Math.min((uploadUsed / 15) * 100, 100);
+        // Populate usage bars from UsageTracker — limits come from tracker.js so they
+        // automatically reflect member vs non-member and any future limit changes.
+        const liveUsed    = UsageTracker.getLiveMinutes ? UsageTracker.getLiveMinutes() : 0;
+        const uploadUsed  = UsageTracker.getUploadMinutes ? UsageTracker.getUploadMinutes() : 0;
+        const liveLimit   = getLiveLimit();
+        const uploadLimit = getUploadLimit();
+        const livePercentage   = Math.min((liveUsed / liveLimit) * 100, 100);
+        const uploadPercentage = Math.min((uploadUsed / uploadLimit) * 100, 100);
 
         document.getElementById("live-usage-text").textContent =
-            `${liveUsed.toFixed(1)} / 10 min`;
+            `${liveUsed.toFixed(1)} / ${liveLimit} min`;
         document.getElementById("upload-usage-text").textContent =
-            `${uploadUsed.toFixed(1)} / 15 min`;
+            `${uploadUsed.toFixed(1)} / ${uploadLimit} min`;
         document.getElementById("live-usage-bar").style.width = `${livePercentage}%`;
         document.getElementById("upload-usage-bar").style.width = `${uploadPercentage}%`;
 
