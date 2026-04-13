@@ -92,17 +92,25 @@
                 </div>
             </div>
 
-            <!-- Audio panel slides down below alerts bar -->
+            <!-- Audio panel -->
             <div id="audioPanel" class="audio-panel">
-                <div class="audio-panel-body">
-                    <div class="audio-left">
-                        <button class="audio-btn-play" id="playPause">▶</button>
-                        <div class="time-display" id="timeDisplay">0:00.00</div>
+                <div class="audio-panel-inner">
+                    <div class="audio-panel-body">
+                        <div class="audio-left">
+                            <button class="audio-btn-play" id="playPause">▶</button>
+                            <div class="time-display" id="timeDisplay">0:00.00</div>
+                        </div>
+                        <canvas id="waveform" class="waveform-canvas"></canvas>
                     </div>
-                    <canvas id="waveform" class="waveform-canvas"></canvas>
                 </div>
-                <button class="audio-panel-collapse" id="audioPanelCollapse" title="Hide waveform">⌃</button>
             </div>
+            <!-- Collapse toggle — outside and below waveform -->
+            <button class="audio-panel-collapse" id="audioPanelCollapse" title="Toggle waveform">
+                <svg width="32" height="20" viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 16L16 5L29 16" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M3 11L16 0L29 11" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.45"/>
+                </svg>
+            </button>
             </div><!-- end transcript-sticky -->
 
             <div id="transcriptContent">

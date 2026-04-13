@@ -1,3 +1,6 @@
+/* Lock page scroll — only transcript-area scrolls internally */
+body, .page-wrapper { overflow: hidden; }
+
 .page-title {
     text-align: center;
     margin-bottom: 28px;
@@ -28,7 +31,7 @@
     gap: 20px;
     max-width: 1400px;
     margin: 0 auto;
-    height: calc(100vh - 160px);
+    height: calc(100vh - 220px);
 }
 
 /* ===== LEFT: CONTROLS ===== */
@@ -645,37 +648,36 @@ span.word.live-cursor { color: #52b788; }
 
 /* ===== AUDIO PANEL ===== */
 .audio-panel {
+    display: none;
     background: #000;
-    border: none;
-    border-top: 1px solid #1e1e1e;
     border-radius: 20px;
-    overflow: hidden;
-    max-height: 0;
     width: 100%;
-    margin-left: 0;
-    margin-right: 0;
-    margin-bottom: 0;
-    transition: max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1),
-                margin-bottom 0.45s ease;
+    margin-bottom: 12px;
 }
-.audio-panel.visible {
-    max-height: 180px;
-    margin-bottom: 20px;
-}
+.audio-panel.visible { display: block; }
 .audio-panel-collapse {
-    display: block;
-    margin: 0 auto 6px;
+    display: none;
     background: none;
     border: none;
-    color: rgba(255,255,255,0.3);
-    font-size: 12px;
+    color: rgba(160, 100, 255, 0.85);
     cursor: pointer;
+    padding: 4px 0 8px;
+    width: 100%;
+    text-align: center;
     line-height: 1;
-    transition: color 0.2s, transform 0.3s;
-    padding: 2px 8px;
+    transition: color 0.2s, transform 0.4s cubic-bezier(0.4,0,0.2,1);
+    filter: drop-shadow(0 0 6px rgba(140, 80, 255, 0.5));
 }
-.audio-panel-collapse:hover { color: rgba(255,255,255,0.7); }
+.audio-panel.visible ~ .audio-panel-collapse { display: block; }
+.audio-panel-collapse:hover { color: rgba(210, 160, 255, 1); filter: drop-shadow(0 0 10px rgba(160, 100, 255, 0.8)); }
 .audio-panel-collapse.collapsed { transform: rotate(180deg); }
+
+.audio-panel-inner {
+    overflow: hidden;
+    max-height: 160px;
+    transition: max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.audio-panel.collapsed .audio-panel-inner { max-height: 0; }
 
 .audio-panel-body {
     padding: 0 16px 10px 16px;

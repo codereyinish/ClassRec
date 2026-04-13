@@ -1,0 +1,186 @@
+INFO:     Started server process [70891]
+INFO:     Waiting for application startup.
+18:46:21 [INFO] ClassRec: Startup baseline memory: 268.1 MB
+18:46:21 [INFO] ClassRec: VAD model loaded
+18:46:21 [INFO] ClassRec: Segmentation model loaded
+18:46:21 [DEBUG] torio._extension.utils: Loading FFmpeg6
+18:46:21 [DEBUG] torio._extension.utils: Failed to load FFmpeg6 extension.
+Traceback (most recent call last):
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 116, in _find_ffmpeg_extension
+    ext = _find_versionsed_ffmpeg_extension(ffmpeg_ver)
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 108, in _find_versionsed_ffmpeg_extension
+    _load_lib(lib)
+    ~~~~~~~~~^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 94, in _load_lib
+    torch.ops.load_library(path)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torch/_ops.py", line 1478, in load_library
+    ctypes.CDLL(path)
+    ~~~~~~~~~~~^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/ctypes/__init__.py", line 361, in __init__
+    self._handle = self._load_library(name, mode, handle, winmode)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/ctypes/__init__.py", line 401, in _load_library
+    return _dlopen(name, mode)
+OSError: dlopen(/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/lib/libtorio_ffmpeg6.so, 0x0006): Library not loaded: @rpath/libavutil.58.dylib
+  Referenced from: <E66F5B3D-9790-3191-892A-4708F4CF5001> /Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/lib/libtorio_ffmpeg6.so
+  Reason: tried: '/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/lib-dynload/../../libavutil.58.dylib' (no such file), '/Users/inishbista/miniconda3/envs/RecEnv/bin/../lib/libavutil.58.dylib' (no such file)
+18:46:21 [DEBUG] torio._extension.utils: Loading FFmpeg5
+18:46:21 [DEBUG] torio._extension.utils: Failed to load FFmpeg5 extension.
+Traceback (most recent call last):
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 116, in _find_ffmpeg_extension
+    ext = _find_versionsed_ffmpeg_extension(ffmpeg_ver)
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 108, in _find_versionsed_ffmpeg_extension
+    _load_lib(lib)
+    ~~~~~~~~~^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 94, in _load_lib
+    torch.ops.load_library(path)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torch/_ops.py", line 1478, in load_library
+    ctypes.CDLL(path)
+    ~~~~~~~~~~~^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/ctypes/__init__.py", line 361, in __init__
+    self._handle = self._load_library(name, mode, handle, winmode)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/ctypes/__init__.py", line 401, in _load_library
+    return _dlopen(name, mode)
+OSError: dlopen(/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/lib/libtorio_ffmpeg5.so, 0x0006): Library not loaded: @rpath/libavutil.57.dylib
+  Referenced from: <359C8028-D675-3B07-BEC1-1482D5C84E2B> /Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/lib/libtorio_ffmpeg5.so
+  Reason: tried: '/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/lib-dynload/../../libavutil.57.dylib' (no such file), '/Users/inishbista/miniconda3/envs/RecEnv/bin/../lib/libavutil.57.dylib' (no such file)
+18:46:21 [DEBUG] torio._extension.utils: Loading FFmpeg4
+18:46:21 [DEBUG] torio._extension.utils: Failed to load FFmpeg4 extension.
+Traceback (most recent call last):
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 116, in _find_ffmpeg_extension
+    ext = _find_versionsed_ffmpeg_extension(ffmpeg_ver)
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 108, in _find_versionsed_ffmpeg_extension
+    _load_lib(lib)
+    ~~~~~~~~~^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 94, in _load_lib
+    torch.ops.load_library(path)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torch/_ops.py", line 1478, in load_library
+    ctypes.CDLL(path)
+    ~~~~~~~~~~~^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/ctypes/__init__.py", line 361, in __init__
+    self._handle = self._load_library(name, mode, handle, winmode)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/ctypes/__init__.py", line 401, in _load_library
+    return _dlopen(name, mode)
+OSError: dlopen(/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/lib/libtorio_ffmpeg4.so, 0x0006): Library not loaded: @rpath/libavutil.56.dylib
+  Referenced from: <0626EF67-ADC0-3D90-A553-64173FFF471D> /Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/lib/libtorio_ffmpeg4.so
+  Reason: tried: '/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/lib-dynload/../../libavutil.56.dylib' (no such file), '/Users/inishbista/miniconda3/envs/RecEnv/bin/../lib/libavutil.56.dylib' (no such file)
+18:46:21 [DEBUG] torio._extension.utils: Loading FFmpeg
+18:46:21 [DEBUG] torio._extension.utils: Failed to load FFmpeg extension.
+Traceback (most recent call last):
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 116, in _find_ffmpeg_extension
+    ext = _find_versionsed_ffmpeg_extension(ffmpeg_ver)
+  File "/Users/inishbista/miniconda3/envs/RecEnv/lib/python3.13/site-packages/torio/_extension/utils.py", line 106, in _find_versionsed_ffmpeg_extension
+    raise RuntimeError(f"FFmpeg{version} extension is not available.")
+RuntimeError: FFmpeg extension is not available.
+18:46:24 [INFO] speechbrain.utils.quirks: Applied quirks (see `speechbrain.utils.quirks`): [disable_jit_profiling, allow_tf32]
+18:46:24 [INFO] speechbrain.utils.quirks: Excluded quirks specified by the `SB_DISABLE_QUIRKS` environment (comma-separated list): []
+18:46:24 [INFO] speechbrain.utils.fetching: Fetch hyperparams.yaml: Using symlink found at '/Users/inishbista/aicode/ClassRec/models/ecapa_tdnn/hyperparams.yaml'
+18:46:24 [INFO] speechbrain.utils.fetching: Fetch embedding_model.ckpt: Using symlink found at '/Users/inishbista/aicode/ClassRec/models/ecapa_tdnn/embedding_model.ckpt'
+18:46:24 [INFO] speechbrain.utils.fetching: Fetch mean_var_norm_emb.ckpt: Using symlink found at '/Users/inishbista/aicode/ClassRec/models/ecapa_tdnn/mean_var_norm_emb.ckpt'
+18:46:24 [INFO] speechbrain.utils.fetching: Fetch classifier.ckpt: Using symlink found at '/Users/inishbista/aicode/ClassRec/models/ecapa_tdnn/classifier.ckpt'
+18:46:24 [INFO] speechbrain.utils.fetching: Fetch label_encoder.txt: Using symlink found at '/Users/inishbista/aicode/ClassRec/models/ecapa_tdnn/label_encoder.ckpt'
+18:46:24 [INFO] speechbrain.utils.parameter_transfer: Loading pretrained files for: embedding_model, mean_var_norm_emb, classifier, label_encoder
+18:46:25 [INFO] ClassRec: ECAPA-TDNN embedding model loaded
+18:46:25 [INFO] ClassRec: Groq client initialized (model: whisper-large-v3-turbo)
+18:46:25 [INFO] ClassRec: Memory after all models loaded: 555.5 MB
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8080 (Press CTRL+C to quit)
+INFO:     127.0.0.1:62803 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62803 - "GET /live HTTP/1.1" 200 OK
+INFO:     ('127.0.0.1', 62804) - "WebSocket /ws/transcribe" [accepted]
+INFO:     connection open
+18:46:38 [INFO] ClassRec: Enrollment started
+18:46:48 [INFO] ClassRec: [enroll] embedding computed from 9.5s voiced audio, threshold=0.3
+18:46:48 [INFO] ClassRec: Professor voice locked (threshold=0.300)
+18:47:04 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.2s audio)
+18:47:06 [DEBUG] ClassRec: [whisper] 23 words transcribed
+18:47:06 [DEBUG] ClassRec: [raw whisper] It spreads out to theta, so theta is clumped together about the spread out to theta. And then ordering categories meaningfully helps because
+18:47:06 [DEBUG] ClassRec: [vad] 2 regions: [(0.0, 6.0), (6.0, 10.2)]
+18:47:06 [DEBUG] ClassRec: [emb] 0.0s-6.0s sim=0.783 → PROFESSOR
+18:47:06 [DEBUG] ClassRec: [emb] 6.0s-10.2s sim=0.815 → PROFESSOR
+18:47:06 [DEBUG] ClassRec: tags collected: []
+18:47:06 [DEBUG] ClassRec: [filtered] It spreads out to theta, so theta is clumped together about the spread out to theta. And then ordering categories meaningfully helps because
+18:47:14 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.2s audio)
+18:47:15 [DEBUG] ClassRec: [whisper] 17 words transcribed
+18:47:15 [DEBUG] ClassRec: [raw whisper] It would be easier visual comparison. This is what we talked about in our data visualization lecture.
+18:47:15 [DEBUG] ClassRec: [vad] 1 regions: [(0.0, 10.2)]
+18:47:15 [DEBUG] ClassRec: [emb] 0.0s-10.2s sim=0.657 → PROFESSOR
+18:47:15 [DEBUG] ClassRec: tags collected: []
+18:47:15 [DEBUG] ClassRec: [filtered] It would be easier visual comparison. This is what we talked about in our data visualization lecture.
+18:47:24 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.2s audio)
+18:47:26 [DEBUG] ClassRec: [whisper] 18 words transcribed
+18:47:26 [DEBUG] ClassRec: [raw whisper] that we looked at when we were out of the zoo last Sunday. Okay, what is tidy data?
+18:47:26 [DEBUG] ClassRec: [vad] 2 regions: [(0.0, 8.7), (8.8, 10.2)]
+18:47:26 [DEBUG] ClassRec: [emb] 0.0s-8.7s sim=0.593 → PROFESSOR
+18:47:26 [DEBUG] ClassRec: [emb] 8.8s-10.2s sim=0.139 → other
+18:47:26 [DEBUG] ClassRec: tags collected: []
+18:47:26 [DEBUG] ClassRec: [filtered] that we looked at when we were out of the zoo last Sunday. Okay, what is tidy data?
+18:47:28 [DEBUG] urllib3.connectionpool: Starting new HTTPS connection (1): o4511040460488704.ingest.us.sentry.io:443
+18:47:28 [DEBUG] urllib3.connectionpool: https://o4511040460488704.ingest.us.sentry.io:443 "POST /api/4511040467566592/envelope/ HTTP/1.1" 403 0
+18:47:33 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.2s audio)
+18:47:36 [DEBUG] ClassRec: [whisper] 16 words transcribed
+18:47:36 [DEBUG] ClassRec: [raw whisper] So we talked about tidy data, it's a data set where each variable is a column.
+18:47:36 [DEBUG] ClassRec: [vad] 2 regions: [(2.3, 2.7), (3.9, 10.2)]
+18:47:36 [DEBUG] ClassRec: [emb] 3.9s-10.2s sim=0.710 → PROFESSOR
+18:47:36 [DEBUG] ClassRec: tags collected: []
+18:47:36 [DEBUG] ClassRec: [filtered] So we talked about tidy data, it's a data set where each variable is a column.
+18:47:43 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.2s audio)
+18:47:46 [DEBUG] ClassRec: [whisper] 12 words transcribed
+18:47:46 [DEBUG] ClassRec: [raw whisper] This is money, this is money, this is money, this is money.
+18:47:46 [DEBUG] ClassRec: [vad] 2 regions: [(0.0, 6.1), (9.3, 10.2)]
+18:47:46 [DEBUG] ClassRec: [emb] 0.0s-6.1s sim=-0.012 → other
+18:47:46 [DEBUG] ClassRec: [emb] 9.3s-10.2s sim=0.107 → other
+18:47:46 [DEBUG] ClassRec: [chunk] no professor detected in this chunk
+18:47:53 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.2s audio)
+18:47:56 [DEBUG] ClassRec: [whisper] 6 words transcribed
+18:47:56 [DEBUG] ClassRec: [raw whisper] money is this is money is
+18:47:56 [DEBUG] ClassRec: [vad] 5 regions: [(0.0, 2.7), (2.7, 3.2), (3.3, 3.8), (6.4, 8.7), (9.0, 9.8)]
+18:47:56 [DEBUG] ClassRec: [emb] 0.0s-2.7s sim=0.042 → other
+18:47:56 [DEBUG] ClassRec: [emb] 6.4s-8.7s sim=0.021 → other
+18:47:56 [DEBUG] ClassRec: [emb] 9.0s-9.8s sim=0.049 → other
+18:47:56 [DEBUG] ClassRec: [chunk] no professor detected in this chunk
+18:48:03 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.1s audio)
+18:48:08 [DEBUG] ClassRec: [whisper] 8 words transcribed
+18:48:08 [DEBUG] ClassRec: [raw whisper] I'm not the opposite way around. At each...
+18:48:08 [DEBUG] ClassRec: [vad] 2 regions: [(0.0, 1.4), (5.4, 10.1)]
+18:48:08 [DEBUG] ClassRec: [emb] 0.0s-1.4s sim=-0.006 → other
+18:48:08 [DEBUG] ClassRec: [emb] 5.4s-10.1s sim=0.487 → PROFESSOR
+18:48:08 [DEBUG] ClassRec: tags collected: []
+18:48:08 [DEBUG] ClassRec: [filtered] I'm not the opposite way around. At each...
+18:48:13 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.1s audio)
+18:48:17 [DEBUG] ClassRec: [whisper] 9 words transcribed
+18:48:17 [DEBUG] ClassRec: [raw whisper] Entry could be thought of as its own table.
+18:48:17 [DEBUG] ClassRec: [vad] 3 regions: [(0.0, 0.3), (0.7, 2.7), (2.8, 9.9)]
+18:48:17 [DEBUG] ClassRec: [emb] 0.7s-2.7s sim=0.336 → PROFESSOR
+18:48:17 [DEBUG] ClassRec: [emb] 2.8s-9.9s sim=0.594 → PROFESSOR
+18:48:17 [DEBUG] ClassRec: tags collected: []
+18:48:17 [DEBUG] ClassRec: [filtered] Entry could be thought of as its own table.
+18:48:23 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.1s audio)
+18:48:29 [DEBUG] ClassRec: [whisper] 19 words transcribed
+18:48:29 [DEBUG] ClassRec: [raw whisper] A histogram shows the numbers on the long scale to the right. Is the distribution skewed left or right?
+18:48:29 [DEBUG] ClassRec: [vad] 2 regions: [(0.0, 1.4), (3.0, 10.1)]
+18:48:29 [DEBUG] ClassRec: [emb] 0.0s-1.4s sim=-0.043 → other
+18:48:29 [DEBUG] ClassRec: [emb] 3.0s-10.1s sim=0.715 → PROFESSOR
+18:48:29 [DEBUG] ClassRec: tags collected: []
+18:48:29 [DEBUG] ClassRec: [filtered] A histogram shows the numbers on the long scale to the right. Is the distribution skewed left or right?
+18:48:33 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.1s audio)
+18:48:36 [DEBUG] ClassRec: [whisper] 24 words transcribed
+18:48:36 [DEBUG] ClassRec: [raw whisper] This is Maniz. This is Maniz. What does it suggest about most people's sports? Well, sorry, is it left or right? This is Maniz.
+18:48:36 [DEBUG] ClassRec: [vad] 2 regions: [(0.0, 2.8), (3.1, 10.1)]
+18:48:37 [DEBUG] ClassRec: [emb] 0.0s-2.8s sim=0.053 → other
+18:48:37 [DEBUG] ClassRec: [emb] 3.1s-10.1s sim=0.335 → PROFESSOR
+18:48:37 [DEBUG] ClassRec: tags collected: []
+18:48:37 [DEBUG] ClassRec: [filtered] This is Maniz. This is Maniz. What does it suggest about most people's sports? Well, sorry, is it left or right? This is Maniz.
+18:48:43 [DEBUG] ClassRec: [groq] POST /audio/transcriptions (10.1s audio)
+18:48:48 [DEBUG] ClassRec: [whisper] 8 words transcribed
+18:48:48 [DEBUG] ClassRec: [raw whisper] this is money is this is money is
+18:48:48 [DEBUG] ClassRec: [vad] 3 regions: [(0.0, 2.6), (3.4, 4.1), (4.4, 5.1)]
+18:48:48 [DEBUG] ClassRec: [emb] 0.0s-2.6s sim=0.066 → other
+18:48:48 [DEBUG] ClassRec: [emb] 3.4s-4.1s sim=-0.048 → other
+18:48:48 [DEBUG] ClassRec: [emb] 4.4s-5.1s sim=0.024 → other
+18:48:48 [DEBUG] ClassRec: [chunk] no professor detected in this chunk
