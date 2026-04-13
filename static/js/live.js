@@ -759,7 +759,7 @@
    const selectedTags = [...document.querySelectorAll('.alert-dropdown input[type="checkbox"]:checked')]
        .map(cb => cb.value);
    const customName = document.getElementById('nameInput').value.trim().slice(0,50);
-   window.tagConfig = { tags: selectedTags, nFLoame: customName };
+   window.tagConfig = { tags: selectedTags, name: customName };
    }
 
    document.getElementById('nameCheck').addEventListener('change', (e) => {

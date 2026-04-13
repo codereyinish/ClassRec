@@ -641,7 +641,6 @@ span.word {
 }
 span.word:hover { background: rgba(82,183,136,0.15); }
 span.word.active { background: rgba(82,183,136,0.3); color: #52b788; }
-span.word.live-cursor { color: #52b788; }
 
 /* ===== AUDIO PANEL ===== */
 .audio-panel {
