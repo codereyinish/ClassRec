@@ -445,6 +445,7 @@
 
    function displayTranscription(text, tags=[], words=[]){
        emptyState.style.display = 'none';
+       document.getElementById('summaryBar')?.classList.add('visible');
        const chunk = getOrCreateChunk();
        const textEl = chunk.querySelector('.transcript-text');
        const needsSpace = textEl.innerHTML !== '';

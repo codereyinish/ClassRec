@@ -119,6 +119,20 @@
                     <p>Start recording to see transcription appear here...</p>
                 </div>
             </div>
+
+            <!-- Summary panel (hidden until generated) -->
+            <div class="summary-panel" id="summaryPanel">
+                <div class="summary-panel-header">
+                    <span class="summary-panel-title">✦ Summary</span>
+                    <button class="summary-close-btn" id="summaryCloseBtn">✕</button>
+                </div>
+                <div class="summary-body" id="summaryBody"></div>
+            </div>
+
+            <!-- Sticky at bottom of transcript-area panel -->
+            <div class="summary-bar" id="summaryBar">
+                <button class="summary-btn" id="summaryBtn">✦ Generate Summary</button>
+            </div>
         </div>
     </div>
 
