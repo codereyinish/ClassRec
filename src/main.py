@@ -439,6 +439,58 @@ def hide_voice_route(voice_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+# ======= SESSIONS (saved lecture transcripts) =======
+
+class SessionIn(BaseModel):
+    """Request BODY for saving a transcript (long text/lists don't fit in a URL)."""
+    title:      str
+    transcript: str
+    class_id:   int | None = None      # which Voice was used (None = unlocked recording)
+    words:      list | None = None
+    audio_path: str | None = None
+
+
+@app.post("/sessions")
+def create_session_route(payload: SessionIn, db: Session = Depends(get_db)):
+    """Save a finished transcript. Called by both live + upload when user hits 'save'."""
+    s = repo.save_session(
+        db, class_id=payload.class_id, user_id=None, title=payload.title,
+        transcript=payload.transcript, words=payload.words, audio_path=payload.audio_path,
+    )
+    return {"id": s.id, "title": s.title, "class_id": s.class_id}
+
+
+@app.get("/sessions")
+def list_sessions_route(db: Session = Depends(get_db)):
+    """List saved lectures (lightweight — a short preview, not the full transcript)."""
+    return [
+        {"id": s.id, "title": s.title, "class_id": s.class_id,
+         "preview": (s.transcript or "")[:200], "created_at": str(s.created_at)}
+        for s in repo.list_sessions(db, user_id=None)
+    ]
+
+
+@app.get("/sessions/{session_id}")
+def get_session_route(session_id: int, db: Session = Depends(get_db)):
+    """One full lecture (whole transcript + word timestamps)."""
+    s = repo.get_session(db, session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "id": s.id, "title": s.title, "class_id": s.class_id,
+        "transcript": s.transcript, "summary": s.summary,
+        "words": json.loads(s.words_json) if s.words_json else [],
+        "created_at": str(s.created_at),
+    }
+
+
+@app.delete("/sessions/{session_id}")
+def delete_session_route(session_id: int, db: Session = Depends(get_db)):
+    """Delete a lecture (its audio file + any orphaned hidden Voice are cleaned up)."""
+    repo.delete_session(db, session_id)
+    return {"ok": True}
+
+
 # ======= FILE UPLOAD (Modal Whisper — same large-v3 model as live pipeline) =======
 @app.post("/transcribe")
 async def transcribe_audio(
