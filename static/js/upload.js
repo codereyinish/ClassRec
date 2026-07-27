@@ -107,6 +107,8 @@
             UsageTracker.addUploadMinutes(audioFileDuration);
             Logger.debug("UploadMins:" , UsageTracker.getUploadMinutes())
             enableCopyButton(data);
+            // let the page know a transcript is ready (save-session UI hooks this)
+            window.dispatchEvent(new CustomEvent('transcription:done', { detail: data }));
         }
         catch (error){
             add_ErrorMessage_to_ResultDiv(error.message);

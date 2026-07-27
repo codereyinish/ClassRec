@@ -2,7 +2,8 @@
 
 {% block head %}
 <title>Upload Audio - Lecture Transcription</title>
-<link rel="stylesheet" href="/static/css/upload.css"
+<link rel="stylesheet" href="/static/css/upload.css">
+<link rel="stylesheet" href="/static/css/voice-picker.css">
 {% endblock %}
 
 {% block content %}
@@ -13,6 +14,12 @@
 
     <div class="container">
         <div class="upload-card">
+            <!-- Voice selection: opens the picker popup -->
+            <div class="voice-row" style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                <button class="btn-primary" id="pickVoiceBtn" type="button">🎙️ Pick Voice</button>
+                <span id="selectedVoice" style="font-size:12px;color:var(--text-muted);">No voice selected</span>
+            </div>
+
             <div class="upload-box">
                 <div class="upload-icon">📁</div>
                 <p class="upload-label">Drop your audio file here or <strong>browse</strong></p>
@@ -23,6 +30,64 @@
             </div>
         </div>
         <div id="result"></div>
+
+        <!-- Save row: appears once a transcript exists -->
+        <div id="saveRow" class="card" style="display:none;margin-top:16px;padding:16px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input id="saveTitle" class="vp-input" type="text" placeholder="Lecture title">
+                <button class="btn-primary" id="saveBtn" type="button">💾 Save Lecture</button>
+            </div>
+            <div id="saveStatus" style="font-size:11px;color:var(--text-muted);margin-top:8px;min-height:14px;"></div>
+        </div>
     </div>
+
    <script src="/static/js/upload.js"></script>
+   <script src="/static/js/voice-picker.js"></script>
+   <script>
+       // ---- Voice picker: choosing a voice remembers its id for the saved session ----
+       let selectedVoiceId = null;
+       document.getElementById("pickVoiceBtn").addEventListener("click", () => {
+           VoicePicker.open((voice) => {
+               selectedVoiceId = voice.id;
+               document.getElementById("selectedVoice").textContent =
+                   `Voice: ${voice.name} (used ${voice.use_count}×)`;
+           });
+       });
+
+       // ---- Save flow: when a transcript is ready, reveal the save row ----
+       let lastTranscript = null;
+       const saveRow = document.getElementById("saveRow");
+       const saveTitle = document.getElementById("saveTitle");
+       const saveBtn = document.getElementById("saveBtn");
+       const saveStatus = document.getElementById("saveStatus");
+
+       window.addEventListener("transcription:done", (e) => {
+           lastTranscript = e.detail.transcription;
+           saveTitle.value = (e.detail.filename || "Lecture").replace(/\.[^.]+$/, "");  // drop extension
+           saveRow.style.display = "block";
+           saveStatus.textContent = "";
+       });
+
+       saveBtn.addEventListener("click", async () => {
+           if (!lastTranscript) return;
+           saveStatus.textContent = "Saving…";
+           try {
+               const res = await fetch("/sessions", {
+                   method: "POST",
+                   headers: { "Content-Type": "application/json" },
+                   body: JSON.stringify({
+                       title: saveTitle.value.trim() || "Untitled Lecture",
+                       transcript: lastTranscript,
+                       class_id: selectedVoiceId,     // may be null if no voice picked
+                   }),
+               });
+               const data = await res.json();
+               saveStatus.textContent = res.ok ? `Saved ✓ (lecture #${data.id})` : "Save failed.";
+               saveStatus.style.color = res.ok ? "var(--green)" : "var(--red)";
+           } catch (err) {
+               saveStatus.textContent = "Save failed.";
+               saveStatus.style.color = "var(--red)";
+           }
+       });
+   </script>
 {% endblock %}

@@ -1,0 +1,153 @@
+/* Voice Picker — self-contained popup component.
+   Reuses base.html design tokens (--bg-surface, --accent, --red, ...). */
+
+/* Full-screen dim overlay behind the popup */
+.vp-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+
+    /* hidden by default; .open triggers the smooth fade-in */
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+.vp-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* The popup panel */
+.vp-panel {
+    width: 380px;
+    max-width: calc(100vw - 40px);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+
+    /* smooth slide-up + scale as it opens */
+    transform: translateY(12px) scale(0.98);
+    transition: transform 0.2s ease;
+}
+.vp-overlay.open .vp-panel {
+    transform: translateY(0) scale(1);
+}
+
+.vp-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 18px;
+    color: var(--text);
+    margin-bottom: 16px;
+}
+
+/* The list of voices */
+.vp-list { display: flex; flex-direction: column; gap: 8px; }
+
+.vp-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.vp-item:hover { border-color: var(--accent); }
+.vp-item.selected { border-color: var(--accent); background: var(--accent-dim); }
+
+.vp-item-name { font-size: 13px; color: var(--text); }
+
+/* small traditional red trash button */
+.vp-trash {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--red);
+    opacity: 0.65;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: opacity 0.15s, background 0.15s;
+}
+.vp-trash:hover { opacity: 1; background: rgba(224, 82, 82, 0.12); }
+
+/* Empty / loading states */
+.vp-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 16px 0;
+}
+
+/* Bottom: add a new voice */
+.vp-add {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* the native file input must stay hidden (global input styles can override `hidden`) */
+.vp-file { display: none !important; }
+
+/* the single "Add new voice" button — compact, not a full-width box */
+.vp-add-btn {
+    align-self: flex-start;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 7px;
+    padding: 8px 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.vp-add-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* the edit-name form (after a file is chosen) */
+.vp-add-form { display: flex; flex-direction: column; gap: 10px; }
+/* explicit display overrides the `hidden` attribute — restore hiding */
+.vp-add-form[hidden] { display: none; }
+.vp-fname { font-size: 11px; color: var(--text-muted); }
+.vp-input {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+}
+.vp-input:focus { outline: none; border-color: var(--accent); }
+.vp-add-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.vp-add-cancel {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 7px;
+    padding: 8px 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+}
+.vp-add-cancel:hover { color: var(--text); }
+
+.vp-status { font-size: 11px; color: var(--text-muted); min-height: 0; }
+.vp-status.error { color: var(--red); }
+.vp-status.ok { color: var(--green); }
+.vp-status:empty { display: none; }
