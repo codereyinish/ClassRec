@@ -14,7 +14,7 @@ Naming note — there are TWO "Session"s:
 import json
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DBSession
 
 from logger import logger
@@ -47,6 +47,44 @@ def list_classes(db: DBSession, user_id: str | None = None) -> list[Class]:
     return list(db.execute(stmt).scalars().all())         # run it -> list of Class objects
 
 
+def top_voices(db: DBSession, user_id: str | None = None, limit: int = 4) -> list[Class]:
+    """The Voice picker: only NON-hidden voices, most-used first, capped at `limit`."""
+    stmt = select(Class).where(Class.hidden == False)     # noqa: E712  (SQL needs ==, not `is`)
+    if user_id is not None:
+        stmt = stmt.where(Class.user_id == user_id)
+    stmt = stmt.order_by(Class.use_count.desc(), Class.created_at.desc()).limit(limit)
+    return list(db.execute(stmt).scalars().all())
+
+
+def _count_sessions(db: DBSession, class_id: int) -> int:
+    """How many Lectures still reference this Voice."""
+    return db.execute(
+        select(func.count()).select_from(Session).where(Session.class_id == class_id)
+    ).scalar_one()
+
+
+def _gc_voice_if_orphaned(db: DBSession, class_id: int | None) -> None:
+    """Reference-count cleanup: a HIDDEN voice with zero Lectures left is truly deleted."""
+    if class_id is None:
+        return
+    voice = db.get(Class, class_id)
+    if voice is not None and voice.hidden and _count_sessions(db, class_id) == 0:
+        db.delete(voice)
+        db.commit()
+        logger.info(f"[repo] garbage-collected orphaned hidden voice id={class_id}")
+
+
+def hide_class(db: DBSession, class_id: int) -> None:
+    """The 🗑️ in the picker. Mark hidden; if it already has no Lectures, delete it outright."""
+    voice = db.get(Class, class_id)
+    if voice is None:
+        return
+    voice.hidden = True
+    db.commit()
+    _gc_voice_if_orphaned(db, class_id)     # no Lectures? -> remove entirely now
+    logger.info(f"[repo] hid voice id={class_id}")
+
+
 # ======= SESSIONS =======
 
 def _delete_audio_file(path: str | None) -> None:
@@ -70,7 +108,16 @@ def save_session(db: DBSession, *, class_id: int, user_id: str, title: str,
         words_json=json.dumps(words) if words is not None else None,
         audio_path=audio_path,
     )
-    db.add(obj); db.commit(); db.refresh(obj)
+    db.add(obj)
+
+    # Bump this Voice's usage counter (powers "top 4 most used"). class_id may be
+    # None for an unlocked recording, so guard it.
+    if class_id is not None:
+        voice = db.get(Class, class_id)
+        if voice is not None:
+            voice.use_count += 1
+
+    db.commit(); db.refresh(obj)
 
     # 7-per-user cap: order newest-first, then .offset(7) skips the keepers ->
     # whatever's left is the old sessions to evict.
@@ -81,11 +128,14 @@ def save_session(db: DBSession, *, class_id: int, user_id: str, title: str,
         .offset(MAX_SESSIONS_PER_USER)
     )
     to_evict = db.execute(stmt).scalars().all()
+    orphan_candidates = {old.class_id for old in to_evict}   # Voices that just lost a Lecture
     for old in to_evict:
         _delete_audio_file(old.audio_path)      # file FIRST (need the path)
         db.delete(old)                          # then the row
     if to_evict:
         db.commit()
+        for cid in orphan_candidates:           # a hidden Voice now at 0 Lectures -> delete it
+            _gc_voice_if_orphaned(db, cid)
 
     logger.info(f"[repo] saved session id={obj.id} (evicted {len(to_evict)} over cap)")
     return obj
@@ -107,7 +157,9 @@ def delete_session(db: DBSession, session_id: int) -> None:
     obj = db.get(Session, session_id)
     if obj is None:
         return
+    class_id = obj.class_id                      # remember before deleting
     _delete_audio_file(obj.audio_path)          # file first
     db.delete(obj)                              # then row
     db.commit()
+    _gc_voice_if_orphaned(db, class_id)         # hidden Voice now at 0 Lectures -> delete it
     logger.info(f"[repo] deleted session id={session_id}")
