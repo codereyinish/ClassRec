@@ -14,14 +14,26 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import ForeignKey, LargeBinary, String, Text, Float, DateTime, func
+from sqlalchemy import Boolean, ForeignKey, Integer, LargeBinary, MetaData, String, Text, Float, DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+# Production best-practice: give every constraint a deterministic NAME. SQLite
+# leaves constraints unnamed, which breaks Alembic migrations that try to alter
+# them ("Constraint must have a name"). This convention fixes that everywhere.
+NAMING_CONVENTION = {
+    "ix":  "ix_%(column_0_label)s",
+    "uq":  "uq_%(table_name)s_%(column_0_name)s",
+    "ck":  "ck_%(table_name)s_%(constraint_name)s",
+    "fk":  "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk":  "pk_%(table_name)s",
+}
 
 
 class Base(DeclarativeBase):
     """All models inherit from this. It's the registry the ORM uses to know
     about every table when creating them / generating migrations."""
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 class Class(Base):
@@ -37,14 +49,20 @@ class Class(Base):
     embedding:  Mapped[bytes | None]      = mapped_column(LargeBinary)
     # threshold REAL DEFAULT 0.4
     threshold:  Mapped[float]             = mapped_column(Float, default=0.4)
+    # use_count — bumped each time this Voice records a lecture; powers "top 4 most used".
+    # server_default="0" so existing rows get 0 when this column is added by migration.
+    use_count:  Mapped[int]               = mapped_column(Integer, default=0, server_default="0")
+    # hidden — the 🗑️ in the picker sets this True (remove from list, keep the data
+    # so linked Lectures still show their Voice). Hard-delete only once no Lecture uses it.
+    hidden:     Mapped[bool]              = mapped_column(Boolean, default=False, server_default="0")
     # created_at — server_default=now() lets the DB fill it in
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
-    # The relationship: one Class has many Sessions. Not a column — it lets you
-    # write my_class.sessions and get a list of Session objects.
-    # cascade "delete-orphan": delete a class -> its sessions go too.
+    # One Voice has many Lectures. passive_deletes=True -> let the DB's ON DELETE
+    # SET NULL handle it (deleting a Voice does NOT delete its Lectures; they just
+    # lose their class link). No delete-orphan cascade anymore.
     sessions: Mapped[list["Session"]] = relationship(
-        back_populates="course", cascade="all, delete-orphan"
+        back_populates="course", passive_deletes=True
     )
 
 
@@ -52,9 +70,11 @@ class Session(Base):
     __tablename__ = "sessions"                      # -> CREATE TABLE sessions
 
     id:         Mapped[int]               = mapped_column(primary_key=True)
-    # class_id INTEGER NOT NULL, FOREIGN KEY -> classes.id, ON DELETE CASCADE
-    class_id:   Mapped[int]               = mapped_column(
-        ForeignKey("classes.id", ondelete="CASCADE")
+    # class_id FK -> classes.id. Nullable (a Lecture MAY have no Voice), but if it
+    # has one the link is permanent. ON DELETE RESTRICT: the DB blocks deleting a
+    # Voice while any Lecture still references it (so the link is never lost).
+    class_id:   Mapped[int | None]        = mapped_column(
+        ForeignKey("classes.id", ondelete="RESTRICT")
     )
     user_id:    Mapped[str | None]        = mapped_column(String)
     title:      Mapped[str]               = mapped_column(String)
