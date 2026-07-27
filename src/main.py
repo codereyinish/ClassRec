@@ -14,6 +14,9 @@ import json
 import io
 import requests
 from logger import logger
+from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
+from database import get_db              # per-request session provider (used with Depends)
+import repository as repo                # our data operations (create/list/...)
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
 import onnxruntime as ort
@@ -362,6 +365,22 @@ def health():
         },
         "top_allocators": breakdown,
     }
+
+
+# ======= CLASSES (DB-backed — first routes using the ORM layer) =======
+@app.post("/classes")
+def create_class_route(name: str, db: Session = Depends(get_db)):
+    """Create a class. `db` is injected per-request by Depends(get_db).
+    Embedding is empty for now — enrollment fills it in later."""
+    obj = repo.create_class(db, name=name, embedding=b"")
+    return {"id": obj.id, "name": obj.name, "created_at": str(obj.created_at)}
+
+
+@app.get("/classes")
+def list_classes_route(db: Session = Depends(get_db)):
+    """List all classes (lightweight — no embedding blob)."""
+    rows = repo.list_classes(db)
+    return [{"id": c.id, "name": c.name, "created_at": str(c.created_at)} for c in rows]
 
 
 # ======= FILE UPLOAD (Modal Whisper — same large-v3 model as live pipeline) =======
