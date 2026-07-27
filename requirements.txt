@@ -13,6 +13,6 @@ requests>=2.31.0
 modal>=0.64.0
 torch>=2.1.0
 speechbrain==1.1.0
-
-
+SQLAlchemy>=2.0.0
+alembic>=1.13.0
 
