@@ -367,20 +367,76 @@ def health():
     }
 
 
-# ======= CLASSES (DB-backed — first routes using the ORM layer) =======
-@app.post("/classes")
-def create_class_route(name: str, db: Session = Depends(get_db)):
-    """Create a class. `db` is injected per-request by Depends(get_db).
-    Embedding is empty for now — enrollment fills it in later."""
-    obj = repo.create_class(db, name=name, embedding=b"")
-    return {"id": obj.id, "name": obj.name, "created_at": str(obj.created_at)}
+# ======= VOICES (professor voice profiles = the Class table) =======
+
+def _embedding_bytes_from_audio(raw: bytes, filename: str) -> tuple[bytes, float] | None:
+    """
+    Decode an uploaded audio file into the professor voice EMBEDDING.
+
+    Glue only: librosa decodes ANY format -> 16kHz mono float; we convert to the
+    int16-PCM bytes the existing enrollment code expects, then reuse
+    compute_professor_embedding (VAD + ECAPA). Returns (embedding_bytes, threshold)
+    or None if no usable speech was found.
+    """
+    import tempfile
+    import librosa
+
+    suffix = Path(filename).suffix or ".wav"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+        tmp.write(raw)
+        tmp.flush()
+        samples, _ = librosa.load(tmp.name, sr=SAMPLE_RATE, mono=True)   # -> float32 @16kHz
+
+    pcm_bytes = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+    emb, threshold = compute_professor_embedding(pcm_bytes)              # reuse existing ML
+    if emb is None:
+        return None
+    return emb.astype("float32").tobytes(), threshold
 
 
-@app.get("/classes")
-def list_classes_route(db: Session = Depends(get_db)):
-    """List all classes (lightweight — no embedding blob)."""
-    rows = repo.list_classes(db)
-    return [{"id": c.id, "name": c.name, "created_at": str(c.created_at)} for c in rows]
+def _unique_voice_name(db: Session, base: str, user_id: str | None) -> str:
+    """Auto-suffix name collisions: pol_science, pol_science_2, pol_science_3, ..."""
+    existing = {c.name for c in repo.list_classes(db, user_id=user_id)}
+    if base not in existing:
+        return base
+    n = 2
+    while f"{base}_{n}" in existing:
+        n += 1
+    return f"{base}_{n}"
+
+
+@app.post("/voices")
+async def create_voice_route(
+    name: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Enroll a professor from an audio file → compute + save the embedding as a Voice."""
+    raw = await file.read()
+    result = _embedding_bytes_from_audio(raw, file.filename or "voice.wav")
+    if result is None:
+        raise HTTPException(status_code=422, detail="No usable speech found in the audio.")
+    embedding_bytes, threshold = result
+    unique_name = _unique_voice_name(db, name, user_id=None)
+    voice = repo.create_class(db, name=unique_name, embedding=embedding_bytes,
+                              threshold=threshold, user_id=None)
+    return {"id": voice.id, "name": voice.name, "use_count": voice.use_count}
+
+
+@app.get("/voices")
+def list_voices_route(db: Session = Depends(get_db)):
+    """The Voice picker: top-4 most-used, non-hidden voices."""
+    return [
+        {"id": v.id, "name": v.name, "use_count": v.use_count}
+        for v in repo.top_voices(db, user_id=None, limit=4)
+    ]
+
+
+@app.delete("/voices/{voice_id}")
+def hide_voice_route(voice_id: int, db: Session = Depends(get_db)):
+    """The 🗑️ in the picker: hide (or delete if it has no lectures)."""
+    repo.hide_class(db, voice_id)
+    return {"ok": True}
 
 
 # ======= FILE UPLOAD (Modal Whisper — same large-v3 model as live pipeline) =======
