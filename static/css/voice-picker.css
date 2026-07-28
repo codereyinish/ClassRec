@@ -83,20 +83,19 @@
 .vp-item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     padding: 12px 14px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 9px;
-    cursor: pointer;
+    cursor: pointer;                 /* box area is clickable = select */
     transition: border-color 0.15s, background 0.15s;
 }
 .vp-item:hover { border-color: var(--accent); background: rgba(255,255,255,0.02); }
 .vp-item.selected { border-color: var(--accent); background: var(--accent-dim); }
 
 .vp-item-name {
-    flex: 1;                       /* take the space; arrow + trash sit to the right */
-    font-size: 13px;
+    font-size: 13px;               /* only as wide as the text -> click it = play */
     color: var(--text);
     cursor: pointer;
     padding: 2px 4px;
@@ -108,18 +107,13 @@
 .vp-item-name.editing { color: var(--text); cursor: text; }   /* just the cursor */
 .vp-item:focus-within { border-color: var(--accent); }        /* one highlight on the row */
 
-/* the per-item dropdown arrow — selects/locks that voice */
+/* the per-item dropdown arrow (decorative) — pushed to the right, with the trash */
 .vp-item-arrow {
-    background: none;
-    border: none;
+    margin-left: auto;             /* push arrow + trash to the far right */
     color: var(--text-muted);
     font-size: 11px;
-    cursor: pointer;
     padding: 4px 6px;
-    border-radius: 6px;
-    transition: color 0.15s, background 0.15s;
 }
-.vp-item-arrow:hover { color: var(--accent); background: var(--accent-dim); }
 
 /* small traditional red trash button */
 .vp-trash {
