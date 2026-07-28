@@ -244,10 +244,20 @@ body, .page-wrapper { overflow: hidden; }
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 28px;
+    /* flex column: header (top) · transcript (scrolls) · button bar (pinned bottom) */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+/* only the transcript scrolls; the header + button bar stay put */
+#transcriptContent {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
 }
 /* Sticky wrapper — header + audio panel scroll together and stick as one unit */
 .transcript-sticky {
+    flex-shrink: 0;                 /* header stays at the top, never shrinks */
     position: sticky;
     top: 0;
     z-index: 10;
@@ -734,10 +744,10 @@ span.word.live-cursor { color: #52b788; }
 /* ===== SUMMARY BAR + BUTTON ===== */
 .summary-bar {
     display: none;
-    position: sticky;
-    bottom: 0;
-    padding: 10px 0 14px;
-    background: linear-gradient(to top, var(--bg-surface) 75%, transparent);
+    flex-shrink: 0;                 /* pinned at the bottom of the flex column */
+    padding: 14px 0 2px;
+    margin-top: 8px;
+    background: var(--bg-surface);
     justify-content: center;
     z-index: 8;
 }

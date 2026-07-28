@@ -145,6 +145,18 @@
        lockHint.classList.remove('visible');
        statusDiv.textContent = 'Voice locked! Click mic to record.';
        statusDiv.className = 'status idle';
+
+       // Show the "Locked Audio" player at the top with this voice's stored clip
+       const sampleAudio   = document.getElementById('sampleAudio');
+       const sampleWrapper = document.getElementById('sampleAudioWrapper');
+       if (sampleAudio && sampleWrapper) {
+           if (voice.has_audio) {
+               sampleAudio.src = `/voices/${voice.id}/audio`;
+               sampleWrapper.style.display = 'block';
+           } else {
+               sampleWrapper.style.display = 'none';   // old voice, no stored audio
+           }
+       }
    };
 
 
