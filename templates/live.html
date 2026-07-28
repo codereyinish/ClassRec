@@ -167,15 +167,5 @@
     <script src="/static/js/live.js"></script>
     <script src="/static/js/player.js"></script>
     <script src="/static/js/voice-picker.js"></script>
-    <script>
-        // Pick a saved voice. For now this selects + displays it; feeding the saved
-        // embedding into the live filter pipeline is a follow-up backend step.
-        window.selectedVoiceId = null;
-        document.getElementById("pickVoiceBtn").addEventListener("click", () => {
-            VoicePicker.open((voice) => {
-                window.selectedVoiceId = voice.id;
-                document.getElementById("selectedVoice").textContent = `Voice: ${voice.name}`;
-            });
-        });
-    </script>
+    <script src="/static/js/live-page.js"></script>
 {% endblock %}
