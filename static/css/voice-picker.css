@@ -1,6 +1,30 @@
 /* Voice Picker — self-contained popup component.
    Reuses base.html design tokens (--bg-surface, --accent, --red, ...). */
 
+/* The dropdown-style trigger on the live page — top-right of the controls card,
+   across from the (absolutely-positioned) Lock Mode toggle. */
+.voice-dropdown {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 140px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.voice-dropdown:hover { border-color: var(--accent); }
+.voice-dropdown-caret { color: var(--text-muted); font-size: 10px; }
+
 /* Full-screen dim overlay behind the popup */
 .vp-overlay {
     position: fixed;
@@ -104,16 +128,20 @@
 /* the native file input must stay hidden (global input styles can override `hidden`) */
 .vp-file { display: none !important; }
 
-/* the single "Add new voice" button — compact, not a full-width box */
+/* the compact "+" add button */
 .vp-add-btn {
     align-self: flex-start;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: 1px solid var(--border);
     color: var(--text-muted);
-    border-radius: 7px;
-    padding: 8px 14px;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
+    border-radius: 8px;
+    font-size: 20px;
+    line-height: 1;
     cursor: pointer;
     transition: color 0.15s, border-color 0.15s;
 }

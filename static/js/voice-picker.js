@@ -30,7 +30,7 @@ const VoicePicker = (() => {
                 <div class="vp-list"></div>
 
                 <div class="vp-add">
-                    <button class="vp-add-btn" type="button">＋ Add new voice</button>
+                    <button class="vp-add-btn" type="button" title="Add a voice">+</button>
                     <div class="vp-add-form" hidden>
                         <div class="vp-fname"></div>
                         <input class="vp-input vp-name" type="text" placeholder="Voice name">
@@ -116,7 +116,14 @@ const VoicePicker = (() => {
         const name = (nameInput.value || "").trim();
         if (!file) return;
         if (!name) { setStatus("Enter a name.", "error"); return; }
-        setStatus("Adding voice…");
+
+        // computing the embedding takes a few seconds — show a clear loading state
+        const saveBtn = overlay.querySelector(".vp-add-save");
+        const cancelBtn = overlay.querySelector(".vp-add-cancel");
+        saveBtn.disabled = true; cancelBtn.disabled = true;
+        saveBtn.textContent = "Adding…";
+        setStatus("Analyzing voice… (a few seconds)");
+
         const fd = new FormData();
         fd.append("file", file);
         try {
@@ -127,9 +134,12 @@ const VoicePicker = (() => {
                 return;
             }
             resetAdd();
-            await refresh();
+            await refresh();      // the new voice now appears in the list
         } catch {
             setStatus("Failed.", "error");
+        } finally {
+            saveBtn.disabled = false; cancelBtn.disabled = false;
+            saveBtn.textContent = "Add";
         }
     }
 
@@ -166,3 +176,19 @@ const VoicePicker = (() => {
 })();
 
 window.VoicePicker = VoicePicker;
+
+// Auto-wire a "Pick Voice" button if the page has one (#pickVoiceBtn).
+// On pick: remember the chosen voice (window.selectedVoiceId) and update the
+// #selectedVoice label. Used by both the live and upload pages — no per-page file.
+(function wirePickButton() {
+    const btn = document.getElementById("pickVoiceBtn");
+    if (!btn) return;
+    const label = document.getElementById("selectedVoice");
+    btn.addEventListener("click", () => {
+        VoicePicker.open((voice) => {
+            window.selectedVoiceId = voice.id;
+            if (label) label.textContent = voice.name;   // show the picked voice in the dropdown
+            window.onVoicePicked?.(voice);                // live page: auto-enable Lock Mode
+        });
+    });
+})();
