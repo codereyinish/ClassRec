@@ -163,23 +163,23 @@ const VoicePicker = (() => {
         voices.forEach((v) => {
             const item = document.createElement("div");
             item.className = "vp-item" + (v.id === selectedId ? " selected" : "");
-
-            const nameEl = document.createElement("span");
-            nameEl.className = "vp-item-name";
-            nameEl.textContent = v.name;
-            bindName(nameEl, v, refresh);       // dblclick -> rename -> refresh
-            item.appendChild(nameEl);
-
-            const arrow = document.createElement("button");
-            arrow.className = "vp-item-arrow";
-            arrow.title = "Use this voice";
-            arrow.textContent = "▾";
-            arrow.addEventListener("click", (e) => {
-                e.stopPropagation();
+            // click the BOX -> select/lock this voice
+            item.addEventListener("click", () => {
                 selectedId = v.id;
                 if (onPickCallback) onPickCallback(v);
                 close();
             });
+
+            const nameEl = document.createElement("span");
+            nameEl.className = "vp-item-name";
+            nameEl.textContent = v.name;
+            bindName(nameEl, v, refresh);       // click name = play, dblclick = rename (both stop bubbling)
+            item.appendChild(nameEl);
+
+            // decorative dropdown arrow (clicking it just selects, via the row handler)
+            const arrow = document.createElement("span");
+            arrow.className = "vp-item-arrow";
+            arrow.textContent = "▾";
             item.appendChild(arrow);
 
             const trash = document.createElement("button");

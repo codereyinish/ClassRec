@@ -91,7 +91,7 @@
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s;
 }
-.vp-item:hover { border-color: var(--accent); }
+.vp-item:hover { border-color: var(--accent); background: rgba(255,255,255,0.02); }
 .vp-item.selected { border-color: var(--accent); background: var(--accent-dim); }
 
 .vp-item-name {
@@ -103,8 +103,8 @@
     border-radius: 4px;
     outline: none;
 }
-.vp-item-name:hover { color: var(--accent); }
-.vp-item-name.playing { color: var(--green); }           /* green while playing */
+.vp-item-name:hover { color: var(--green); }             /* green hint: click to play */
+.vp-item-name.playing { color: var(--green); }           /* stays green while playing */
 .vp-item-name.editing { color: var(--text); cursor: text; }   /* just the cursor */
 .vp-item:focus-within { border-color: var(--accent); }        /* one highlight on the row */
 
