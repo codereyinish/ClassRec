@@ -26,12 +26,26 @@ MAX_SESSIONS_PER_USER = 7
 # ======= CLASSES =======
 
 def create_class(db: DBSession, *, name: str, embedding: bytes,
-                 user_id: str | None = None, threshold: float = 0.4) -> Class:
-    obj = Class(name=name, embedding=embedding, user_id=user_id, threshold=threshold)
+                 user_id: str | None = None, threshold: float = 0.4,
+                 audio_path: str | None = None) -> Class:
+    obj = Class(name=name, embedding=embedding, user_id=user_id,
+                threshold=threshold, audio_path=audio_path)
     db.add(obj)        # stage the new row in the session
     db.commit()        # write it to the DB (one transaction)
     db.refresh(obj)    # reload from DB so obj.id (auto-assigned) is filled in
     logger.info(f"[repo] created class id={obj.id} name={name!r}")
+    return obj
+
+
+def rename_class(db: DBSession, class_id: int, new_name: str) -> Class | None:
+    """Rename a Voice. Returns the updated Class, or None if not found."""
+    obj = db.get(Class, class_id)
+    if obj is None:
+        return None
+    obj.name = new_name
+    db.commit()
+    db.refresh(obj)
+    logger.info(f"[repo] renamed class id={class_id} -> {new_name!r}")
     return obj
 
 
@@ -69,6 +83,7 @@ def _gc_voice_if_orphaned(db: DBSession, class_id: int | None) -> None:
         return
     voice = db.get(Class, class_id)
     if voice is not None and voice.hidden and _count_sessions(db, class_id) == 0:
+        _delete_audio_file(voice.audio_path)    # remove the enrollment clip too
         db.delete(voice)
         db.commit()
         logger.info(f"[repo] garbage-collected orphaned hidden voice id={class_id}")

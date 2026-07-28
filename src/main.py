@@ -406,13 +406,17 @@ def _unique_voice_name(db: Session, base: str, user_id: str | None) -> str:
     return f"{base}_{n}"
 
 
+VOICE_AUDIO_DIR = BASE_DIR / "data" / "voice_audio"
+
+
 @app.post("/voices")
 async def create_voice_route(
     name: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Enroll a professor from an audio file → compute + save the embedding as a Voice."""
+    """Enroll a professor from an audio file → compute + save the embedding as a Voice.
+    The uploaded clip is also stored on disk so it can be played back later."""
     raw = await file.read()
     result = _embedding_bytes_from_audio(raw, file.filename or "voice.wav")
     if result is None:
@@ -421,16 +425,47 @@ async def create_voice_route(
     unique_name = _unique_voice_name(db, name, user_id=None)
     voice = repo.create_class(db, name=unique_name, embedding=embedding_bytes,
                               threshold=threshold, user_id=None)
-    return {"id": voice.id, "name": voice.name, "use_count": voice.use_count}
+
+    # store the clip for playback: data/voice_audio/<id>.<ext>
+    VOICE_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename or "voice.wav").suffix or ".wav"
+    audio_path = VOICE_AUDIO_DIR / f"{voice.id}{ext}"
+    audio_path.write_bytes(raw)
+    voice.audio_path = str(audio_path)
+    db.commit()
+
+    return {"id": voice.id, "name": voice.name, "use_count": voice.use_count, "has_audio": True}
 
 
 @app.get("/voices")
 def list_voices_route(db: Session = Depends(get_db)):
     """The Voice picker: top-4 most-used, non-hidden voices."""
     return [
-        {"id": v.id, "name": v.name, "use_count": v.use_count}
+        {"id": v.id, "name": v.name, "use_count": v.use_count, "has_audio": bool(v.audio_path)}
         for v in repo.top_voices(db, user_id=None, limit=4)
     ]
+
+
+@app.get("/voices/{voice_id}/audio")
+def voice_audio_route(voice_id: int, db: Session = Depends(get_db)):
+    """Serve a Voice's stored enrollment clip (for click-to-play)."""
+    voice = repo.get_class(db, voice_id)
+    if voice is None or not voice.audio_path or not Path(voice.audio_path).exists():
+        raise HTTPException(status_code=404, detail="No audio for this voice")
+    return FileResponse(voice.audio_path)
+
+
+class VoiceRename(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+@app.patch("/voices/{voice_id}")
+def rename_voice_route(voice_id: int, payload: VoiceRename, db: Session = Depends(get_db)):
+    """Rename a Voice (double-click-to-edit)."""
+    voice = repo.rename_class(db, voice_id, payload.name.strip())
+    if voice is None:
+        raise HTTPException(status_code=404, detail="Voice not found")
+    return {"id": voice.id, "name": voice.name}
 
 
 @app.delete("/voices/{voice_id}")

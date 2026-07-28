@@ -47,6 +47,8 @@ class Class(Base):
     name:       Mapped[str]               = mapped_column(String)
     # embedding BLOB (nullable) — LargeBinary is SQLAlchemy's word for BLOB
     embedding:  Mapped[bytes | None]      = mapped_column(LargeBinary)
+    # audio_path — where the enrollment clip is stored on disk, for playback
+    audio_path: Mapped[str | None]        = mapped_column(String)
     # threshold REAL DEFAULT 0.4
     threshold:  Mapped[float]             = mapped_column(Float, default=0.4)
     # use_count — bumped each time this Voice records a lecture; powers "top 4 most used".
