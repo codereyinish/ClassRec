@@ -15,6 +15,6 @@ data/
 *.db-wal
 *.db-shm
 
-# Documents
-*.docx
-*.html
+# Documents (root-only, so templates/*.html are NOT ignored)
+/*.docx
+/*.html
