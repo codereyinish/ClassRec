@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block head %}
+<title>My Lectures - ClassRec</title>
+<link rel="stylesheet" href="/static/css/lectures.css?v={{ asset_version }}">
+{% endblock %}
+
+{% block content %}
+    <div class="page-title">
+        <h1>My <em>Lectures</em></h1>
+        <p>Your saved transcripts</p>
+    </div>
+
+    <!-- LIST view: cards of saved lectures -->
+    <div id="lecturesList" class="lectures-list">
+        <div class="lectures-empty">Loading…</div>
+    </div>
+
+    <!-- DETAIL view: one full transcript (hidden until a card is opened) -->
+    <div id="lectureDetail" class="lecture-detail" hidden>
+        <button class="lecture-back" id="lectureBack" type="button">← Back</button>
+        <div class="lecture-detail-head">
+            <h2 id="detailTitle"></h2>
+            <span id="detailDate" class="lecture-date"></span>
+        </div>
+        <div id="detailTranscript" class="lecture-transcript"></div>
+    </div>
+
+    <script src="/static/js/lectures.js?v={{ asset_version }}"></script>
+{% endblock %}
