@@ -2,8 +2,8 @@
 
 {% block head %}
 <title>Live Recording </title>
-<link rel="stylesheet" href="/static/css/live.css">
-<link rel="stylesheet" href="/static/css/voice-picker.css">
+<link rel="stylesheet" href="/static/css/live.css?v={{ asset_version }}">
+<link rel="stylesheet" href="/static/css/voice-picker.css?v={{ asset_version }}">
 {% endblock %}
 
 {% block content %}
@@ -165,8 +165,8 @@
             <button class="btn-start" id="btnStart">Start Recording →</button>
         </div>
     </div>
-    <script src="/static/js/live.js"></script>
-    <script src="/static/js/audio-playback.js"></script>
-    <script src="/static/js/voice-picker.js"></script>
-    <script src="/static/js/save-transcript.js"></script>
+    <script src="/static/js/live.js?v={{ asset_version }}"></script>
+    <script src="/static/js/audio-playback.js?v={{ asset_version }}"></script>
+    <script src="/static/js/voice-picker.js?v={{ asset_version }}"></script>
+    <script src="/static/js/save-transcript.js?v={{ asset_version }}"></script>
 {% endblock %}

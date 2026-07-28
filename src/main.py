@@ -51,6 +51,11 @@ _mem_after_models_mb: float = 0.0
 BASE_DIR = Path(__file__).parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["clerk_key"] = CLERK_PUBLISHABLE_KEY
+# Cache-busting: changes whenever the server (re)starts, so browsers re-fetch
+# CSS/JS after a change instead of serving a stale cached copy. Append to asset
+# URLs as ?v={{ asset_version }}.
+import time as _time
+templates.env.globals["asset_version"] = str(int(_time.time()))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
