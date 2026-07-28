@@ -486,6 +486,14 @@
                    tagConfig: window.tagConfig
                }));
            Logger.debug("Prompt and Tags sent to Backend", window.tagConfig);
+               // If the user picked a saved voice, lock onto it (no hold-enroll needed)
+               if (window.selectedVoiceId) {
+                   websocket.send(JSON.stringify({
+                       type: "use_saved_voice",
+                       class_id: window.selectedVoiceId
+                   }));
+                   Logger.debug("Requested saved voice lock", window.selectedVoiceId);
+               }
                setupAudioProcessing(stream);
            };
 

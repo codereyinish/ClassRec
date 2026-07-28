@@ -15,7 +15,7 @@ import io
 import requests
 from logger import logger
 from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
-from database import get_db              # per-request session provider (used with Depends)
+from database import get_db, SessionLocal  # get_db for routes; SessionLocal for the WS handler
 import repository as repo                # our data operations (create/list/...)
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
@@ -95,6 +95,7 @@ class ContextMessage(BaseModel):
     type: str
     prompt: str = Field(default="", max_length=300)
     tagConfig: TagConfig = Field(default_factory=TagConfig)
+    class_id: int | None = None      # for "use_saved_voice": which saved Voice to load
 
 
 # ======= AUDIO HELPERS =======
@@ -906,6 +907,29 @@ async def websocket_transcribe(websocket: WebSocket):
                                 "message": "Not enough audio captured"
                             })
 
+                    elif msg.type == "use_saved_voice":
+                        # Load a previously-saved Voice's embedding from the DB and
+                        # lock onto it — same effect as enroll_end, no live audio needed.
+                        with SessionLocal() as db:
+                            voice = repo.get_class(db, msg.class_id) if msg.class_id else None
+                        if voice is not None and voice.embedding:
+                            professor_embedding  = np.frombuffer(voice.embedding, dtype="float32")
+                            similarity_threshold = voice.threshold
+                            voice_lock_active    = True
+                            session_state = {
+                                'last_transcript': '',
+                                'vad_h': np.zeros((2, 1, 64), dtype=np.float32),
+                                'vad_c': np.zeros((2, 1, 64), dtype=np.float32),
+                            }
+                            await websocket.send_json({"type": "enroll_success"})
+                            logger.info(f"Saved voice locked (id={msg.class_id}, "
+                                        f"threshold={similarity_threshold:.3f})")
+                        else:
+                            await websocket.send_json({
+                                "type": "enroll_failed",
+                                "message": "Saved voice not found"
+                            })
+
                     elif msg.type == "voice_lock_off":
                         voice_lock_active   = False
                         professor_embedding = None
@@ -930,7 +954,7 @@ async def websocket_transcribe(websocket: WebSocket):
 
                 if enrolling:
                     enrollment_buffer.extend(packet)
-                    continue
+                    continue #continue COMPUTING Embeddign, and once enrolling is false, go to below section of code
                 # Safety guard to check the size of the chunk
                 if len(audio_buffer) > CHUNK_BYTES * 4:
                     await websocket.send_json({"type": "error", "message": "Audio limit exceeded"})
