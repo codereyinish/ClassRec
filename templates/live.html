@@ -2,7 +2,8 @@
 
 {% block head %}
 <title>Live Recording </title>
-<link rel="stylesheet" href = "/static/css/live.css"
+<link rel="stylesheet" href="/static/css/live.css">
+<link rel="stylesheet" href="/static/css/voice-picker.css">
 {% endblock %}
 
 {% block content %}
@@ -22,6 +23,12 @@
                     <span class="toggle-track"></span>
                 </label>
                 <span class="toggle-label">Lock Mode</span>
+            </div>
+
+            <!-- Pick a saved professor voice instead of live-enrolling -->
+            <div class="voice-pick-wrapper" style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+                <button class="btn-primary" id="pickVoiceBtn" type="button">🎙️ Pick Voice</button>
+                <span id="selectedVoice" style="font-size:12px;color:var(--text-muted);">No voice selected</span>
             </div>
             <div class="sample-audio-wrapper" id="sampleAudioWrapper" style="display:none">
                 <p class="sample-label">Locked Audio</p>
@@ -159,4 +166,16 @@
     </div>
     <script src="/static/js/live.js"></script>
     <script src="/static/js/player.js"></script>
+    <script src="/static/js/voice-picker.js"></script>
+    <script>
+        // Pick a saved voice. For now this selects + displays it; feeding the saved
+        // embedding into the live filter pipeline is a follow-up backend step.
+        window.selectedVoiceId = null;
+        document.getElementById("pickVoiceBtn").addEventListener("click", () => {
+            VoicePicker.open((voice) => {
+                window.selectedVoiceId = voice.id;
+                document.getElementById("selectedVoice").textContent = `Voice: ${voice.name}`;
+            });
+        });
+    </script>
 {% endblock %}
