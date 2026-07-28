@@ -1,12 +1,12 @@
 /* Voice Picker — self-contained popup component.
    Reuses base.html design tokens (--bg-surface, --accent, --red, ...). */
 
-/* The dropdown-style trigger on the live page — top-right of the controls card,
-   across from the (absolutely-positioned) Lock Mode toggle. */
+/* The dropdown-style trigger on the live page — pinned just to the right of the
+   (absolutely-positioned, top-left) Lock Mode toggle. */
 .voice-dropdown {
     position: absolute;
     top: 12px;
-    right: 16px;
+    left: 175px;
     display: flex;
     align-items: center;
     justify-content: space-between;
