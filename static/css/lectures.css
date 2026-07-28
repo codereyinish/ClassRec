@@ -1,0 +1,110 @@
+/* My Lectures — card list + transcript detail. Uses base.html design tokens. */
+
+.lectures-list {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.lectures-empty {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 40px 0;
+}
+
+/* ---- a saved-lecture card ---- */
+.lecture-card {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    transition: border-color 0.15s, background 0.15s;
+}
+.lecture-card:hover { border-color: var(--accent); }
+
+.lecture-card-main { flex: 1; cursor: pointer; min-width: 0; }
+.lecture-card-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 16px;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+.lecture-card-date {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+.lecture-card-preview {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;          /* clamp preview to 2 lines */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.lecture-card-del {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    opacity: 0.6;
+    transition: opacity 0.15s, background 0.15s;
+}
+.lecture-card-del:hover { opacity: 1; background: rgba(224, 82, 82, 0.12); }
+
+/* ---- detail (full transcript) ---- */
+.lecture-detail { max-width: 760px; margin: 0 auto; }
+
+.lecture-back {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 7px;
+    padding: 7px 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    margin-bottom: 18px;
+}
+.lecture-back:hover { color: var(--text); border-color: var(--accent); }
+
+.lecture-detail-head { margin-bottom: 16px; }
+.lecture-detail-head h2 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 24px;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+.lecture-date {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.lecture-transcript {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    word-break: break-word;
+}

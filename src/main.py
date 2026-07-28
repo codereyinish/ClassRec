@@ -338,6 +338,10 @@ async def home(request: Request):
 async def upload_page(request: Request):
     return templates.TemplateResponse("upload.html", {"request": request})
 
+@app.get("/lectures", response_class=HTMLResponse)
+async def lectures_page(request: Request):
+    return templates.TemplateResponse("lectures.html", {"request": request})
+
 @app.get("/live", response_class=HTMLResponse)
 async def live_page(request: Request):
     return templates.TemplateResponse("live.html", {"request": request})

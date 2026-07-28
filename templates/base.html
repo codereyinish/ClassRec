@@ -103,6 +103,15 @@
             align-items: center;
             gap: 16px;
         }
+        .header-nav-link {
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-decoration: none;
+            letter-spacing: 0.03em;
+            transition: color 0.2s;
+        }
+        .header-nav-link:hover { color: var(--text); }
 
         /* ===== PAGE CONTENT ===== */
         .page-wrapper {
@@ -214,6 +223,7 @@
         </a>
 
         <div class="header-right">
+            <a href="/lectures" class="header-nav-link">My Lectures</a>
             <div id="clerk-auth-mount"></div>
         </div>
     </header>
