@@ -1,3 +1,21 @@
+"""
+ClassRec — Groq Whisper Pipeline (Archived)
+============================================
+WHY GROQ:
+    Switched from local faster-whisper to Groq API because OpenAI Whisper API
+    and Groq API cost almost the same, but Groq runs on custom LPU hardware
+    which is significantly faster — no GPU needed on the server.
+
+PROBLEM:
+    Groq only offers whisper-large-v3-turbo, NOT the full whisper-large-v3.
+    whisper-large-v3-turbo is faster but less accurate than whisper-large-v3,
+    especially with technical jargon, accents, and noisy classroom audio.
+    whisper-large-v3-turbo costs $0.04/hr on Groq.
+
+NEXT STEP:
+    Exploring Modal serverless GPU + faster-whisper large-v3 + stable-ts
+    for better timestamp accuracy and full large-v3 quality.
+"""
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -5,24 +23,21 @@ from fastapi.staticfiles import StaticFiles
 import os
 from dotenv import load_dotenv
 import asyncio
+import tempfile
 from functools import partial
 import soundfile as sf
 from typing import Tuple
 from validators import validate_audio_file
 from pathlib import Path
 import json
-import io
-import requests
 from logger import logger
-from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
-from database import get_db, SessionLocal  # get_db for routes; SessionLocal for the WS handler
-import repository as repo                # our data operations (create/list/...)
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
 import onnxruntime as ort
 import numpy as np
 import psutil
 import tracemalloc
+from groq import Groq
 import torch
 import warnings
 warnings.filterwarnings("ignore")
@@ -51,11 +66,6 @@ _mem_after_models_mb: float = 0.0
 BASE_DIR = Path(__file__).parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["clerk_key"] = CLERK_PUBLISHABLE_KEY
-# Cache-busting: changes whenever the server (re)starts, so browsers re-fetch
-# CSS/JS after a change instead of serving a stale cached copy. Append to asset
-# URLs as ?v={{ asset_version }}.
-import time as _time
-templates.env.globals["asset_version"] = str(int(_time.time()))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
@@ -66,7 +76,7 @@ BYTES_PER_SECOND  = SAMPLE_RATE * BYTES_PER_SAMPLE  # 32,000
 CHUNK_DURATION    = 10
 CHUNK_BYTES       = BYTES_PER_SECOND * CHUNK_DURATION   # 10s advance per chunk
 
-MODAL_WHISPER_URL = os.getenv("MODAL_WHISPER_URL", "")  # set after: modal deploy modal_whisper.py
+WHISPER_MODEL = 'whisper-large-v3-turbo'  # Groq model
 
 # VAD
 VAD_WINDOW_SIZE   = 512
@@ -100,7 +110,6 @@ class ContextMessage(BaseModel):
     type: str
     prompt: str = Field(default="", max_length=300)
     tagConfig: TagConfig = Field(default_factory=TagConfig)
-    class_id: int | None = None      # for "use_saved_voice": which saved Voice to load
 
 
 # ======= AUDIO HELPERS =======
@@ -115,37 +124,45 @@ def pcm_to_float(pcm_bytes: bytes) -> np.ndarray:
     return samples
 
 
-# ======= STEP 1: WHISPER VIA MODAL (faster-whisper large-v3 + stable-ts on T4 GPU) =======
-# Transcription runs remotely on Modal — no GPU or Whisper model on this server.
-# _modal_session is a requests.Session for connection reuse across chunks.
-_modal_session: requests.Session | None = None
-
+# ======= STEP 1: WHISPER VIA GROQ API =======
+# Groq runs Whisper on custom LPU hardware — much faster than local CPU inference.
+# We send each 10s chunk as a WAV file and get back word-level timestamps.
+_groq_client = None
 
 def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
     """
-    Send audio to the Modal Whisper endpoint and return word-level timestamps.
+    Transcribe full chunk audio via Groq Whisper API.
     Returns list of {"word": str, "start": float, "end": float}.
 
-    Why send the full chunk before any speaker filtering?
-    Whisper needs full audio context to be accurate. We transcribe everything,
-    then main.py filters by speaker timestamps using the local ECAPA-TDNN pipeline.
-
-    Cold start: first request after idle spins up a T4 container (~3-5s).
-    Warm requests: ~1-2s round-trip for a 10s chunk.
+    Why transcribe the full chunk first (before filtering)?
+    Because Whisper needs full context to be accurate. If we sent only
+    the professor's audio segments, Whisper would lose sentence context
+    and make more errors. We transcribe everything, then filter by timestamps.
     """
-    buf = io.BytesIO()
-    sf.write(buf, samples, SAMPLE_RATE, format="WAV")
-    wav_bytes = buf.getvalue()
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+        sf.write(f.name, samples, SAMPLE_RATE)
+        tmp_path = f.name
 
-    logger.debug(f"[whisper] calling Modal ({len(samples)/SAMPLE_RATE:.1f}s audio)")
-    response = _modal_session.post(
-        MODAL_WHISPER_URL,
-        data=wav_bytes,
-        headers={"Content-Type": "audio/wav"},
-        timeout=90,  # generous: first warm-up can take ~20s
-    )
-    response.raise_for_status()
-    words = response.json()
+    try:
+        with open(tmp_path, 'rb') as f:
+            logger.debug(f"[groq] POST /audio/transcriptions ({len(samples)/SAMPLE_RATE:.1f}s audio)")
+            response = _groq_client.audio.transcriptions.create(
+                file=("audio.wav", f, "audio/wav"),
+                model=WHISPER_MODEL,
+                response_format="verbose_json",
+                timestamp_granularities=["word"],
+                language="en",
+            )
+    finally:
+        os.unlink(tmp_path)
+
+    words = []
+    if response.words:
+        for w in response.words:
+            if isinstance(w, dict):
+                words.append({'word': w['word'], 'start': w['start'], 'end': w['end']})
+            else:
+                words.append({'word': w.word, 'start': w.start, 'end': w.end})
 
     logger.debug(f"[whisper] {len(words)} words transcribed")
     return words
@@ -172,7 +189,7 @@ def analyze_text(text: str, selected_tags: list, custom_name: str) -> list:
     return tags
 
 
-# ======= TRANSCRIBE CHUNK (full pipeline from VAD to dedup) =======
+# ======= TRANSCRIBE CHUNK (full pipeline) =======
 def _run_pipeline_sync(
     pcm_bytes: bytes,
     lecture_prompt: str,
@@ -181,7 +198,6 @@ def _run_pipeline_sync(
     professor_embedding: np.ndarray | None,
     similarity_threshold: float,
     session_state: dict,
-    chunk_offset: float,
 ) -> dict | None:
     """
     CPU-bound pipeline: Steps 1-7 (all model inference).
@@ -203,8 +219,7 @@ def _run_pipeline_sync(
     # Voice lock off — send raw transcript without speaker filtering
     if professor_embedding is None:
         detected_tags = analyze_text(raw_transcript, selected_tags, custom_name)
-        word_list = [{"w": w["word"], "s": round(w["start"] + chunk_offset, 3), "e": round(w["end"] + chunk_offset, 3)} for w in words]
-        return {"type": "transcription", "text": raw_transcript, "tags": detected_tags, "words": word_list}
+        return {"type": "transcription", "text": raw_transcript, "tags": detected_tags}
 
     # Step 2: VAD — find speech regions, filter silence
     vad_h = session_state.get('vad_h', np.zeros((2, 1, 64), dtype=np.float32))
@@ -246,7 +261,7 @@ def _run_pipeline_sync(
                 break
 
     # Step 5: Word stitch — keep words whose midpoint falls in a professor segment
-    transcript, kept_words = stitch_professor_words(words, professor_segments, vad_regions)
+    transcript, _ = stitch_professor_words(words, professor_segments, vad_regions)
     if not transcript:
         logger.debug("[chunk] no words remained after stitch")
         return None
@@ -264,13 +279,9 @@ def _run_pipeline_sync(
     if not transcript.strip():
         return None
 
-    # Re-align word dicts to match filtered transcript, then apply chunk offset
-    final_words = words_for_transcript(transcript, kept_words)
-    word_list = [{"w": w["word"], "s": round(w["start"] + chunk_offset, 3), "e": round(w["end"] + chunk_offset, 3)} for w in final_words]
-
     detected_tags = analyze_text(transcript, selected_tags, custom_name)
     logger.debug(f"[filtered] {transcript}")
-    return {"type": "transcription", "text": transcript, "tags": detected_tags, "words": word_list}
+    return {"type": "transcription", "text": transcript, "tags": detected_tags}
 
 
 async def transcribe_chunk(
@@ -282,7 +293,6 @@ async def transcribe_chunk(
     professor_embedding: np.ndarray | None,
     similarity_threshold: float,
     session_state: dict,
-    chunk_offset: float,
 ):
     """
     Full per-chunk pipeline:
@@ -307,26 +317,19 @@ async def transcribe_chunk(
                     professor_embedding,
                     similarity_threshold,
                     session_state,
-                    chunk_offset,
                 )
             )
 
             # Step 8: Send to browser — must happen on the async loop, not in the thread
             if result is not None:
-                try:
-                    await websocket.send_json(result)
-                except Exception:
-                    pass  # client disconnected while chunk was processing
+                await websocket.send_json(result)
 
     except Exception as e:
         logger.exception(f"transcribe_chunk error: {e}")
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "message": "Transcription failed. Please try again."
-            })
-        except Exception:
-            pass  # client already disconnected
+        await websocket.send_json({
+            "type": "error",
+            "message": "Transcription failed. Please try again."
+        })
 
 
 # ======= ROUTES =======
@@ -337,10 +340,6 @@ async def home(request: Request):
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request):
     return templates.TemplateResponse("upload.html", {"request": request})
-
-@app.get("/lectures", response_class=HTMLResponse)
-async def lectures_page(request: Request):
-    return templates.TemplateResponse("lectures.html", {"request": request})
 
 @app.get("/live", response_class=HTMLResponse)
 async def live_page(request: Request):
@@ -377,166 +376,7 @@ def health():
     }
 
 
-# ======= VOICES (professor voice profiles = the Class table) =======
-
-def _embedding_bytes_from_audio(raw: bytes, filename: str) -> tuple[bytes, float] | None:
-    """
-    Decode an uploaded audio file into the professor voice EMBEDDING.
-
-    Glue only: librosa decodes ANY format -> 16kHz mono float; we convert to the
-    int16-PCM bytes the existing enrollment code expects, then reuse
-    compute_professor_embedding (VAD + ECAPA). Returns (embedding_bytes, threshold)
-    or None if no usable speech was found.
-    """
-    import tempfile
-    import librosa
-
-    suffix = Path(filename).suffix or ".wav"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-        tmp.write(raw)
-        tmp.flush()
-        samples, _ = librosa.load(tmp.name, sr=SAMPLE_RATE, mono=True)   # -> float32 @16kHz
-
-    pcm_bytes = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
-    emb, threshold = compute_professor_embedding(pcm_bytes)              # reuse existing ML
-    if emb is None:
-        return None
-    return emb.astype("float32").tobytes(), threshold
-
-
-def _unique_voice_name(db: Session, base: str, user_id: str | None) -> str:
-    """Auto-suffix name collisions: pol_science, pol_science_2, pol_science_3, ..."""
-    existing = {c.name for c in repo.list_classes(db, user_id=user_id)}
-    if base not in existing:
-        return base
-    n = 2
-    while f"{base}_{n}" in existing:
-        n += 1
-    return f"{base}_{n}"
-
-
-VOICE_AUDIO_DIR = BASE_DIR / "data" / "voice_audio"
-
-
-@app.post("/voices")
-async def create_voice_route(
-    name: str,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    """Enroll a professor from an audio file → compute + save the embedding as a Voice.
-    The uploaded clip is also stored on disk so it can be played back later."""
-    raw = await file.read()
-    result = _embedding_bytes_from_audio(raw, file.filename or "voice.wav")
-    if result is None:
-        raise HTTPException(status_code=422, detail="No usable speech found in the audio.")
-    embedding_bytes, threshold = result
-    unique_name = _unique_voice_name(db, name, user_id=None)
-    voice = repo.create_class(db, name=unique_name, embedding=embedding_bytes,
-                              threshold=threshold, user_id=None)
-
-    # store the clip for playback: data/voice_audio/<id>.<ext>
-    VOICE_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    ext = Path(file.filename or "voice.wav").suffix or ".wav"
-    audio_path = VOICE_AUDIO_DIR / f"{voice.id}{ext}"
-    audio_path.write_bytes(raw)
-    voice.audio_path = str(audio_path)
-    db.commit()
-
-    return {"id": voice.id, "name": voice.name, "use_count": voice.use_count, "has_audio": True}
-
-
-@app.get("/voices")
-def list_voices_route(db: Session = Depends(get_db)):
-    """The Voice picker: top-4 most-used, non-hidden voices."""
-    return [
-        {"id": v.id, "name": v.name, "use_count": v.use_count, "has_audio": bool(v.audio_path)}
-        for v in repo.top_voices(db, user_id=None, limit=4)
-    ]
-
-
-@app.get("/voices/{voice_id}/audio")
-def voice_audio_route(voice_id: int, db: Session = Depends(get_db)):
-    """Serve a Voice's stored enrollment clip (for click-to-play)."""
-    voice = repo.get_class(db, voice_id)
-    if voice is None or not voice.audio_path or not Path(voice.audio_path).exists():
-        raise HTTPException(status_code=404, detail="No audio for this voice")
-    return FileResponse(voice.audio_path)
-
-
-class VoiceRename(BaseModel):
-    name: str = Field(min_length=1, max_length=60)
-
-
-@app.patch("/voices/{voice_id}")
-def rename_voice_route(voice_id: int, payload: VoiceRename, db: Session = Depends(get_db)):
-    """Rename a Voice (double-click-to-edit)."""
-    voice = repo.rename_class(db, voice_id, payload.name.strip())
-    if voice is None:
-        raise HTTPException(status_code=404, detail="Voice not found")
-    return {"id": voice.id, "name": voice.name}
-
-
-@app.delete("/voices/{voice_id}")
-def hide_voice_route(voice_id: int, db: Session = Depends(get_db)):
-    """The 🗑️ in the picker: hide (or delete if it has no lectures)."""
-    repo.hide_class(db, voice_id)
-    return {"ok": True}
-
-
-# ======= SESSIONS (saved lecture transcripts) =======
-
-class SessionIn(BaseModel):
-    """Request BODY for saving a transcript (long text/lists don't fit in a URL)."""
-    title:      str
-    transcript: str
-    class_id:   int | None = None      # which Voice was used (None = unlocked recording)
-    words:      list | None = None
-    audio_path: str | None = None
-
-
-@app.post("/sessions")
-def create_session_route(payload: SessionIn, db: Session = Depends(get_db)):
-    """Save a finished transcript. Called by both live + upload when user hits 'save'."""
-    s = repo.save_session(
-        db, class_id=payload.class_id, user_id=None, title=payload.title,
-        transcript=payload.transcript, words=payload.words, audio_path=payload.audio_path,
-    )
-    return {"id": s.id, "title": s.title, "class_id": s.class_id}
-
-
-@app.get("/sessions")
-def list_sessions_route(db: Session = Depends(get_db)):
-    """List saved lectures (lightweight — a short preview, not the full transcript)."""
-    return [
-        {"id": s.id, "title": s.title, "class_id": s.class_id,
-         "preview": (s.transcript or "")[:200], "created_at": str(s.created_at)}
-        for s in repo.list_sessions(db, user_id=None)
-    ]
-
-
-@app.get("/sessions/{session_id}")
-def get_session_route(session_id: int, db: Session = Depends(get_db)):
-    """One full lecture (whole transcript + word timestamps)."""
-    s = repo.get_session(db, session_id)
-    if s is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {
-        "id": s.id, "title": s.title, "class_id": s.class_id,
-        "transcript": s.transcript, "summary": s.summary,
-        "words": json.loads(s.words_json) if s.words_json else [],
-        "created_at": str(s.created_at),
-    }
-
-
-@app.delete("/sessions/{session_id}")
-def delete_session_route(session_id: int, db: Session = Depends(get_db)):
-    """Delete a lecture (its audio file + any orphaned hidden Voice are cleaned up)."""
-    repo.delete_session(db, session_id)
-    return {"ok": True}
-
-
-# ======= FILE UPLOAD (Modal Whisper — same large-v3 model as live pipeline) =======
+# ======= FILE UPLOAD (local Whisper — same model as live pipeline) =======
 @app.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile,
@@ -544,19 +384,19 @@ async def transcribe_audio(
 ):
     contents, mime, file_size_mb, correct_ext = validated_data
     try:
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: _modal_session.post(
-                MODAL_WHISPER_URL,
-                data=contents,
-                headers={"Content-Type": mime},
-                timeout=120,
+        with tempfile.NamedTemporaryFile(suffix=f'.{correct_ext}', delete=False) as f:
+            f.write(contents)
+            tmp_path = f.name
+
+        with open(tmp_path, 'rb') as audio_file:
+            response = _groq_client.audio.transcriptions.create(
+                file=(file.filename, audio_file),
+                model=WHISPER_MODEL,
+                language="en",
             )
-        )
-        response.raise_for_status()
-        words = response.json()
-        transcript = " ".join(w["word"] for w in words).strip()
+        os.unlink(tmp_path)
+
+        transcript = response.text.strip()
 
         return {
             "filename": file.filename,
@@ -777,7 +617,7 @@ def stitch_professor_words(
     words: list[dict],
     professor_segments: list[tuple[float, float]],
     vad_regions: list[tuple[float, float]],
-) -> tuple[str, list[dict]]:
+) -> tuple[str, list[str]]:
     """
     Keep only words whose midpoint timestamp falls inside a professor segment.
     0.5s buffer on segment end to catch words slightly past the boundary.
@@ -785,7 +625,6 @@ def stitch_professor_words(
     For the first professor segment, effective_start is stretched back to the
     first VAD region start — covers words in short leading VAD regions that
     were dropped before segmentation (VAD/segmentation cold-start latency).
-    Returns (joined_text, list_of_word_dicts) — full dicts so timestamps survive.
     """
     first_vad_start = vad_regions[0][0] if vad_regions else 0.0
     kept = []
@@ -794,28 +633,10 @@ def stitch_professor_words(
         for i, (seg_start, seg_end) in enumerate(professor_segments):
             effective_start = first_vad_start if i == 0 else seg_start
             if effective_start <= mid <= seg_end + 0.5:
-                kept.append(w)
+                kept.append(w['word'])
                 break
     logger.debug(f"[stitch] {len(kept)}/{len(words)} words kept")
-    return ' '.join(w['word'] for w in kept).strip(), kept
-
-
-def words_for_transcript(transcript: str, word_dicts: list[dict]) -> list[dict]:
-    """
-    After hallucination filter / dedup trim the transcript string, re-align the
-    word dict list to match only what's actually in the final text.
-    Greedy left-to-right scan — works because filtering never reorders words.
-    """
-    result = []
-    wi = 0
-    for tw in transcript.split():
-        while wi < len(word_dicts):
-            if word_dicts[wi]['word'].strip().lower() == tw.lower():
-                result.append(word_dicts[wi])
-                wi += 1
-                break
-            wi += 1
-    return result
+    return ' '.join(kept).strip(), kept
 
 
 # ======= HALLUCINATION FILTER =======
@@ -890,7 +711,6 @@ async def websocket_transcribe(websocket: WebSocket):
     custom_name       = ""
     enrolling         = False
     enrollment_buffer = bytearray()
-    chunk_count       = 0
 
     # Per-session speaker state
     professor_embedding: np.ndarray | None = None
@@ -951,29 +771,6 @@ async def websocket_transcribe(websocket: WebSocket):
                                 "message": "Not enough audio captured"
                             })
 
-                    elif msg.type == "use_saved_voice":
-                        # Load a previously-saved Voice's embedding from the DB and
-                        # lock onto it — same effect as enroll_end, no live audio needed.
-                        with SessionLocal() as db:
-                            voice = repo.get_class(db, msg.class_id) if msg.class_id else None
-                        if voice is not None and voice.embedding:
-                            professor_embedding  = np.frombuffer(voice.embedding, dtype="float32")
-                            similarity_threshold = voice.threshold
-                            voice_lock_active    = True
-                            session_state = {
-                                'last_transcript': '',
-                                'vad_h': np.zeros((2, 1, 64), dtype=np.float32),
-                                'vad_c': np.zeros((2, 1, 64), dtype=np.float32),
-                            }
-                            await websocket.send_json({"type": "enroll_success"})
-                            logger.info(f"Saved voice locked (id={msg.class_id}, "
-                                        f"threshold={similarity_threshold:.3f})")
-                        else:
-                            await websocket.send_json({
-                                "type": "enroll_failed",
-                                "message": "Saved voice not found"
-                            })
-
                     elif msg.type == "voice_lock_off":
                         voice_lock_active   = False
                         professor_embedding = None
@@ -998,7 +795,7 @@ async def websocket_transcribe(websocket: WebSocket):
 
                 if enrolling:
                     enrollment_buffer.extend(packet)
-                    continue #continue COMPUTING Embeddign, and once enrolling is false, go to below section of code
+                    continue
                 # Safety guard to check the size of the chunk
                 if len(audio_buffer) > CHUNK_BYTES * 4:
                     await websocket.send_json({"type": "error", "message": "Audio limit exceeded"})
@@ -1011,16 +808,12 @@ async def websocket_transcribe(websocket: WebSocket):
                     chunk_to_process = bytes(audio_buffer)
                     del audio_buffer[:CHUNK_BYTES]
 
-                    chunk_offset = chunk_count * CHUNK_DURATION
-                    chunk_count += 1
-
                     asyncio.create_task(transcribe_chunk(
                         chunk_to_process, websocket,
                         lecture_prompt, selected_tags, custom_name,
                         professor_embedding if voice_lock_active else None,
                         similarity_threshold,
                         session_state,
-                        chunk_offset,
                     ))
 
     except WebSocketDisconnect:
@@ -1033,7 +826,7 @@ async def websocket_transcribe(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     global _mem_baseline_mb, _mem_after_models_mb
-    global _vad_session, _seg_session, _ecapa_model, _modal_session
+    global _vad_session, _seg_session, _ecapa_model, _groq_client
 
     tracemalloc.start()
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
@@ -1060,12 +853,8 @@ async def startup_event():
     _ecapa_model.eval()
     logger.info("ECAPA-TDNN embedding model loaded")
 
-    # Whisper runs on Modal — just init an HTTP session for connection reuse
-    _modal_session = requests.Session()
-    if MODAL_WHISPER_URL:
-        logger.info(f"Modal Whisper endpoint configured: {MODAL_WHISPER_URL}")
-    else:
-        logger.warning("MODAL_WHISPER_URL not set — transcription will fail")
+    _groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    logger.info(f"Groq client initialized (model: {WHISPER_MODEL})")
 
     _mem_after_models_mb = _process.memory_info().rss / 1024 / 1024
     logger.info(f"Memory after all models loaded: {_mem_after_models_mb:.1f} MB")

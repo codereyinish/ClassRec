@@ -1,0 +1,91 @@
+"""
+ClassRec — ORM models (the tables, as Python classes)
+=====================================================
+
+This REPLACES the hand-written CREATE TABLE SQL. Each class = one table;
+each attribute = one column. SQLAlchemy reads these to generate the SQL.
+
+Two tables, same as before:
+    Class    — a class + its ONE professor voice embedding
+    Session  — one lecture transcript, linked to its class
+"""
+
+from __future__ import annotations
+
+import datetime
+
+from sqlalchemy import Boolean, ForeignKey, Integer, LargeBinary, MetaData, String, Text, Float, DateTime, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+# Production best-practice: give every constraint a deterministic NAME. SQLite
+# leaves constraints unnamed, which breaks Alembic migrations that try to alter
+# them ("Constraint must have a name"). This convention fixes that everywhere.
+NAMING_CONVENTION = {
+    "ix":  "ix_%(column_0_label)s",
+    "uq":  "uq_%(table_name)s_%(column_0_name)s",
+    "ck":  "ck_%(table_name)s_%(constraint_name)s",
+    "fk":  "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk":  "pk_%(table_name)s",
+}
+
+
+class Base(DeclarativeBase):
+    """All models inherit from this. It's the registry the ORM uses to know
+    about every table when creating them / generating migrations."""
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+class Class(Base):
+    __tablename__ = "classes"                       # -> CREATE TABLE classes
+
+    # id INTEGER PRIMARY KEY (auto)
+    id:         Mapped[int]               = mapped_column(primary_key=True)
+    # user_id TEXT (nullable)
+    user_id:    Mapped[str | None]        = mapped_column(String)
+    # name TEXT NOT NULL  (Mapped[str] without "| None" = NOT NULL)
+    name:       Mapped[str]               = mapped_column(String)
+    # embedding BLOB (nullable) — LargeBinary is SQLAlchemy's word for BLOB
+    embedding:  Mapped[bytes | None]      = mapped_column(LargeBinary)
+    # audio_path — where the enrollment clip is stored on disk, for playback
+    audio_path: Mapped[str | None]        = mapped_column(String)
+    # threshold REAL DEFAULT 0.4
+    threshold:  Mapped[float]             = mapped_column(Float, default=0.4)
+    # use_count — bumped each time this Voice records a lecture; powers "top 4 most used".
+    # server_default="0" so existing rows get 0 when this column is added by migration.
+    use_count:  Mapped[int]               = mapped_column(Integer, default=0, server_default="0")
+    # hidden — the 🗑️ in the picker sets this True (remove from list, keep the data
+    # so linked Lectures still show their Voice). Hard-delete only once no Lecture uses it.
+    hidden:     Mapped[bool]              = mapped_column(Boolean, default=False, server_default="0")
+    # created_at — server_default=now() lets the DB fill it in
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # One Voice has many Lectures. passive_deletes=True -> let the DB's ON DELETE
+    # SET NULL handle it (deleting a Voice does NOT delete its Lectures; they just
+    # lose their class link). No delete-orphan cascade anymore.
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="course", passive_deletes=True
+    )
+
+
+class Session(Base):
+    __tablename__ = "sessions"                      # -> CREATE TABLE sessions
+
+    id:         Mapped[int]               = mapped_column(primary_key=True)
+    # class_id FK -> classes.id. Nullable (a Lecture MAY have no Voice), but if it
+    # has one the link is permanent. ON DELETE RESTRICT: the DB blocks deleting a
+    # Voice while any Lecture still references it (so the link is never lost).
+    class_id:   Mapped[int | None]        = mapped_column(
+        ForeignKey("classes.id", ondelete="RESTRICT")
+    )
+    user_id:    Mapped[str | None]        = mapped_column(String)
+    title:      Mapped[str]               = mapped_column(String)
+    transcript: Mapped[str | None]        = mapped_column(Text)
+    summary:    Mapped[str | None]        = mapped_column(Text)
+    words_json: Mapped[str | None]        = mapped_column(Text)
+    audio_path: Mapped[str | None]        = mapped_column(String)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # The other side of the relationship: each Session points back to its Class.
+    # Named "course" (not "class") because `class` is a reserved word in Python.
+    course: Mapped["Class"] = relationship(back_populates="sessions")

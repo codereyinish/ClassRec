@@ -2,7 +2,8 @@
 
 {% block head %}
 <title>Live Recording </title>
-<link rel="stylesheet" href = "/static/css/live.css"
+<link rel="stylesheet" href="/static/css/live.css?v={{ asset_version }}">
+<link rel="stylesheet" href="/static/css/voice-picker.css?v={{ asset_version }}">
 {% endblock %}
 
 {% block content %}
@@ -23,6 +24,12 @@
                 </label>
                 <span class="toggle-label">Lock Mode</span>
             </div>
+
+            <!-- Pick a saved professor voice (dropdown-style trigger opens the picker) -->
+            <button class="voice-dropdown" id="pickVoiceBtn" type="button">
+                <span id="selectedVoice">Select voice</span>
+                <span class="voice-dropdown-caret">▾</span>
+            </button>
             <div class="sample-audio-wrapper" id="sampleAudioWrapper" style="display:none">
                 <p class="sample-label">Locked Audio</p>
                 <audio id="sampleAudio" controls></audio>
@@ -92,17 +99,25 @@
                 </div>
             </div>
 
-            <!-- Audio panel slides down below alerts bar -->
+            <!-- Audio panel -->
             <div id="audioPanel" class="audio-panel">
-                <div class="audio-panel-body">
-                    <div class="audio-left">
-                        <button class="audio-btn-play" id="playPause">▶</button>
-                        <div class="time-display" id="timeDisplay">0:00.00</div>
+                <div class="audio-panel-inner">
+                    <div class="audio-panel-body">
+                        <div class="audio-left">
+                            <button class="audio-btn-play" id="playPause">▶</button>
+                            <div class="time-display" id="timeDisplay">0:00.00</div>
+                        </div>
+                        <canvas id="waveform" class="waveform-canvas"></canvas>
                     </div>
-                    <canvas id="waveform" class="waveform-canvas"></canvas>
                 </div>
-                <button class="audio-panel-collapse" id="audioPanelCollapse" title="Hide waveform">⌃</button>
             </div>
+            <!-- Collapse toggle — outside and below waveform -->
+            <button class="audio-panel-collapse" id="audioPanelCollapse" title="Toggle waveform">
+                <svg width="32" height="20" viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 16L16 5L29 16" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M3 11L16 0L29 11" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.45"/>
+                </svg>
+            </button>
             </div><!-- end transcript-sticky -->
 
             <div id="transcriptContent">
@@ -110,6 +125,21 @@
                     <div class="empty-state-icon">📝</div>
                     <p>Start recording to see transcription appear here...</p>
                 </div>
+            </div>
+
+            <!-- Summary panel (hidden until generated) -->
+            <div class="summary-panel" id="summaryPanel">
+                <div class="summary-panel-header">
+                    <span class="summary-panel-title">✦ Summary</span>
+                    <button class="summary-close-btn" id="summaryCloseBtn">✕</button>
+                </div>
+                <div class="summary-body" id="summaryBody"></div>
+            </div>
+
+            <!-- Sticky at bottom of transcript-area panel -->
+            <div class="summary-bar" id="summaryBar">
+                <button class="summary-btn" id="summaryBtn">✦ Generate Summary</button>
+                <button class="summary-btn" id="saveTranscriptBtn">💾 Save</button>
             </div>
         </div>
     </div>
@@ -135,6 +165,8 @@
             <button class="btn-start" id="btnStart">Start Recording →</button>
         </div>
     </div>
-    <script src="/static/js/live.js"></script>
-    <script src="/static/js/player.js"></script>
+    <script src="/static/js/live.js?v={{ asset_version }}"></script>
+    <script src="/static/js/audio-playback.js?v={{ asset_version }}"></script>
+    <script src="/static/js/voice-picker.js?v={{ asset_version }}"></script>
+    <script src="/static/js/save-transcript.js?v={{ asset_version }}"></script>
 {% endblock %}

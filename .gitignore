@@ -9,6 +9,12 @@ __pycache__/
 *.pyc
 .zshrc
 
-# Documents
-*.docx
-*.html
+# Database (data never belongs in the repo — code only)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Documents (root-only, so templates/*.html are NOT ignored)
+/*.docx
+/*.html

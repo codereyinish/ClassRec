@@ -1,7 +1,7 @@
 // live.js — recording session core
 // Handles: WebSocket connection, microphone capture, PCM chunking, enrollment,
 // transcript rendering (word spans), WAV blob utilities, and UI state.
-// Audio player / waveform / word-sync lives in player.js.
+// Audio player / waveform / word-sync lives in audio-playback.js.
 
 // ===== 0. LOGGER =====
    const Logger = {
@@ -131,6 +131,33 @@
            }
        }
    });
+
+   // Picking a saved voice auto-enables Lock Mode: the user can just hit record,
+   // and the saved embedding is applied server-side on WS open (use_saved_voice).
+   window.onVoicePicked = function (voice) {
+       window.selectedVoiceId = voice.id;
+       voiceLockActive = true;
+       lockToggleOn    = true;
+       lockToggle.checked = true;
+       micGlowRing.classList.remove('enrolling');
+       micGlowRing.classList.add('locked');
+       lockBadge.classList.add('visible');
+       lockHint.classList.remove('visible');
+       statusDiv.textContent = 'Voice locked! Click mic to record.';
+       statusDiv.className = 'status idle';
+
+       // Show the "Locked Audio" player at the top with this voice's stored clip
+       const sampleAudio   = document.getElementById('sampleAudio');
+       const sampleWrapper = document.getElementById('sampleAudioWrapper');
+       if (sampleAudio && sampleWrapper) {
+           if (voice.has_audio) {
+               sampleAudio.src = `/voices/${voice.id}/audio`;
+               sampleWrapper.style.display = 'block';
+           } else {
+               sampleWrapper.style.display = 'none';   // old voice, no stored audio
+           }
+       }
+   };
 
 
    function onMicDown(e) {
@@ -445,6 +472,8 @@
 
    function displayTranscription(text, tags=[], words=[]){
        emptyState.style.display = 'none';
+       document.getElementById('summaryBar')?.classList.add('visible');
+       window.SaveTranscript?.markDirty();   // there's now unsaved transcript text
        const chunk = getOrCreateChunk();
        const textEl = chunk.querySelector('.transcript-text');
        const needsSpace = textEl.innerHTML !== '';
@@ -467,6 +496,14 @@
        transcriptArea.scrollTop = transcriptArea.scrollHeight;
    }
 
+   // After a save, reset the transcript area back to its fresh, empty state.
+   window.addEventListener('transcript:saved', () => {
+       document.querySelectorAll('#transcriptContent .transcript-chunk').forEach(el => el.remove());
+       currentChunk = null;
+       emptyState.style.display = '';
+       document.getElementById('summaryBar')?.classList.remove('visible');
+   });
+
 
    // ===== 9. WEBSOCKET =====
    function implementWebsocketConnection(stream){
@@ -485,6 +522,14 @@
                    tagConfig: window.tagConfig
                }));
            Logger.debug("Prompt and Tags sent to Backend", window.tagConfig);
+               // If the user picked a saved voice, lock onto it (no hold-enroll needed)
+               if (window.selectedVoiceId) {
+                   websocket.send(JSON.stringify({
+                       type: "use_saved_voice",
+                       class_id: window.selectedVoiceId
+                   }));
+                   Logger.debug("Requested saved voice lock", window.selectedVoiceId);
+               }
                setupAudioProcessing(stream);
            };
 
@@ -586,6 +631,7 @@
    async function startRecording() {
        try{
            Logger.debug("Into Recording Mode");
+           window.SaveTranscript?.onNewRecording();   // offer to save any unsaved transcript first
            const stream = pendingStream || await getMicrophoneAccess();
            pendingStream = null;
            if (websocket && websocket.readyState === WebSocket.OPEN) {

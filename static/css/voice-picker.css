@@ -1,0 +1,205 @@
+/* Voice Picker — self-contained popup component.
+   Reuses base.html design tokens (--bg-surface, --accent, --red, ...). */
+
+/* The dropdown-style trigger on the live page — pinned just to the right of the
+   (absolutely-positioned, top-left) Lock Mode toggle. */
+.voice-dropdown {
+    position: absolute;
+    top: 14px;
+    right: 16px;                 /* extreme right of the controls card */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 130px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 5px 9px;
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+#selectedVoice { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-dropdown:hover { border-color: var(--accent); }
+.voice-dropdown-caret { color: var(--text-muted); font-size: 10px; padding-left: 4px; }
+/* selected voice name: play (green) / edit states, matching the popup rows */
+#selectedVoice { padding: 1px 3px; border-radius: 4px; outline: none; }
+#selectedVoice.has-voice { cursor: pointer; }
+#selectedVoice.playing { color: var(--green); }
+#selectedVoice.editing { background: var(--bg); box-shadow: inset 0 0 0 1px var(--accent); cursor: text; }
+
+/* Full-screen dim overlay behind the popup */
+.vp-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+
+    /* hidden by default; .open triggers the smooth fade-in */
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+.vp-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* The popup panel */
+.vp-panel {
+    width: 380px;
+    max-width: calc(100vw - 40px);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+
+    /* smooth slide-up + scale as it opens */
+    transform: translateY(12px) scale(0.98);
+    transition: transform 0.2s ease;
+}
+.vp-overlay.open .vp-panel {
+    transform: translateY(0) scale(1);
+}
+
+.vp-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 18px;
+    color: var(--text);
+    margin-bottom: 16px;
+}
+
+/* The list of voices */
+.vp-list { display: flex; flex-direction: column; gap: 8px; }
+
+.vp-item {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 12px 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    cursor: pointer;                 /* box area is clickable = select */
+    transition: border-color 0.15s, background 0.15s;
+}
+.vp-item:hover { border-color: var(--accent); background: rgba(255,255,255,0.02); }
+.vp-item.selected { border-color: var(--accent); background: var(--accent-dim); }
+
+.vp-item-name {
+    font-size: 13px;               /* only as wide as the text -> click it = play */
+    color: var(--text);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    outline: none;
+}
+.vp-item-name:hover { color: var(--green); }             /* green hint: click to play */
+.vp-item-name.playing { color: var(--green); }           /* stays green while playing */
+.vp-item-name.editing { color: var(--text); cursor: text; }   /* just the cursor */
+.vp-item:focus-within { border-color: var(--accent); }        /* one highlight on the row */
+
+/* the per-item dropdown arrow (decorative) — pushed to the right, with the trash */
+.vp-item-arrow {
+    margin-left: auto;             /* push arrow + trash to the far right */
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 4px 6px;
+}
+
+/* small traditional red trash button */
+.vp-trash {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--red);
+    opacity: 0.65;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: opacity 0.15s, background 0.15s;
+}
+.vp-trash:hover { opacity: 1; background: rgba(224, 82, 82, 0.12); }
+
+/* Empty / loading states */
+.vp-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 16px 0;
+}
+
+/* Bottom: add a new voice */
+.vp-add {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* the native file input must stay hidden (global input styles can override `hidden`) */
+.vp-file { display: none !important; }
+
+/* the compact "+" add button — centered */
+.vp-add-btn {
+    align-self: center;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 8px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.vp-add-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* the edit-name form (after a file is chosen) */
+.vp-add-form { display: flex; flex-direction: column; gap: 10px; }
+/* explicit display overrides the `hidden` attribute — restore hiding */
+.vp-add-form[hidden] { display: none; }
+.vp-fname { font-size: 11px; color: var(--text-muted); }
+.vp-input {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+}
+.vp-input:focus { outline: none; border-color: var(--accent); }
+.vp-add-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.vp-add-cancel {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 7px;
+    padding: 8px 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+}
+.vp-add-cancel:hover { color: var(--text); }
+
+.vp-status { font-size: 11px; color: var(--text-muted); min-height: 0; }
+.vp-status.error { color: var(--red); }
+.vp-status.ok { color: var(--green); }
+.vp-status:empty { display: none; }

@@ -236,18 +236,12 @@ canvas.addEventListener('click', (e) => {
     drawWaveform(newTime);
 });
 
-// Collapse arrow — hide/show audio panel
+// Collapse arrow — toggle inner waveform content
 const collapseBtn = document.getElementById('audioPanelCollapse');
 if (collapseBtn && audioPanel) {
     collapseBtn.addEventListener('click', () => {
-        const isVisible = audioPanel.classList.contains('visible');
-        if (isVisible) {
-            audioPanel.classList.remove('visible');
-            collapseBtn.classList.add('collapsed');
-        } else {
-            audioPanel.classList.add('visible');
-            collapseBtn.classList.remove('collapsed');
-        }
+        audioPanel.classList.toggle('collapsed');
+        collapseBtn.classList.toggle('collapsed');
     });
 }
 
