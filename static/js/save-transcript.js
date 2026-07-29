@@ -73,6 +73,9 @@ const SaveTranscript = (() => {
         overlay.querySelector(".st-discard").addEventListener("click", () => {
             dirty = false;        // user chose to let it go
             closeModal();
+            // Same reset as a save: the transcript and any doubts raised against
+            // it are gone. Without this they'd leak into the next recording.
+            window.dispatchEvent(new Event("transcript:discarded"));
         });
         overlay.querySelector(".st-save").addEventListener("click", doSave);
     }

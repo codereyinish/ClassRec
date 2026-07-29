@@ -31,29 +31,104 @@ const DoubtPanel = (() => {
         return `${m}:${String(s).padStart(2, "0")}`;
     }
 
-    // ---- selection capture ----
-    // Only spans carrying timestamps count. A selection that hits none (the
-    // plain-text fallback live.js uses when Whisper returns no words) can't be
-    // anchored to a moment, so the bubble simply doesn't arm.
+    // ---- selection capture: press and hold, then drag ----
+    //
+    // A short click on a word already means "seek the audio there"
+    // (audio-playback.js listens on document). So selecting can't use a plain
+    // drag — it would end in a click and the audio would jump. Instead:
+    //
+    //   tap/click           -> untouched, audio seeks as before
+    //   hold HOLD_MS, drag  -> sweeps a range of words, then arms the icon
+    //
+    // The range is painted by hand rather than using native text selection:
+    // native selection can't be started reliably part-way through a gesture,
+    // and doing it manually behaves identically under touch, which is where
+    // press-and-hold is the natural idiom anyway.
+    const HOLD_MS = 400;
+    const MOVE_TOLERANCE = 8;      // px of drift allowed before the hold is treated as a scroll
+
+    let holdTimer = null;
+    let anchor = null;             // the word the press started on
+    let selecting = false;
+    let justSelected = false;      // set on release, so the click that follows can be swallowed
+    let startX = 0, startY = 0;
+
     function wireSelection() {
         const host = document.getElementById("transcriptContent");
         if (!host) return;
 
-        host.addEventListener("mouseup", () => {
-            const sel = window.getSelection();
-            if (!sel || sel.isCollapsed || !sel.rangeCount) return;   // a plain click keeps what's held
-
-            const words = Array.from(host.querySelectorAll("span.word"))
-                .filter((w) => sel.containsNode(w, true));
-            if (!words.length) return;
-
-            held = {
-                quote: (sel.toString().trim() || words.map((w) => w.textContent).join(" ")).trim(),
-                t_start: parseFloat(words[0].dataset.start),
-                t_end: parseFloat(words[words.length - 1].dataset.end),
-            };
-            bubble.classList.add("armed");
+        host.addEventListener("pointerdown", (e) => {
+            justSelected = false;
+            const span = e.target.closest("span.word");
+            if (!span) return;
+            anchor = span;
+            startX = e.clientX;
+            startY = e.clientY;
+            holdTimer = setTimeout(() => {
+                selecting = true;
+                host.classList.add("dp-selecting-mode");
+                paintRange(anchor, anchor);
+            }, HOLD_MS);
         });
+
+        host.addEventListener("pointermove", (e) => {
+            // Moved before the hold registered? That's a scroll or a sloppy
+            // click, not a press — drop the timer.
+            if (!selecting) {
+                if (holdTimer && (Math.abs(e.clientX - startX) > MOVE_TOLERANCE ||
+                                  Math.abs(e.clientY - startY) > MOVE_TOLERANCE)) {
+                    clearTimeout(holdTimer);
+                    holdTimer = null;
+                }
+                return;
+            }
+            const el = document.elementFromPoint(e.clientX, e.clientY);
+            const span = el && el.closest && el.closest("span.word");
+            if (span) paintRange(anchor, span);
+            e.preventDefault();          // don't scroll the page mid-sweep
+        });
+
+        window.addEventListener("pointerup", () => {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+            if (!selecting) { anchor = null; return; }
+            commitSelection();
+            selecting = false;
+            justSelected = true;
+            host.classList.remove("dp-selecting-mode");
+        });
+
+        // Capture phase, so this runs BEFORE audio-playback.js's document-level
+        // click listener and can stop the seek that would otherwise follow a
+        // press-and-drag. audio-playback.js itself is left alone.
+        document.addEventListener("click", (e) => {
+            if (!justSelected) return;
+            justSelected = false;
+            e.stopPropagation();
+            e.preventDefault();
+        }, true);
+    }
+
+    // Tint every word between the two ends, in document order.
+    function paintRange(from, to) {
+        const all = Array.from(document.querySelectorAll("#transcriptContent span.word"));
+        let a = all.indexOf(from), b = all.indexOf(to);
+        if (a === -1 || b === -1) return;
+        if (a > b) [a, b] = [b, a];
+        all.forEach((w, i) => w.classList.toggle("dp-selecting", i >= a && i <= b));
+    }
+
+    function commitSelection() {
+        const picked = Array.from(document.querySelectorAll("#transcriptContent span.word.dp-selecting"));
+        picked.forEach((w) => w.classList.remove("dp-selecting"));
+        if (!picked.length) return;
+
+        held = {
+            quote: picked.map((w) => w.textContent).join(" ").trim(),
+            t_start: parseFloat(picked[0].dataset.start),
+            t_end: parseFloat(picked[picked.length - 1].dataset.end),
+        };
+        bubble.classList.add("armed");
     }
 
     // The transcript either side of the selection, so an answer can be given in
@@ -72,6 +147,8 @@ const DoubtPanel = (() => {
     function open() {
         panel.classList.add("open");
         panel.setAttribute("aria-hidden", "false");
+        bubble.classList.add("open");            // icon stays lit while the panel shows
+        bubble.setAttribute("aria-expanded", "true");
         renderChip();
         render();
         input.focus();
@@ -79,6 +156,8 @@ const DoubtPanel = (() => {
     function close() {
         panel.classList.remove("open");
         panel.setAttribute("aria-hidden", "true");
+        bubble.classList.remove("open");
+        bubble.setAttribute("aria-expanded", "false");
     }
 
     function clearHeld() {
@@ -225,14 +304,17 @@ const DoubtPanel = (() => {
         bubble.id = "dpBubble";
         bubble.type = "button";
         bubble.setAttribute("aria-label", "Ask about this lecture");
+        bubble.setAttribute("aria-expanded", "false");
+        bubble.setAttribute("aria-controls", "dpPanel");
+        // A speech bubble with a question in it — "ask about this". Thin strokes
+        // so it stays legible at 20px and sits quietly next to the mic control.
         bubble.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.8 8.8 0 0 1-3.8-.9L3 21l1.9-5A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/>
-                <path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.8c0 1.6-2.4 2.4-2.4 2.4"/>
-                <line x1="12" y1="16.2" x2="12" y2="16.2"/>
-            </svg>
-            <span class="dp-bubble-dot"></span>`;
+                <path d="M20.5 12.2a7.7 7.7 0 0 1-8.3 7.7 8.2 8.2 0 0 1-3.2-.7l-4.6 1.3 1.4-4.3a7.7 7.7 0 0 1-1.3-4.3 7.9 7.9 0 0 1 8-7.6 7.8 7.8 0 0 1 8 7.9z"/>
+                <path d="M10.1 9.7a2.1 2.1 0 0 1 4-.5c.3 1.3-.7 1.8-1.5 2.3a1.6 1.6 0 0 0-.7 1.3"/>
+                <circle cx="11.9" cy="15.6" r="0.55" fill="currentColor" stroke="none"/>
+            </svg>`;
         document.body.appendChild(bubble);
 
         panel = document.createElement("aside");
@@ -283,12 +365,20 @@ const DoubtPanel = (() => {
             if (e.key === "Escape" && panel.classList.contains("open")) close();
         });
 
-        // A saved transcript resets the page, so the doubts go with it.
-        window.addEventListener("transcript:saved", () => {
-            flags.length = 0;
-            clearHeld();
-            render();
+        // It's a popup now, so clicking away should dismiss it — but not while
+        // you're sweeping a selection in the transcript underneath.
+        document.addEventListener("pointerdown", (e) => {
+            if (!panel.classList.contains("open")) return;
+            if (panel.contains(e.target) || bubble.contains(e.target)) return;
+            close();
         });
+
+        // Saving or discarding both end the lecture, so the doubts go with it.
+        // On save they've already been written to the DB and show up in My
+        // Lectures; on discard they're dropped along with the transcript.
+        const reset = () => { flags.length = 0; clearHeld(); render(); };
+        window.addEventListener("transcript:saved", reset);
+        window.addEventListener("transcript:discarded", reset);
 
         render();
     }
