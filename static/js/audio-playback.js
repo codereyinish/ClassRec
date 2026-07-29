@@ -165,30 +165,72 @@ function formatTimeTick(sec) {
 // ===== SYNC LOOP =====
 let lastActiveSpan = null;
 
+// ===== WORD INDEX =====
+// Built once when playback starts rather than re-derived from the DOM every
+// frame. Two Float64Arrays hold each word's start/end so the loop can go
+// straight to the right word instead of testing all of them. Costs ~128 KB for
+// a 50-minute lecture, and removes the parseFloat calls that were re-reading
+// those same numbers out of the DOM 60 times a second.
+let idxSpans = [];
+let idxStart = null;
+let idxEnd   = null;
+let cursor   = 0;       // word the previous frame landed on
+let litIndex = -1;      // word currently carrying .active
+let lastT    = -1;      // previous frame's time, used to spot a seek
+
+function buildWordIndex() {
+    idxSpans = Array.prototype.slice.call(document.querySelectorAll('span.word'));
+    const n  = idxSpans.length;
+    idxStart = new Float64Array(n);
+    idxEnd   = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+        idxStart[i] = parseFloat(idxSpans[i].dataset.start);
+        idxEnd[i]   = parseFloat(idxSpans[i].dataset.end);
+    }
+    // Adopt whatever is already highlighted, so resuming from pause doesn't flicker.
+    litIndex = idxSpans.findIndex(s => s.classList.contains('active'));
+    cursor   = litIndex >= 0 ? litIndex : 0;
+    lastT    = -1;      // forces a seek resolution on the first tick
+}
+
+// Words are in time order, so a jump can halve the list instead of walking it —
+// 8,000 words resolves in ~13 comparisons.
+function seekIndex(t) {
+    let lo = 0, hi = idxStart.length - 1, best = 0;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (idxStart[mid] <= t) { best = mid; lo = mid + 1; }
+        else hi = mid - 1;
+    }
+    return best;
+}
+
 function startSyncLoop() {
     stopSyncLoop();
+    buildWordIndex();
+
     function tick() {
         const t = audioEl.currentTime;
         drawWaveform(t);
 
-        // Find active word, clear all highlights first
-        let activeSpan = null;
-        const spans = document.querySelectorAll('span.word');
-        spans.forEach(span => {
-            span.classList.remove('active');
-            const s = parseFloat(span.dataset.start);
-            const e = parseFloat(span.dataset.end);
-            if (s <= t && t <= e) activeSpan = span;
-        });
+        const n = idxSpans.length;
+        if (n) {
+            // A jump of more than a second means the user seeked; otherwise the
+            // audio only crept forward, so step on from where we were — which at
+            // 60fps is almost always zero or one step.
+            if (lastT < 0 || Math.abs(t - lastT) > 1) cursor = seekIndex(t);
+            else while (cursor < n - 1 && t > idxEnd[cursor]) cursor++;
+            lastT = t;
 
-        // Highlight active word; fall back to last played word if gap
-        const toHighlight = activeSpan || lastActiveSpan;
-        if (toHighlight) toHighlight.classList.add('active');
-
-        // Update last and auto-scroll on change
-        if (activeSpan && activeSpan !== lastActiveSpan) {
-            lastActiveSpan = activeSpan;
-            activeSpan.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            // Between words, leave the previous one lit (same as before). Only
+            // the outgoing and incoming spans are ever touched.
+            if (t >= idxStart[cursor] && t <= idxEnd[cursor] && cursor !== litIndex) {
+                if (litIndex >= 0) idxSpans[litIndex].classList.remove('active');
+                idxSpans[cursor].classList.add('active');
+                litIndex       = cursor;
+                lastActiveSpan = idxSpans[cursor];
+                idxSpans[cursor].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         }
 
         rafId = requestAnimationFrame(tick);
