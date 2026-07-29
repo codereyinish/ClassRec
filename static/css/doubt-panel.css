@@ -1,0 +1,269 @@
+/* Doubt panel — raise a doubt against a moment in the live transcript.
+   Uses base.html design tokens. Two pieces: a floating bubble that is always
+   present on the live page, and a right-hand panel that opens only when the
+   bubble is clicked. */
+
+/* ---- floating bubble ---- */
+.dp-bubble {
+    position: fixed;
+    right: 26px;
+    bottom: 26px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 901;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    transition: color 0.15s, border-color 0.15s, transform 0.15s;
+}
+.dp-bubble:hover { color: var(--text); border-color: var(--accent); transform: translateY(-2px); }
+.dp-bubble svg { width: 21px; height: 21px; }
+
+/* Armed = a selection is being held. The dot is the only signal that
+   selecting text did anything — the panel deliberately stays shut. */
+.dp-bubble-dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity 0.18s, transform 0.18s;
+}
+.dp-bubble.armed { color: var(--accent); border-color: var(--accent); }
+.dp-bubble.armed .dp-bubble-dot { opacity: 1; transform: scale(1); }
+
+/* ---- panel ---- */
+.dp-panel {
+    position: fixed;
+    top: 56px;                       /* sits under the fixed site header */
+    right: 0;
+    bottom: 0;
+    width: 390px;
+    max-width: 100vw;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 900;
+    transform: translateX(100%);
+    transition: transform 0.24s ease;
+}
+.dp-panel.open { transform: none; }
+
+.dp-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 18px;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+.dp-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 16px;
+    color: var(--text);
+}
+.dp-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 7px;
+    border-radius: 6px;
+}
+.dp-close:hover { color: var(--text); background: var(--bg-elevated); }
+
+/* ---- body: the doubts raised so far ---- */
+.dp-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.dp-empty {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.65;
+    padding: 10px 0;
+}
+.dp-empty b { color: var(--text); font-weight: 400; }
+
+.dp-suggestions { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.dp-suggestion {
+    text-align: left;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    padding: 9px 12px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.dp-suggestion:hover { color: var(--text); border-color: var(--accent); }
+
+/* one raised doubt */
+.dp-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 13px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+.dp-card-time {
+    font-family: 'DM Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    cursor: pointer;
+    width: fit-content;
+}
+.dp-card-time:hover { text-decoration: underline; }
+.dp-card-quote {
+    font-family: 'DM Serif Display', serif;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text);
+    border-left: 2px solid var(--accent);
+    padding-left: 10px;
+}
+.dp-card-q {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.55;
+}
+.dp-card-a {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.65;
+    border-top: 1px solid var(--border);
+    padding-top: 9px;
+}
+.dp-card-a.pending { font-style: italic; opacity: 0.7; }
+
+/* ---- compose ---- */
+.dp-compose {
+    flex: none;
+    border-top: 1px solid var(--border);
+    padding: 12px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+/* the held selection, shown as a chip above the input */
+.dp-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent-dim);
+    border: 1px solid rgba(232, 160, 32, 0.3);
+    border-radius: 7px;
+    padding: 6px 9px;
+    font-size: 11px;
+    color: var(--text);
+    min-width: 0;
+}
+.dp-chip[hidden] { display: none; }
+.dp-chip-time {
+    font-family: 'DM Mono', monospace;
+    color: var(--accent);
+    flex: none;
+}
+.dp-chip-text {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-muted);
+}
+.dp-chip-clear {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 2px;
+    flex: none;
+}
+.dp-chip-clear:hover { color: var(--red); }
+
+.dp-input {
+    width: 100%;
+    resize: none;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    min-height: 62px;
+}
+.dp-input:focus { outline: none; border-color: var(--accent); }
+.dp-input::placeholder { color: var(--text-muted); }
+
+.dp-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dp-hint {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+}
+.dp-btns { display: flex; gap: 8px; }
+.dp-flag-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 7px;
+    padding: 7px 12px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.dp-flag-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.dp-flag-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.dp-send { padding: 7px 14px; }
+
+/* a flagged span, marked back in the transcript itself */
+#transcriptContent span.word.dp-flagged {
+    background: rgba(232, 160, 32, 0.16);
+    box-shadow: inset 0 -1px 0 var(--accent);
+}
+#transcriptContent span.word.dp-jump {
+    animation: dp-pulse 1.1s ease-out;
+}
+@keyframes dp-pulse {
+    0%, 100% { background: rgba(232, 160, 32, 0.16); }
+    35%      { background: rgba(232, 160, 32, 0.55); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dp-panel, .dp-bubble, .dp-bubble-dot { transition: none; }
+    #transcriptContent span.word.dp-jump { animation: none; }
+}
+
+@media (max-width: 640px) {
+    .dp-panel { width: 100vw; }
+}
