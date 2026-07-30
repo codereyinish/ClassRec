@@ -196,10 +196,12 @@ body.enrolling .glow::before{
   background:conic-gradient(from -90deg,transparent 0deg,var(--theme) 80deg,#A5A6F3 160deg,transparent 240deg,transparent 360deg);
   animation:spin 3s linear infinite;
 }
-/* locked: no halo, just a static ring in the lock colour */
+/* Locked and idle: no halo, just a static ring in the lock colour. Scoped to idle
+   because `locked` is now set as soon as Lock Mode goes on, and at equal specificity
+   this rule sits after the activity ones -- unscoped, it silently cancelled the
+   enrol halo the moment a voice was already on file. */
 body.locked .bubble{box-shadow:0 0 0 1.5px rgba(118,120,237,.85)}
-body.locked .glow::before{opacity:0}
-body.locked.rec .glow::before{opacity:1}
+body.locked:not(.rec):not(.paused):not(.enrolling) .glow::before{opacity:0}
 
 /* Lock Mode armed (on, nothing captured yet): a static solid ring in the
    lock colour. No rotation — it's a state, not an activity. */
@@ -873,6 +875,12 @@ function renderVoices(editIdx){
     if(i===editIdx)setTimeout(startEdit,60);   // freshly captured → name it now
     row.querySelector('.vp-trash').onclick=e=>{e.stopPropagation();
       VOICES.splice(i,1);renderVoices();
+      // deleting the locked voice unlocks: the badge and "click to start" were
+      // outliving the thing they described, leaving "Select voice" next to a padlock
+      if(!VOICES.some(o=>o.sel)){
+        B.classList.remove('locked');
+        if(!isBusy())setActivity('');
+      }
       vpStatus.className='vp-status';vpStatus.textContent='Deleted.';};
     vpList.appendChild(row);
   });
