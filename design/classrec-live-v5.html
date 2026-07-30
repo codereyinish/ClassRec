@@ -423,7 +423,9 @@ body.ai-open .ai{transform:none}
 .vp-item.selected .vp-item-arrow{color:var(--theme)}
 .vp-trash{
   width:26px;height:26px;border-radius:7px;flex:0 0 auto;
-  display:grid;place-items:center;color:var(--g5);opacity:.6;transition:.15s var(--e);
+  /* red at rest, not only under the cursor — delete should read as destructive
+     before you reach for it. Muted so three rows of it don't shout. */
+  display:grid;place-items:center;color:var(--red);opacity:.7;transition:.15s var(--e);
 }
 .vp-trash svg{width:14px;height:14px}
 .vp-trash:hover{opacity:1;color:var(--red-ink);background:rgba(239,68,68,.1)}
