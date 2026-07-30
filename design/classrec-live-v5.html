@@ -426,6 +426,8 @@ body.ai-open .ai{transform:none}
 .vp-dur{font-size:11.5px;color:var(--g5);font-family:var(--mono);flex:0 0 auto}
 .vp-item-arrow{color:var(--g5);font-size:12px;flex:0 0 auto}
 .vp-item.selected .vp-item-arrow{color:var(--theme)}
+/* ▸ becomes || while this voice is playing — the glyph is the transport state */
+.vp-item-arrow.on{color:var(--primary);font-weight:700;letter-spacing:1.5px}
 .vp-trash{
   width:26px;height:26px;border-radius:7px;flex:0 0 auto;
   /* red at rest, not only under the cursor — delete should read as destructive
@@ -436,7 +438,9 @@ body.ai-open .ai{transform:none}
 .vp-trash:hover{opacity:1;color:var(--red-ink);background:rgba(239,68,68,.1)}
 .vp-empty{padding:22px 0;text-align:center;font-size:13.5px;color:var(--g5)}
 .vp-add{margin-top:15px;padding-top:15px;border-top:1px solid var(--g3)}
-.vp-add-row{display:flex;gap:9px;flex-wrap:wrap}
+.vp-add-row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.vp-start{margin-left:auto}          /* the commit action, so it sits apart from the two adds */
+.vp-start[hidden]{display:none}
 .vp-add-btn{
   display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;
   color:var(--g7);padding:8px 13px;border-radius:9px;border:1.5px dashed var(--g4);
@@ -665,6 +669,8 @@ body.ai-open .aibtn{opacity:0;pointer-events:none}
         <button class="vp-add-btn" id="vpUpload" type="button">↑ Upload</button>
         <button class="vp-add-btn" id="vpRecordNew" type="button">＋ Record new</button>
         <input type="file" id="vpFile" accept="audio/*" hidden>
+        <!-- only meaningful once a voice is picked, so it hides when none is -->
+        <button class="btn solid vp-start" id="vpStart" type="button">Start session</button>
       </div>
       <div class="vp-status" id="vpStatus"></div>
     </div>
@@ -764,6 +770,16 @@ lockToggle.onchange=()=>{
   if(!isBusy())setCap(idleCap());
 };
 
+/* One way in to a session, so the mic and "Start session" cannot drift apart on
+   which counters they reset. */
+function startRecording(){
+  B.classList.remove('rail-open');
+  secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
+  setActivity('rec');roL.textContent='good';
+  [roT,roW,roF].forEach(e=>e.classList.remove('dim'));roF.textContent='2';
+  run();
+}
+
 // hold-to-enrol
 const startHold=e=>{
   // `locked` no longer disqualifies a hold: a voice is on file from the start now, and
@@ -804,11 +820,7 @@ mic.addEventListener('click',()=>{
   const live=B.classList.contains('rec');
   if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return;
   if(!B.classList.contains('rec')){
-    B.classList.remove('rail-open');
-    secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
-    setActivity('rec');roL.textContent='good';
-    [roT,roW,roF].forEach(e=>e.classList.remove('dim'));roF.textContent='2';
-    run();
+    startRecording();
   }else if(!B.classList.contains('paused')){
     setActivity('paused');roL.textContent='paused';
   }else{
@@ -834,13 +846,22 @@ const VOICES=[
 const vp=document.getElementById('vp'),vpList=document.getElementById('vpList'),
       vpStatus=document.getElementById('vpStatus');
 const TRASH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>';
-let playing=null;
+const vpStart=document.getElementById('vpStart');
+let playing=null;   // {name, arrow} of the row currently playing
+const stopPlay=()=>{
+  if(!playing)return;
+  playing.name.classList.remove('playing');
+  playing.arrow.textContent='▸';playing.arrow.classList.remove('on');
+  playing=null;
+};
 // reflect the current selection everywhere it's shown
 function syncSelection(){
   const v=VOICES.find(o=>o.sel);
   document.getElementById('voicebtnTxt').textContent=v?v.n:'Select voice';
+  vpStart.hidden=!v;          // nothing to start a session with
 }
 function renderVoices(editIdx){
+  playing=null;   // rows are rebuilt below; the old refs are about to be detached
   if(!VOICES.length){vpList.innerHTML='<div class="vp-empty">No voices yet.</div>';syncSelection();return;}
   vpList.innerHTML='';
   VOICES.forEach((v,i)=>{
@@ -856,10 +877,12 @@ function renderVoices(editIdx){
       B.classList.add('locked');
       if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
       vpStatus.className='vp-status ok';vpStatus.textContent='Voice locked to “'+v.n+'”';};
+    const arrow=row.querySelector('.vp-item-arrow');
     name.onclick=e=>{e.stopPropagation();
-      if(playing===name){name.classList.remove('playing');playing=null;return;}
-      if(playing)playing.classList.remove('playing');
-      name.classList.add('playing');playing=name;};
+      if(playing&&playing.name===name){stopPlay();return;}
+      stopPlay();
+      name.classList.add('playing');arrow.textContent='||';arrow.classList.add('on');
+      playing={name,arrow};};
     const startEdit=()=>{
       name.contentEditable='true';name.classList.add('editing');name.focus();
       const r=document.createRange();r.selectNodeContents(name);
@@ -907,6 +930,12 @@ document.getElementById('vpRecordNew').onclick=()=>{
   vp.classList.remove('open');
   vpStatus.textContent='';
   showHint();
+};
+// "Start session" — commits the picked voice and goes straight into recording
+vpStart.onclick=()=>{
+  vp.classList.remove('open');
+  stopPlay();
+  if(!B.classList.contains('rec'))startRecording();
 };
 // Upload — the other way to get a sample in. Named from the file, selected on arrival.
 const vpFile=document.getElementById('vpFile');
