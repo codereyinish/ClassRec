@@ -479,7 +479,9 @@ body.ai-open .ai{transform:none}
   font-size:13px;font-weight:600;color:var(--g6);transition:.15s var(--e);
 }
 .vp-recnew:hover{border-color:var(--theme);color:var(--primary);background:var(--primary-soft)}
-.vp-add{margin-top:15px;padding-top:15px;border-top:1px solid var(--rule)}
+/* no rule here — the dashed row above already breaks the list from the actions,
+   and a line on top of it was one edge too many */
+.vp-add{margin-top:14px}
 .vp-add-row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .vp-start{margin-left:auto}          /* the commit action, so it sits apart from the two adds */
 .vp-start[hidden]{display:none}
