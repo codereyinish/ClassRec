@@ -22,6 +22,7 @@
   /* theme #7678ED — title, mic, accents. Filled buttons drop one shade
      to #6365EB so white labels clear AA (4.57:1 vs 3.70:1). */
   --theme:#7678ED; --primary:#6365EB; --primary-hi:#5053E8; --primary-soft:#EFEFFD;
+  --lock-deep:#4A3FBF;   /* lock badge — deliberately darker than the Lock Mode toggle */
 
   --teal:#75B291; --corn:#6A85FF; --corn-deep:#2440C8; --blush:#DBA693; --blush-ink:#9A4A2C;
   /* lock states → theme · recording → green · paused → red */
@@ -209,20 +210,32 @@ body.locked.rec .glow::before{opacity:1}
 }
 /* (no armed-state ring — the toggle and the hint already say lock is on) */
 
-/* lock symbol — bare padlock in the lock colour, hugging the circle */
+/* Lock symbol — top-right of the circle, hugging the rim at about 1:30. The
+   circle is 100px and starts 22px down (.mic-wrap padding), so a 45° offset is
+   50·cos45 ≈ 35px across and the same down: 22 + 50 - 35 - 11 ≈ 25px from the
+   top. Anchoring to the rail's right edge instead left it ~90px adrift of the
+   circle it describes.
+   The disc behind it is load-bearing, not decoration: the badge overlaps the
+   boundary between the white rail and the near-black bubble, and a bare dark
+   purple glyph goes invisible over the dark side. */
 .lockbadge{
-  position:absolute;top:-2px;right:6px;z-index:3;
-  color:#3FBF6B;opacity:0;transform:scale(.5);
+  position:absolute;top:25px;left:50%;z-index:3;
+  width:22px;height:22px;border-radius:999px;
+  background:var(--g0);box-shadow:0 1px 3px rgba(40,31,62,.28);
+  display:grid;place-items:center;
+  color:var(--lock-deep);opacity:0;
+  transform:translateX(calc(-50% + 35px)) scale(.5);
   transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;
 }
-.lockbadge svg{width:19px;height:19px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
-body.locked .lockbadge{opacity:1;transform:scale(1)}
+.lockbadge svg{width:13px;height:13px;display:block}
+body.locked .lockbadge{opacity:1;transform:translateX(calc(-50% + 35px)) scale(1)}
 
 /* "Hold mic to capture professor's voice" — lives on .shell, not in .rail,
-   because .rail has overflow-y:auto and was clipping it. Sits beside the
-   circle, over the transcript, with a pointer back at the mic. */
+   because .rail has overflow-y:auto and was clipping it. left/top are both
+   measured off the circle in placeHint(); anchoring to the rail edge instead
+   left it ~108px adrift, since the rail is 288px and the circle only 100px. */
 .lockhint{
-  position:absolute;left:calc(var(--rail) + 14px);top:0;z-index:60;
+  position:absolute;left:0;top:0;z-index:60;
   background:#1E1B2E;color:#E4E1EE;border-radius:9px;padding:9px 13px;
   font-size:12.5px;font-weight:500;white-space:nowrap;
   box-shadow:0 8px 22px -8px rgba(30,27,46,.45);
@@ -690,12 +703,36 @@ const mic=document.getElementById('mic'), hint=document.getElementById('lockhint
 const setCap=(t,cls)=>{cap.textContent=t;cap.className='mic-cap'+(cls?' '+cls:'');};
 let enrolTimer=null, enrolSecs=0, holding=false;
 
+/* Two independent axes, and conflating them is what put a green halo under an
+   idle caption: MODE is lockon/locked (a setting), ACTIVITY is rec/paused/
+   enrolling (what the mic is doing right now). Activity classes are mutually
+   exclusive and only ever change through setActivity, so the halo colour and
+   the caption cannot disagree. */
+const idleCap=()=>
+  B.classList.contains('locked') ? 'Click to start recording' :
+  B.classList.contains('lockon') ? 'Hold the mic to capture the voice' :
+                                   'Click the microphone to start recording';
+const isBusy=()=>['rec','paused','enrolling'].some(c=>B.classList.contains(c));
+/* Pause is a sub-state of recording, not a sibling: `paused` keeps `rec` on,
+   because the mic click and Save both gate on `rec`, and .glow's paused rules
+   sit alongside the recording ones. */
+const ACT={'':[], rec:['rec'], paused:['rec','paused'], enrolling:['enrolling']};
+function setActivity(a){
+  B.classList.remove('rec','paused','enrolling');
+  (ACT[a]||[]).forEach(c=>B.classList.add(c));
+  if(a!=='rec')clearInterval(tick);
+  if(a==='rec')setCap('Recording… (click to pause)');
+  else if(a==='paused')setCap('Paused');
+  else if(!a)setCap(idleCap());   // enrolling writes its own countdown
+}
+
 // the mic moves vertically as the rail's contents change, so measure it
 // rather than hardcoding a top offset
 const placeHint=()=>{
   const m=document.querySelector('.glow').getBoundingClientRect();
   const s=document.querySelector('.shell').getBoundingClientRect();
   hint.style.top=Math.round(m.top - s.top + m.height/2 - hint.offsetHeight/2)+'px';
+  hint.style.left=Math.round(m.right - s.left + 12)+'px';
 };
 lockToggle.onchange=()=>{
   if(lockToggle.checked){
@@ -705,27 +742,29 @@ lockToggle.onchange=()=>{
   }else{
     B.classList.remove('lockon','locked');
     hint.classList.remove('visible');
-    setCap('Click the microphone to start recording');
   }
+  // never rewrite the caption over a live recording — that was the green-halo bug
+  if(!isBusy())setCap(idleCap());
 };
 
 // hold-to-enrol
 const startHold=e=>{
   if(!B.classList.contains('lockon')||B.classList.contains('locked')||B.classList.contains('rec'))return;
   e.preventDefault();holding=true;enrolSecs=0;
-  B.classList.add('enrolling');hint.classList.remove('visible');
+  setActivity('enrolling');hint.classList.remove('visible');
   setCap('Recording sample… 0s','enrol');
   enrolTimer=setInterval(()=>{enrolSecs++;setCap(`Recording sample… ${enrolSecs}s`,'enrol');},1000);
 };
 const endHold=()=>{
   if(!holding)return;holding=false;
-  clearInterval(enrolTimer);B.classList.remove('enrolling');
+  clearInterval(enrolTimer);
   if(enrolSecs>=10){
     // a real sample was captured — file it, open the picker, let them name it
     B.classList.add('locked');
-    setCap('Voice locked! Click mic to record.');
+    setActivity('');                 // idle, and idleCap() now reads "Click to start recording"
     addCapturedVoice(enrolSecs);
   }else{
+    setActivity('');
     setCap('Too short — hold for at least 10 seconds','err');
   }
 };
@@ -734,25 +773,29 @@ mic.addEventListener('mouseup',endHold);
 mic.addEventListener('mouseleave',endHold);
 
 mic.addEventListener('click',()=>{
-  if(enrolSecs&&!B.classList.contains('locked')&&B.classList.contains('lockon'))return; // was a hold
-  if(B.classList.contains('lockon')&&!B.classList.contains('locked'))return;             // must enrol first
+  // Both guards are about *starting*, so neither may block a live session. Without
+  // the rec check, toggling Lock Mode off and on mid-recording drops `locked`,
+  // leaves `lockon`, and the enrol guard then swallows the pause click while the
+  // caption still says "click to pause".
+  const live=B.classList.contains('rec');
+  if(!live&&enrolSecs&&!B.classList.contains('locked')&&B.classList.contains('lockon'))return; // was a hold
+  if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return;            // must enrol first
   if(!B.classList.contains('rec')){
-    B.classList.add('rec');B.classList.remove('paused','rail-open');
+    B.classList.remove('rail-open');
     secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
-    setCap('Recording… (click to pause)');roL.textContent='good';
+    setActivity('rec');roL.textContent='good';
     [roT,roW,roF].forEach(e=>e.classList.remove('dim'));roF.textContent='2';
     run();
-  }else if(B.classList.toggle('paused')){
-    setCap('Paused');clearInterval(tick);roL.textContent='paused';
+  }else if(!B.classList.contains('paused')){
+    setActivity('paused');roL.textContent='paused';
   }else{
-    setCap('Recording… (click to pause)');roL.textContent='good';run();
+    setActivity('rec');roL.textContent='good';run();
   }
 });
 
 document.getElementById('save').onclick=()=>{
   if(!B.classList.contains('rec'))return;
-  B.classList.remove('rec','paused');clearInterval(tick);roL.textContent='—';
-  setCap(B.classList.contains('locked')?'Voice locked! Click mic to record.':'Click the microphone to start recording');
+  setActivity('');roL.textContent='—';
 };
 const openAI=()=>B.classList.add('ai-open');
 document.getElementById('aibtn').onclick=openAI;
@@ -788,7 +831,7 @@ function renderVoices(editIdx){
     // row click selects; name click plays; dblclick renames
     row.onclick=()=>{VOICES.forEach(o=>o.sel=false);v.sel=true;renderVoices();
       B.classList.add('locked');
-      setCap('Voice locked! Click mic to record.');
+      if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
       vpStatus.className='vp-status ok';vpStatus.textContent='Voice locked to “'+v.n+'”';};
     name.onclick=e=>{e.stopPropagation();
       if(playing===name){name.classList.remove('playing');playing=null;return;}
@@ -798,7 +841,10 @@ function renderVoices(editIdx){
       name.contentEditable='true';name.classList.add('editing');name.focus();
       const r=document.createRange();r.selectNodeContents(name);
       const s=getSelection();s.removeAllRanges();s.addRange(r);   // preselect for retyping
-      name.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();name.blur();}};
+      name.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();name.blur();
+        // naming is the last step of the capture flow — close up so the rail's
+        // locked state (badge + "Click to start recording") is what you land on
+        vp.classList.remove('open');}};
       name.onblur=()=>{name.contentEditable='false';name.classList.remove('editing');
         v.n=name.textContent.trim()||v.n;name.textContent=v.n;syncSelection();};
     };
