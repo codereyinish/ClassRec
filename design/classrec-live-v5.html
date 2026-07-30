@@ -829,17 +829,36 @@ function startRecording(){
 }
 
 // hold-to-enrol
+/* A press is not a hold until it has lasted HOLD_MS. Every click is mousedown →
+   mouseup → click, so arming the enrol on mousedown made an ordinary click into a
+   0-second sample: it failed with "too short" and then had its own click swallowed,
+   which made recording unstartable in Lock Mode. A normal click is 60-120ms, so
+   250ms separates the two intents without feeling sticky. */
+const HOLD_MS=250;
+let holdTimer=null, pressAt=0;
 const startHold=e=>{
   // `locked` no longer disqualifies a hold: a voice is on file from the start now, and
   // holding is how you add another. Only a live session rules it out.
   if(!B.classList.contains('lockon')||B.classList.contains('rec'))return;
-  e.preventDefault();holding=true;enrolSecs=0;
-  setActivity('enrolling');hint.classList.remove('visible');
-  setCap('Recording sample… 0s','enrol');
-  enrolTimer=setInterval(()=>{enrolSecs++;setCap(`Recording sample… ${enrolSecs}s`,'enrol');},1000);
+  e.preventDefault();
+  pressAt=Date.now();
+  clearTimeout(holdTimer);
+  holdTimer=setTimeout(()=>{
+    holding=true;enrolSecs=0;
+    setActivity('enrolling');hint.classList.remove('visible');
+    setCap('Recording sample… 0s','enrol');
+    // counted from the press, not from when the threshold fired, so 10s means 10s
+    enrolTimer=setInterval(()=>{
+      enrolSecs=Math.floor((Date.now()-pressAt)/1000);
+      setCap(`Recording sample… ${enrolSecs}s`,'enrol');
+    },250);
+  },HOLD_MS);
 };
 const endHold=()=>{
-  if(!holding)return;holding=false;
+  clearTimeout(holdTimer);
+  if(!holding)return;         // released before HOLD_MS — that was a click, leave it alone
+  holding=false;
+  enrolSecs=Math.floor((Date.now()-pressAt)/1000);
   // A hold ending on mouseup owes us one trailing click; a hold ending because the
   // pointer left the circle owes us nothing, since the browser only fires click when
   // press and release share an element. So mark WHEN it ended and let the click
