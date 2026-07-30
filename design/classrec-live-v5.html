@@ -775,7 +775,16 @@ const isBusy=()=>['rec','paused','enrolling'].some(c=>B.classList.contains(c));
    because the mic click and Save both gate on `rec`, and .glow's paused rules
    sit alongside the recording ones. */
 const ACT={'':[], rec:['rec'], paused:['rec','paused'], enrolling:['enrolling']};
+/* Errors are transient: a failed hold explains itself and then gets out of the way,
+   rather than sitting in red until something else happens to overwrite it. */
+let errTimer=null;
+const showError=msg=>{
+  setCap(msg,'err');
+  clearTimeout(errTimer);
+  errTimer=setTimeout(()=>{if(!isBusy())setCap(idleCap());},5000);
+};
 function setActivity(a){
+  clearTimeout(errTimer);     // any real state change outranks a pending revert
   B.classList.remove('rec','paused','enrolling');
   (ACT[a]||[]).forEach(c=>B.classList.add(c));
   if(a!=='rec')clearInterval(tick);
@@ -873,7 +882,7 @@ const endHold=()=>{
     addCapturedVoice(enrolSecs);
   }else{
     setActivity('');
-    setCap('Too short — hold for at least 10 seconds','err');
+    showError('Too short — hold for at least 10 seconds');
   }
 };
 mic.addEventListener('mousedown',startHold);
