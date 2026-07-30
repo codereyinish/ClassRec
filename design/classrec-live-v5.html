@@ -239,14 +239,14 @@ body.locked .lockbadge{opacity:1;transform:translateX(calc(-50% + 35px)) scale(1
   background:#1E1B2E;color:#E4E1EE;border-radius:9px;padding:9px 13px;
   font-size:12.5px;font-weight:500;white-space:nowrap;
   box-shadow:0 8px 22px -8px rgba(30,27,46,.45);
-  opacity:0;transform:translateX(-8px);pointer-events:none;
-  transition:all .3s var(--e);
+  opacity:0;pointer-events:none;
+  transition:opacity .3s var(--e);   /* fade in place — sliding in read as a distraction */
 }
 .lockhint::before{
   content:'';position:absolute;left:-5px;top:50%;margin-top:-5px;
   width:10px;height:10px;background:#1E1B2E;transform:rotate(45deg);border-radius:2px;
 }
-.lockhint.visible{opacity:1;transform:none}
+.lockhint.visible{opacity:1}
 body:not(.rail-open) .lockhint{display:none}
 
 /* One voice box only, and it's the Select voice slot itself. Once a voice is
@@ -435,15 +435,6 @@ body.ai-open .ai{transform:none}
   transition:.15s var(--e);
 }
 .vp-add-btn:hover{color:var(--primary);border-color:var(--theme);background:var(--primary-soft)}
-.vp-add-form{display:none;flex-direction:column;gap:9px}
-.vp-add-form.on{display:flex}
-.vp-fname{font-size:12px;color:var(--g6);font-family:var(--mono)}
-.vp-input{
-  width:100%;padding:10px 12px;border-radius:9px;border:1.5px solid var(--g4);
-  background:var(--g1);font-family:inherit;font-size:13.5px;color:var(--g8);outline:none;
-}
-.vp-input:focus{border-color:var(--theme);background:var(--g0)}
-.vp-add-actions{display:flex;gap:8px;justify-content:flex-end}
 .vp-status{margin-top:9px;font-size:12px;color:var(--g6)}
 .vp-status.ok{color:var(--primary)}
 .vp-status.error{color:var(--red-ink)}
@@ -655,16 +646,10 @@ body.ai-open .aibtn{opacity:0;pointer-events:none}
   <div class="vp-panel" role="dialog" aria-label="Pick a voice">
     <div class="vp-title">Pick a voice</div>
     <div class="vp-list" id="vpList"></div>
+    <!-- A voice only exists by being recorded, so this closes up and sends you back
+         to the mic rather than asking for a name with no sample behind it. -->
     <div class="vp-add">
-      <button class="vp-add-btn" id="vpAdd" type="button">＋ Add a voice</button>
-      <div class="vp-add-form" id="vpForm">
-        <div class="vp-fname">prof_lecture_04.m4a · 1.2 MB</div>
-        <input class="vp-input" placeholder="Voice name">
-        <div class="vp-add-actions">
-          <button class="btn" id="vpCancel">Cancel</button>
-          <button class="btn solid" id="vpSave">Add</button>
-        </div>
-      </div>
+      <button class="vp-add-btn" id="vpRecordNew" type="button">＋ Record new</button>
       <div class="vp-status" id="vpStatus"></div>
     </div>
   </div>
@@ -701,7 +686,7 @@ const run=()=>{tick=setInterval(()=>{secs++;words+=Math.round(2+Math.random()*3)
 const mic=document.getElementById('mic'), hint=document.getElementById('lockhint'),
       lockToggle=document.getElementById('lockToggle');
 const setCap=(t,cls)=>{cap.textContent=t;cap.className='mic-cap'+(cls?' '+cls:'');};
-let enrolTimer=null, enrolSecs=0, holding=false;
+let enrolTimer=null, enrolSecs=0, holding=false, justHeld=false;
 
 /* Two independent axes, and conflating them is what put a green halo under an
    idle caption: MODE is lockon/locked (a setting), ACTIVITY is rec/paused/
@@ -734,11 +719,19 @@ const placeHint=()=>{
   hint.style.top=Math.round(m.top - s.top + m.height/2 - hint.offsetHeight/2)+'px';
   hint.style.left=Math.round(m.right - s.left + 12)+'px';
 };
+/* Shows for 3s, and startHold pulls it early — once you're holding, it has said
+   its piece. placeHint runs first so it never animates from a stale position. */
+let hintTimer=null;
+const showHint=()=>{
+  clearTimeout(hintTimer);
+  placeHint();                 // synchronous: inside rAF this never ran in a
+  hint.classList.add('visible'); // backgrounded tab, and the hint stayed invisible
+  hintTimer=setTimeout(()=>hint.classList.remove('visible'),3000);
+};
 lockToggle.onchange=()=>{
   if(lockToggle.checked){
     B.classList.add('lockon');
-    requestAnimationFrame(()=>{placeHint();hint.classList.add('visible');});
-    setTimeout(()=>hint.classList.remove('visible'),2000);
+    showHint();
   }else{
     B.classList.remove('lockon','locked');
     hint.classList.remove('visible');
@@ -757,6 +750,7 @@ const startHold=e=>{
 };
 const endHold=()=>{
   if(!holding)return;holding=false;
+  justHeld=true;              // the mouseup that ended this hold still owes us a click
   clearInterval(enrolTimer);
   if(enrolSecs>=10){
     // a real sample was captured — file it, open the picker, let them name it
@@ -773,13 +767,17 @@ mic.addEventListener('mouseup',endHold);
 mic.addEventListener('mouseleave',endHold);
 
 mic.addEventListener('click',()=>{
-  // Both guards are about *starting*, so neither may block a live session. Without
-  // the rec check, toggling Lock Mode off and on mid-recording drops `locked`,
-  // leaves `lockon`, and the enrol guard then swallows the pause click while the
-  // caption still says "click to pause".
+  // A hold ends with mouseup, and the browser then fires click on the same element.
+  // That trailing click used to fall through into "start recording", so enrolling a
+  // voice silently began a session behind the still-open picker. Swallow it: after a
+  // hold, the next click is spent.
+  if(justHeld){justHeld=false;return;}
+  // The remaining guard is about *starting*, so it may not block a live session.
+  // Without the rec check, toggling Lock Mode off and on mid-recording drops
+  // `locked`, leaves `lockon`, and this swallows the pause click while the caption
+  // still says "click to pause".
   const live=B.classList.contains('rec');
-  if(!live&&enrolSecs&&!B.classList.contains('locked')&&B.classList.contains('lockon'))return; // was a hold
-  if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return;            // must enrol first
+  if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return; // must enrol first
   if(!B.classList.contains('rec')){
     B.classList.remove('rail-open');
     secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
@@ -809,7 +807,7 @@ const VOICES=[
   {n:'Dr. Osei — lecture hall',d:'0:18',sel:false},
 ];
 const vp=document.getElementById('vp'),vpList=document.getElementById('vpList'),
-      vpForm=document.getElementById('vpForm'),vpStatus=document.getElementById('vpStatus');
+      vpStatus=document.getElementById('vpStatus');
 const TRASH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>';
 let playing=null;
 // reflect the current selection everywhere it's shown
@@ -873,13 +871,11 @@ function addCapturedVoice(secs){
 renderVoices();
 document.getElementById('voicebtn').onclick=()=>{vp.classList.add('open');vpStatus.textContent='';};
 vp.onclick=e=>{if(e.target===vp)vp.classList.remove('open');};
-document.getElementById('vpAdd').onclick=()=>vpForm.classList.add('on');
-document.getElementById('vpCancel').onclick=()=>vpForm.classList.remove('on');
-document.getElementById('vpSave').onclick=()=>{
-  const inp=vpForm.querySelector('.vp-input');
-  VOICES.push({n:inp.value.trim()||'Untitled voice',d:'0:22',sel:false});
-  inp.value='';vpForm.classList.remove('on');renderVoices();
-  vpStatus.className='vp-status ok';vpStatus.textContent='Voice added.';
+// "Record new" — back to the rail with the prompt showing, so the next hold enrols
+document.getElementById('vpRecordNew').onclick=()=>{
+  vp.classList.remove('open');
+  vpStatus.textContent='';
+  showHint();
 };
 
 const c=document.getElementById('wv'),x=c.getContext('2d');
