@@ -420,11 +420,15 @@ body.ai-open .ai{transform:none}
 }
 .vp-item:hover{border-color:#CFCFF6;background:var(--g0)}
 .vp-item.selected{border-color:var(--theme);background:var(--primary-soft)}
+/* Only as wide as its text: at flex:1 the name filled the row, so a click almost
+   anywhere hit "play" and selecting the box became near-impossible. The gap after
+   it takes the slack and belongs to the row. */
 .vp-item-name{
-  flex:1;min-width:0;font-size:14px;font-weight:500;
+  flex:0 1 auto;min-width:0;max-width:100%;font-size:14px;font-weight:500;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   border-radius:5px;padding:1px 3px;outline:none;
 }
+.vp-gap{flex:1;align-self:stretch;min-width:14px}
 .vp-item-name:hover{color:var(--primary)}      /* theme hint: click to play */
 .vp-item-name.playing{color:var(--primary)}
 .vp-item-name.editing{color:var(--g8);cursor:text;background:var(--g2)}
@@ -873,15 +877,18 @@ function renderVoices(editIdx){
     const row=document.createElement('div');
     row.className='vp-item'+(v.sel?' selected':'');
     row.innerHTML=`<span class="vp-item-name">${v.n}</span>
+      <span class="vp-gap"></span>
       <span class="vp-dur">${v.d}</span>
       <span class="vp-item-arrow">▸</span>
       <button class="vp-trash" aria-label="Delete voice">${TRASH}</button>`;
     const name=row.querySelector('.vp-item-name');
     // row click selects; name click plays; dblclick renames
+    // the ring and the slot both say which voice is picked; a sentence saying it
+    // again is just noise
     row.onclick=()=>{VOICES.forEach(o=>o.sel=false);v.sel=true;renderVoices();
       B.classList.add('locked');
       if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
-      vpStatus.className='vp-status ok';vpStatus.textContent='Voice locked to “'+v.n+'”';};
+      vpStatus.textContent='';};
     const arrow=row.querySelector('.vp-item-arrow');
     name.onclick=e=>{e.stopPropagation();
       if(playing&&playing.name===name){stopPlay();return;}
