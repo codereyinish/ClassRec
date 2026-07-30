@@ -468,6 +468,13 @@ body.ai-open .ai{transform:none}
 .vp-trash svg{width:14px;height:14px}
 .vp-trash:hover{opacity:1;color:var(--red-ink);background:rgba(239,68,68,.1)}
 .vp-empty{padding:22px 0;text-align:center;font-size:13.5px;color:var(--g5)}
+/* last row of the list, so it takes the box's shape and the list's gap */
+.vp-recnew{
+  width:100%;margin-top:7px;padding:11px 13px;border-radius:11px;
+  border:1.5px dashed var(--g4);background:transparent;
+  font-size:13px;font-weight:600;color:var(--g6);transition:.15s var(--e);
+}
+.vp-recnew:hover{border-color:var(--theme);color:var(--primary);background:var(--primary-soft)}
 .vp-add{margin-top:15px;padding-top:15px;border-top:1px solid var(--rule)}
 .vp-add-row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .vp-start{margin-left:auto}          /* the commit action, so it sits apart from the two adds */
@@ -696,12 +703,13 @@ body.ai-open .aibtn{opacity:0;pointer-events:none}
   <div class="vp-panel" role="dialog" aria-label="Pick a voice">
     <div class="vp-title">Pick a voice</div>
     <div class="vp-list" id="vpList"></div>
-    <!-- A voice only exists by being recorded, so this closes up and sends you back
-         to the mic rather than asking for a name with no sample behind it. -->
+    <!-- Sits with the list as its last row: it adds to the same set the boxes above
+         belong to. A voice only exists by being recorded, so it closes up and sends
+         you back to the mic rather than asking for a name with no sample behind it. -->
+    <button class="vp-recnew" id="vpRecordNew" type="button">＋ Record new</button>
     <div class="vp-add">
       <div class="vp-add-row">
         <button class="vp-add-btn" id="vpUpload" type="button">↑ Upload</button>
-        <button class="vp-add-btn" id="vpRecordNew" type="button">＋ Record new</button>
         <input type="file" id="vpFile" accept="audio/*" hidden>
         <!-- only meaningful once a voice is picked, so it hides when none is -->
         <button class="btn solid vp-start" id="vpStart" type="button">Start session</button>
