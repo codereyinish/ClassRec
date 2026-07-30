@@ -251,10 +251,13 @@ body:not(.rail-open) .lockhint{display:none}
 
 /* One voice box only, and it's the Select voice slot itself. Once a voice is
    locked this button becomes the locked-voice row: play button + name. */
+/* The waveform mark, not a play triangle: this row's action is choosing a voice,
+   and it was reading as a transport control. Playback lives on the name. */
 .playbtn{
-  width:22px;height:22px;border-radius:999px;flex:0 0 auto;
-  background:var(--theme);color:#fff;display:none;place-items:center;font-size:8px;
+  width:20px;height:20px;flex:0 0 auto;
+  color:var(--theme);display:none;place-items:center;
 }
+.playbtn svg{width:16px;height:16px;display:block}
 body.locked .voicebtn .playbtn{display:grid}
 body.locked .voicebtn{border-color:#CFCFF6;background:var(--primary-soft);color:var(--g8)}
 .voicebtn .txt{text-align:left}
@@ -431,6 +434,7 @@ body.ai-open .ai{transform:none}
 .vp-trash:hover{opacity:1;color:var(--red-ink);background:rgba(239,68,68,.1)}
 .vp-empty{padding:22px 0;text-align:center;font-size:13.5px;color:var(--g5)}
 .vp-add{margin-top:15px;padding-top:15px;border-top:1px solid var(--g3)}
+.vp-add-row{display:flex;gap:9px;flex-wrap:wrap}
 .vp-add-btn{
   display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;
   color:var(--g7);padding:8px 13px;border-radius:9px;border:1.5px dashed var(--g4);
@@ -512,7 +516,11 @@ body.ai-open .aibtn{opacity:0;pointer-events:none}
     </div>
 
     <button class="btn voicebtn" id="voicebtn">
-      <span class="playbtn" aria-label="Play locked voice">▶</span>
+      <span class="playbtn" aria-label="Locked voice">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 11v2"/>
+        </svg>
+      </span>
       <span class="txt" id="voicebtnTxt">Select voice</span>
       <span class="c">▾</span>
     </button>
@@ -651,7 +659,11 @@ body.ai-open .aibtn{opacity:0;pointer-events:none}
     <!-- A voice only exists by being recorded, so this closes up and sends you back
          to the mic rather than asking for a name with no sample behind it. -->
     <div class="vp-add">
-      <button class="vp-add-btn" id="vpRecordNew" type="button">＋ Record new</button>
+      <div class="vp-add-row">
+        <button class="vp-add-btn" id="vpRecordNew" type="button">＋ Record new</button>
+        <button class="vp-add-btn" id="vpUpload" type="button">↑ Upload</button>
+        <input type="file" id="vpFile" accept="audio/*" hidden>
+      </div>
       <div class="vp-status" id="vpStatus"></div>
     </div>
   </div>
@@ -695,9 +707,12 @@ let enrolTimer=null, enrolSecs=0, holding=false, justHeld=false;
    enrolling (what the mic is doing right now). Activity classes are mutually
    exclusive and only ever change through setActivity, so the halo colour and
    the caption cannot disagree. */
+/* "Hold the mic…" is only for the case where there is no voice on file at all --
+   every class has a default (the most-used voice for it), so the normal path is
+   lock on, click, go. Holding is how you add another, not a toll to pay first. */
 const idleCap=()=>
   B.classList.contains('locked') ? 'Click to start recording' :
-  B.classList.contains('lockon') ? 'Hold the mic to capture the voice' :
+  B.classList.contains('lockon') ? 'Hold the mic to record a voice' :
                                    'Click the microphone to start recording';
 const isBusy=()=>['rec','paused','enrolling'].some(c=>B.classList.contains(c));
 /* Pause is a sub-state of recording, not a sibling: `paused` keeps `rec` on,
@@ -733,6 +748,8 @@ const showHint=()=>{
 lockToggle.onchange=()=>{
   if(lockToggle.checked){
     B.classList.add('lockon');
+    // the class's default voice is already on file, so lock is satisfied immediately
+    if(VOICES.some(v=>v.sel))B.classList.add('locked');
     showHint();
   }else{
     B.classList.remove('lockon','locked');
@@ -744,7 +761,9 @@ lockToggle.onchange=()=>{
 
 // hold-to-enrol
 const startHold=e=>{
-  if(!B.classList.contains('lockon')||B.classList.contains('locked')||B.classList.contains('rec'))return;
+  // `locked` no longer disqualifies a hold: a voice is on file from the start now, and
+  // holding is how you add another. Only a live session rules it out.
+  if(!B.classList.contains('lockon')||B.classList.contains('rec'))return;
   e.preventDefault();holding=true;enrolSecs=0;
   setActivity('enrolling');hint.classList.remove('visible');
   setCap('Recording sample… 0s','enrol');
@@ -774,12 +793,11 @@ mic.addEventListener('click',()=>{
   // voice silently began a session behind the still-open picker. Swallow it: after a
   // hold, the next click is spent.
   if(justHeld){justHeld=false;return;}
-  // The remaining guard is about *starting*, so it may not block a live session.
-  // Without the rec check, toggling Lock Mode off and on mid-recording drops
-  // `locked`, leaves `lockon`, and this swallows the pause click while the caption
-  // still says "click to pause".
+  // With a default voice on file, `locked` is already set when Lock Mode goes on, so
+  // this no longer gates the normal path -- it only bites when every voice has been
+  // deleted and there is nothing to lock onto. Never blocks a live session.
   const live=B.classList.contains('rec');
-  if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return; // must enrol first
+  if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return;
   if(!B.classList.contains('rec')){
     B.classList.remove('rail-open');
     secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
@@ -878,6 +896,20 @@ document.getElementById('vpRecordNew').onclick=()=>{
   vp.classList.remove('open');
   vpStatus.textContent='';
   showHint();
+};
+// Upload — the other way to get a sample in. Named from the file, selected on arrival.
+const vpFile=document.getElementById('vpFile');
+document.getElementById('vpUpload').onclick=()=>vpFile.click();
+vpFile.onchange=()=>{
+  const f=vpFile.files&&vpFile.files[0];
+  if(!f)return;
+  VOICES.forEach(o=>o.sel=false);
+  VOICES.unshift({n:f.name,d:'0:00',sel:true});
+  B.classList.add('locked');
+  if(!isBusy())setActivity('');
+  renderVoices();
+  vpStatus.className='vp-status ok';vpStatus.textContent='Uploaded — locked to “'+f.name+'”';
+  vpFile.value='';
 };
 
 const c=document.getElementById('wv'),x=c.getContext('2d');
