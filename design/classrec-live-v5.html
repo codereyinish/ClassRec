@@ -109,13 +109,16 @@ body.paused .handle .ring{
 }
 body.paused .handle .bub{color:#F87171}
 /* the locked voice stays locked through pause — show it while collapsed too */
+/* Mini version of the big mic's badge, same 1:30 seat on the rim: white disc,
+   dark purple glyph. The 42px handle has radius 21, so 21·cos45 ≈ 15 puts the
+   badge centre on the rim and leaves it 2px outside the box. */
 .handle .minilock{
-  position:absolute;right:-3px;bottom:-3px;z-index:2;
+  position:absolute;top:-2px;right:-2px;z-index:2;
   width:17px;height:17px;border-radius:999px;
-  background:#1E1B2E;border:2px solid var(--g0);
-  display:grid;place-items:center;color:var(--theme);
+  background:var(--g0);box-shadow:0 1px 3px rgba(40,31,62,.28);
+  display:grid;place-items:center;color:var(--lock-deep);
 }
-.handle .minilock svg{width:8px;height:8px;display:block}
+.handle .minilock svg{width:9px;height:9px;display:block}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ── rail ── */
@@ -138,6 +141,25 @@ body:not(.rail-open) .rail{margin-left:calc(var(--rail)*-1);opacity:0;pointer-ev
 .voicebtn:hover{border-color:var(--g5);background:var(--g2)}
 body.lockon .voicebtn{display:inline-flex}
 .field .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* the input picker was styled furniture with nothing behind it — it opens now */
+.devwrap{position:relative}
+.field{cursor:pointer}
+.field:hover{border-color:var(--g5)}
+.devmenu{
+  position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:50;
+  background:var(--g0);border:1px solid var(--rule);border-radius:11px;
+  box-shadow:0 14px 34px -14px rgba(40,31,62,.3);padding:5px;
+  display:none;flex-direction:column;gap:2px;
+}
+.devmenu.open{display:flex}
+.devopt{
+  display:flex;align-items:center;gap:8px;text-align:left;width:100%;
+  padding:8px 10px;border-radius:8px;font-size:13px;color:var(--g7);
+}
+.devopt:hover{background:var(--g2);color:var(--g8)}
+.devopt.on{color:var(--primary);font-weight:600;background:var(--primary-soft)}
+.devopt .tick{margin-left:auto;font-size:11px;opacity:0}
+.devopt.on .tick{opacity:1}
 .fi{display:grid;place-items:center;flex:0 0 auto;color:var(--theme)}
 .fi svg{width:15px;height:15px;display:block}
 .collapse{
@@ -563,14 +585,17 @@ body.ai-open .aibtn{opacity:0;pointer-events:none}
     </div>
 
     <div class="sect">
-      <div class="field" style="margin-top:0">
+      <div class="devwrap">
+      <div class="field" id="devField" style="margin-top:0">
         <span class="fi">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8.5 22h7"/>
           </svg>
         </span>
-        <span class="txt">MacBook Pro Microphone</span>
+        <span class="txt" id="devTxt">MacBook Pro Microphone</span>
         <span class="c">▾</span>
+      </div>
+      <div class="devmenu" id="devMenu" role="listbox"></div>
       </div>
     </div>
 
@@ -845,6 +870,26 @@ const openAI=()=>B.classList.add('ai-open');
 document.getElementById('aibtn').onclick=openAI;
 document.querySelector('.chunk.flagged').onclick=openAI;
 document.getElementById('aiX').onclick=()=>B.classList.remove('ai-open');
+
+/* ── input device picker ──────────────────────────────────────── */
+const DEVICES=['MacBook Pro Microphone','AirPods Pro','Yeti Nano (USB)','Aggregate Device'];
+const devField=document.getElementById('devField'), devMenu=document.getElementById('devMenu'),
+      devTxt=document.getElementById('devTxt');
+let devCur=0;
+function renderDevices(){
+  devMenu.innerHTML='';
+  DEVICES.forEach((d,i)=>{
+    const b=document.createElement('button');
+    b.type='button';b.className='devopt'+(i===devCur?' on':'');
+    b.innerHTML=`<span>${d}</span><span class="tick">✓</span>`;
+    b.onclick=e=>{e.stopPropagation();devCur=i;devTxt.textContent=d;
+      devMenu.classList.remove('open');renderDevices();};
+    devMenu.appendChild(b);
+  });
+}
+renderDevices();
+devField.onclick=e=>{e.stopPropagation();devMenu.classList.toggle('open');};
+document.addEventListener('click',()=>devMenu.classList.remove('open'));
 
 /* ── voice picker ─────────────────────────────────────────────── */
 const VOICES=[
