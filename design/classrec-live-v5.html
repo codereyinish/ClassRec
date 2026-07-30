@@ -756,7 +756,7 @@ const run=()=>{tick=setInterval(()=>{secs++;words+=Math.round(2+Math.random()*3)
 const mic=document.getElementById('mic'), hint=document.getElementById('lockhint'),
       lockToggle=document.getElementById('lockToggle');
 const setCap=(t,cls)=>{cap.textContent=t;cap.className='mic-cap'+(cls?' '+cls:'');};
-let enrolTimer=null, enrolSecs=0, holding=false, justHeld=false;
+let enrolTimer=null, enrolSecs=0, holding=false, heldAt=0;
 
 /* Two independent axes, and conflating them is what put a green halo under an
    idle caption: MODE is lockon/locked (a setting), ACTIVITY is rec/paused/
@@ -840,7 +840,12 @@ const startHold=e=>{
 };
 const endHold=()=>{
   if(!holding)return;holding=false;
-  justHeld=true;              // the mouseup that ended this hold still owes us a click
+  // A hold ending on mouseup owes us one trailing click; a hold ending because the
+  // pointer left the circle owes us nothing, since the browser only fires click when
+  // press and release share an element. So mark WHEN it ended and let the click
+  // handler ignore anything older than a moment -- a sticky flag armed by mouseleave
+  // sat there and swallowed the next real click instead.
+  heldAt=Date.now();
   clearInterval(enrolTimer);
   if(enrolSecs>=10){
     // a real sample was captured — file it, open the picker, let them name it
@@ -861,7 +866,7 @@ mic.addEventListener('click',()=>{
   // That trailing click used to fall through into "start recording", so enrolling a
   // voice silently began a session behind the still-open picker. Swallow it: after a
   // hold, the next click is spent.
-  if(justHeld){justHeld=false;return;}
+  if(Date.now()-heldAt<400){heldAt=0;return;}   // the hold's own trailing click
   // With a default voice on file, `locked` is already set when Lock Mode goes on, so
   // this no longer gates the normal path -- it only bites when every voice has been
   // deleted and there is nothing to lock onto. Never blocks a live session.
