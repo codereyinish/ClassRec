@@ -98,7 +98,7 @@ body.rail-open .handle{opacity:0;transform:scale(.8);pointer-events:none}
   transition:transform .2s var(--e),color .3s var(--e);
 }
 body.rec .handle .bub{color:var(--green)}
-body.locked .handle .bub{box-shadow:0 0 0 1.5px rgba(118,120,237,.85)}
+body.locked:not(.rec):not(.paused) .handle .bub{box-shadow:0 0 0 1.5px rgba(118,120,237,.85)}
 .handle .bub svg{width:18px;height:18px;display:block}
 .handle:hover .bub{transform:scale(1.06)}
 body.rec .handle .ring{opacity:1;animation:spin 4s linear infinite}
@@ -227,7 +227,11 @@ body.enrolling .glow::before{
    because `locked` is now set as soon as Lock Mode goes on, and at equal specificity
    this rule sits after the activity ones -- unscoped, it silently cancelled the
    enrol halo the moment a voice was already on file. */
-body.locked .bubble{box-shadow:0 0 0 1.5px rgba(118,120,237,.85)}
+/* Idle only. The halo starts 4px off the disc, so an opaque ring on the disc's edge
+   covered the brightest part of it and the green read thin and dim once a voice was
+   locked. While there is activity the halo carries the state and the badge says
+   locked; the ring is only needed when nothing is glowing. */
+body.locked:not(.rec):not(.paused):not(.enrolling) .bubble{box-shadow:0 0 0 1.5px rgba(118,120,237,.85)}
 body.locked:not(.rec):not(.paused):not(.enrolling) .glow::before{opacity:0}
 
 /* Lock Mode armed (on, nothing captured yet): a static solid ring in the
