@@ -749,8 +749,11 @@ lockToggle.onchange=()=>{
   if(lockToggle.checked){
     B.classList.add('lockon');
     // the class's default voice is already on file, so lock is satisfied immediately
-    if(VOICES.some(v=>v.sel))B.classList.add('locked');
-    showHint();
+    if(VOICES.some(v=>v.sel)){
+      B.classList.add('locked');   // nothing to prompt for — the hint would be noise
+    }else{
+      showHint();                  // no voice on file: holding is the only way forward
+    }
   }else{
     B.classList.remove('lockon','locked');
     hint.classList.remove('visible');
