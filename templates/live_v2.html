@@ -221,12 +221,17 @@ body.lockon .voicebtn{display:inline-flex}
   display:none;flex-direction:column;gap:2px;
 }
 .devmenu.open{display:flex}
+/* Each option is its own box. Borderless rows ran together into what looked
+   like one paragraph, so the edge is always drawn, not revealed on hover —
+   hover is what turns it the theme colour. */
 .devopt{
   display:flex;align-items:center;gap:8px;text-align:left;width:100%;
   padding:8px 10px;border-radius:8px;font-size:13px;color:var(--g7);
+  border:1px solid var(--rule);background:var(--g0);transition:.14s var(--e);
 }
-.devopt:hover{background:var(--g2);color:var(--g8)}
-.devopt.on{color:var(--primary);font-weight:600;background:var(--primary-soft)}
+.devopt+.devopt{margin-top:5px}
+.devopt:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
+.devopt.on{color:var(--primary);font-weight:600;background:var(--primary-soft);border-color:var(--theme)}
 .devopt .tick{margin-left:auto;font-size:11px;opacity:0}
 .devopt.on .tick{opacity:1}
 .fi{display:grid;place-items:center;flex:0 0 auto;color:var(--theme)}
@@ -614,7 +619,8 @@ body:not(.has-text) .stream{display:none}
 #ns .ctx-input:hover,#ns .ns-classpick:hover{border-color:var(--tint-3)}
 #ns .ctx-input:focus{border-color:var(--theme);background:var(--g0)}
 #ns .devmenu{border-color:var(--tint-2);background:var(--g0)}
-#ns .devopt:hover{background:var(--tint-1);color:var(--g8)}
+#ns .devopt{border-color:var(--tint-2)}
+#ns .devopt:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
 #ns .cls-add{border-top-color:var(--tint-2)}
 #ns .ctx-skip{border-color:var(--tint-2)}
 #ns .ctx-skip:hover{background:var(--tint-1);border-color:var(--tint-3)}
@@ -634,8 +640,10 @@ body:not(.has-text) .stream{display:none}
    down instead, and survives a short viewport. */
 .ns-classfield .devmenu{position:static;margin-top:6px;box-shadow:none;max-height:180px;overflow-y:auto}
 /* the add row is a menu row until it is clicked, then it is the field itself */
-.cls-add{border-top:1px solid var(--rule);margin-top:4px;padding-top:4px}
-.cls-add.only{border-top:none;margin-top:0;padding-top:0}   /* nothing above to divide */
+/* The rows carry their own edges now, so the add row needs separation, not a
+   rule across the menu. */
+.cls-add{margin-top:5px}
+.cls-add.only{margin-top:0}
 .cls-add-input{
   width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--theme);
   background:var(--g0);font-family:var(--sans);font-size:13px;color:var(--g8);outline:none;
