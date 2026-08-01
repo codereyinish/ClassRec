@@ -432,6 +432,7 @@ body.ai-open .main{padding-right:var(--ai)}
 /* Both the name and the course start blank and read as prompts, not as values —
    nothing is chosen on the user's behalf. */
 .head h1:empty::before{content:'Session name';color:var(--g5)}
+.head h1.auto{color:var(--g5)}          /* a stand-in name, not one you chose */
 /* Unset, but still a control worth noticing — one step lighter than a chosen
    course, not the near-invisible grey a pure placeholder gets. */
 .classpick.unset{color:var(--g6);font-weight:500}
@@ -1488,6 +1489,7 @@ const Store={
     audioUrl(id){ return API+'/voices/'+id+'/audio'; },                          // GET    /voices/{id}/audio
   },
   sessions:{
+    list(){       return fetch(API+'/sessions').then(r=>r.json()); },            // GET    /sessions
     save(body){                                                                 // POST   /sessions
       return fetch(API+'/sessions',{method:'POST',
         headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -1511,6 +1513,35 @@ function setTitle(name){
   const t=name&&name.trim()?name.trim():nextUntitled();
   USED_TITLES.add(t);
   titleEl.textContent=t;
+  titleEl.classList.remove('auto');       // a chosen name, not a stand-in
+}
+
+/* A session is never nameless: it opens as "Untitled 1" (or the first free
+   number). The name is real — it saves as typed if you never touch it — but it
+   is styled as provisional and steps aside the moment you click in, so you type
+   over an empty line instead of deleting someone else's text first. */
+function applyAutoTitle(){
+  titleEl.textContent=nextUntitled();
+  titleEl.classList.add('auto');
+}
+titleEl.addEventListener('focus',()=>{
+  if(!titleEl.classList.contains('auto'))return;
+  titleEl.textContent='';
+  titleEl.classList.remove('auto');
+});
+titleEl.addEventListener('blur',()=>{
+  if(titleEl.textContent.trim())return;   // typed something: keep it
+  applyAutoTitle();                       // left it empty: back to the stand-in
+});
+
+/* Seeded from saved lectures, so the number skips names already in the database
+   rather than restarting at 1 every reload. */
+async function seedTitles(){
+  try{
+    const rows=await Store.sessions.list();
+    if(Array.isArray(rows))rows.forEach(s=>s.title&&USED_TITLES.add(s.title.trim()));
+  }catch{}
+  if(titleEl.classList.contains('auto')||!titleEl.textContent.trim())applyAutoTitle();
 }
 function renderClasses(){
   classPick.classList.toggle('unset',!curClass);
@@ -2107,7 +2138,7 @@ function enrolEnd(ok){
 
 /* The page opens empty and fills from the socket — the mock's "already finished a
    lecture" scaffolding is deliberately not carried over. */
-loadVoices(); loadCourses();
+loadVoices(); loadCourses(); applyAutoTitle(); seedTitles();
 </script>
 </body>
 </html>
