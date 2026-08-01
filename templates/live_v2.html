@@ -642,7 +642,9 @@ body:not(.has-text) .stream{display:none}
 }
 .ctx-foot{display:flex;align-items:center;gap:9px;margin-top:18px}
 .ctx-foot .btn.solid{margin-left:auto}
-.ctx-skip{border:1px solid var(--g4)}
+/* Dashed: skipping is the optional way out, and the broken border says so
+   without needing a second colour. */
+.ctx-skip{border:1px dashed var(--g4)}
 
 /* ── AI panel : right side, like Audionotes ── */
 .ai{
