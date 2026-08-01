@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DBSession
 
 from logger import logger
-from models import Class, Session
+from models import Class, Flag, Session
 
 MAX_SESSIONS_PER_USER = 7
 
@@ -117,12 +117,20 @@ def _delete_audio_file(path: str | None) -> None:
 
 def save_session(db: DBSession, *, class_id: int, user_id: str, title: str,
                  transcript: str, words: list | None = None,
-                 audio_path: str | None = None) -> Session:
+                 audio_path: str | None = None,
+                 flags: list[dict] | None = None) -> Session:
     obj = Session(
         class_id=class_id, user_id=user_id, title=title, transcript=transcript,
         words_json=json.dumps(words) if words is not None else None,
         audio_path=audio_path,
     )
+    # Flags were raised during the lecture, before this row existed. Attaching
+    # them to the relationship lets SQLAlchemy set session_id after the INSERT.
+    for f in (flags or []):
+        obj.flags.append(Flag(
+            t_start=f["t_start"], t_end=f["t_end"], quote=f["quote"],
+            question=f.get("question"), answer=f.get("answer"),
+        ))
     db.add(obj)
 
     # Bump this Voice's usage counter (powers "top 4 most used"). class_id may be

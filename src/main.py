@@ -486,6 +486,19 @@ def hide_voice_route(voice_id: int, db: Session = Depends(get_db)):
 
 # ======= SESSIONS (saved lecture transcripts) =======
 
+class FlagIn(BaseModel):
+    """One flagged moment, as collected in the page during the lecture.
+
+    Flags are raised live, before a Session row exists, so they ride along with
+    the transcript on save rather than being written one at a time.
+    """
+    t_start:  float
+    t_end:    float
+    quote:    str
+    question: str | None = None
+    answer:   str | None = None
+
+
 class SessionIn(BaseModel):
     """Request BODY for saving a transcript (long text/lists don't fit in a URL)."""
     title:      str
@@ -493,6 +506,7 @@ class SessionIn(BaseModel):
     class_id:   int | None = None      # which Voice was used (None = unlocked recording)
     words:      list | None = None
     audio_path: str | None = None
+    flags:      list[FlagIn] | None = None
 
 
 @app.post("/sessions")
@@ -501,8 +515,9 @@ def create_session_route(payload: SessionIn, db: Session = Depends(get_db)):
     s = repo.save_session(
         db, class_id=payload.class_id, user_id=None, title=payload.title,
         transcript=payload.transcript, words=payload.words, audio_path=payload.audio_path,
+        flags=[f.model_dump() for f in payload.flags] if payload.flags else None,
     )
-    return {"id": s.id, "title": s.title, "class_id": s.class_id}
+    return {"id": s.id, "title": s.title, "class_id": s.class_id, "flags": len(s.flags)}
 
 
 @app.get("/sessions")
@@ -525,7 +540,42 @@ def get_session_route(session_id: int, db: Session = Depends(get_db)):
         "id": s.id, "title": s.title, "class_id": s.class_id,
         "transcript": s.transcript, "summary": s.summary,
         "words": json.loads(s.words_json) if s.words_json else [],
+        "flags": [
+            {"id": f.id, "t_start": f.t_start, "t_end": f.t_end, "quote": f.quote,
+             "question": f.question, "answer": f.answer, "resolved": f.resolved}
+            for f in s.flags
+        ],
         "created_at": str(s.created_at),
+    }
+
+
+class AskIn(BaseModel):
+    """A doubt raised against a span of the transcript."""
+    quote:    str                       # the selected words, verbatim
+    question: str | None = None         # what the student typed; blank = "explain this"
+    context:  str | None = None         # surrounding transcript, for the model to read
+    t_start:  float | None = None
+    t_end:    float | None = None
+
+
+@app.post("/ask")
+def ask_route(payload: AskIn):
+    """Answer a doubt about a selected span of the lecture.
+
+    Stubbed: returns a fixed placeholder so the panel can be built and used
+    end-to-end. Swapping in a real model means replacing the body of this
+    function only — the request and response shapes are already the ones a
+    model call needs (quote + surrounding context + question).
+    """
+    asked = (payload.question or "").strip() or "Explain this"
+    logger.info(f"[ask] {asked!r} on {payload.quote[:60]!r} @ {payload.t_start}")
+    return {
+        "answer": (
+            f"(placeholder) You asked “{asked}” about “{payload.quote}”. "
+            "Answers aren't wired to a model yet — this flag is saved with the "
+            "lecture, so you can come back to it after class."
+        ),
+        "stub": True,
     }
 
 

@@ -24,6 +24,18 @@ const SaveTranscript = (() => {
         return Array.from(parts).map((el) => el.textContent.trim()).filter(Boolean).join(" ").trim();
     }
 
+    // Word-level timestamps, straight off the spans live.js already renders.
+    // Same {w,s,e} shape the server sends, so it round-trips through words_json
+    // unchanged. Empty when a recording fell back to plain text.
+    function currentWords() {
+        const spans = document.querySelectorAll("#transcriptContent .transcript-text span.word");
+        return Array.from(spans).map((el) => ({
+            w: el.textContent,
+            s: parseFloat(el.dataset.start),
+            e: parseFloat(el.dataset.end),
+        })).filter((w) => !Number.isNaN(w.s) && !Number.isNaN(w.e));
+    }
+
     function markDirty() { dirty = true; }
 
     // Called when a new recording is about to start: if there's an unsaved
@@ -61,6 +73,9 @@ const SaveTranscript = (() => {
         overlay.querySelector(".st-discard").addEventListener("click", () => {
             dirty = false;        // user chose to let it go
             closeModal();
+            // Same reset as a save: the transcript and any doubts raised against
+            // it are gone. Without this they'd leak into the next recording.
+            window.dispatchEvent(new Event("transcript:discarded"));
         });
         overlay.querySelector(".st-save").addEventListener("click", doSave);
     }
@@ -78,6 +93,8 @@ const SaveTranscript = (() => {
                     title,
                     transcript,
                     class_id: window.selectedVoiceId || null,
+                    words: currentWords(),
+                    flags: window.DoubtPanel?.getFlags() || [],
                 }),
             });
             if (!res.ok) { setStatus("Save failed.", "error"); return; }

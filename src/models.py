@@ -89,3 +89,44 @@ class Session(Base):
     # The other side of the relationship: each Session points back to its Class.
     # Named "course" (not "class") because `class` is a reserved word in Python.
     course: Mapped["Class"] = relationship(back_populates="sessions")
+
+    # A Lecture owns its Flags. delete-orphan + passive_deletes lets the DB's
+    # ON DELETE CASCADE do the work — important because the 7-lecture cap in
+    # repository.save_session evicts old Sessions, and their Flags must go too.
+    flags: Mapped[list["Flag"]] = relationship(
+        back_populates="lecture", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="Flag.t_start",
+    )
+
+
+class Flag(Base):
+    """A moment the student didn't follow.
+
+    Raised live, mid-lecture, by selecting a span of the transcript. Because a
+    Session row doesn't exist until the user hits save, Flags are collected in
+    the page and written as part of that same save — hence session_id is NOT
+    NULL and there is no half-attached state to reconcile.
+    """
+
+    __tablename__ = "flags"
+
+    id:         Mapped[int]               = mapped_column(primary_key=True)
+    session_id: Mapped[int]               = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), index=True
+    )
+    # Seconds from the start of the recording — absolute, because transcribe_chunk
+    # already folds chunk_offset into every word's start/end before sending it.
+    t_start:    Mapped[float]             = mapped_column(Float)
+    t_end:      Mapped[float]             = mapped_column(Float)
+    # The selected words, verbatim. Stored rather than re-derived so a flag still
+    # reads correctly if the transcript is ever re-processed.
+    quote:      Mapped[str]               = mapped_column(Text)
+    # Both nullable: flagging a moment is one tap and does NOT require asking
+    # anything. A bare flag ("come back to this") is a valid end state.
+    question:   Mapped[str | None]        = mapped_column(Text)
+    answer:     Mapped[str | None]        = mapped_column(Text)
+    resolved:   Mapped[bool]              = mapped_column(Boolean, default=False,
+                                                          server_default="0")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    lecture: Mapped["Session"] = relationship(back_populates="flags")

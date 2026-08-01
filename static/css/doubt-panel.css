@@ -1,0 +1,338 @@
+/* Doubt panel — raise a doubt against a moment in the live transcript.
+   Uses base.html design tokens. Two pieces: a floating bubble that is always
+   present on the live page, and a right-hand panel that opens only when the
+   bubble is clicked. */
+
+/* ---- floating bubble ---- */
+/* Top-right, tucked under the site header (56px) rather than floating over the
+   transcript's Save / Generate Summary bar. */
+.dp-bubble {
+    position: fixed;
+    top: 68px;
+    right: 24px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 901;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.dp-bubble svg { width: 18px; height: 18px; position: relative; z-index: 1; }
+
+/* Halo — the mic's spin-halo treatment, scaled down and run faster. Off until
+   a selection is held, then it's what draws the eye up here. */
+.dp-bubble::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    background: conic-gradient(
+        from -90deg,
+        transparent 0deg,
+        #7d6ee0    70deg,
+        #a99cf5   150deg,
+        #7d6ee0   210deg,
+        transparent 280deg,
+        transparent 360deg
+    );
+    filter: blur(4px);
+    z-index: 0;
+}
+
+/* hover — ordinary "this is clickable" feedback */
+.dp-bubble:hover {
+    color: var(--text);
+    border-color: rgba(125, 110, 224, 0.6);
+}
+
+/* armed — a selection is held. The halo spins; the panel stays shut until
+   you click, so this is the only thing telling you the press registered. */
+.dp-bubble.armed { color: #a99cf5; border-color: rgba(125, 110, 224, 0.65); }
+.dp-bubble.armed::before { opacity: 1; animation: dp-spin-halo 2.4s linear infinite; }
+
+/* open — panel is showing. Filled, so closing is as obvious as opening. */
+.dp-bubble.open {
+    background: #7d6ee0;
+    border-color: #7d6ee0;
+    color: #0d0d11;
+}
+.dp-bubble.open::before { opacity: 0; animation: none; }
+
+@keyframes dp-spin-halo { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .dp-bubble.armed::before { animation: none; }
+}
+
+/* ---- panel ---- */
+/* A popup hung off the icon, not a full-height sidebar — it shouldn't take the
+   screen away from the transcript mid-lecture. */
+.dp-panel {
+    position: fixed;
+    top: 116px;                      /* clears the icon at 68px + its 40px */
+    right: 24px;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    max-height: min(70vh, 560px);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 900;
+
+    transform-origin: top right;
+    transform: scale(0.96) translateY(-6px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.dp-panel.open {
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+    .dp-panel { transition: none; }
+}
+
+.dp-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 18px;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+}
+.dp-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 16px;
+    color: var(--text);
+}
+.dp-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 7px;
+    border-radius: 6px;
+}
+.dp-close:hover { color: var(--text); background: var(--bg-elevated); }
+
+/* ---- body: the doubts raised so far ---- */
+.dp-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.dp-empty {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.65;
+    padding: 10px 0;
+}
+.dp-empty b { color: var(--text); font-weight: 400; }
+
+.dp-suggestions { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.dp-suggestion {
+    text-align: left;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    padding: 9px 12px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.dp-suggestion:hover { color: var(--text); border-color: var(--accent); }
+
+/* one raised doubt */
+.dp-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 13px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+.dp-card-time {
+    font-family: 'DM Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    cursor: pointer;
+    width: fit-content;
+}
+.dp-card-time:hover { text-decoration: underline; }
+.dp-card-quote {
+    font-family: 'DM Serif Display', serif;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text);
+    border-left: 2px solid var(--accent);
+    padding-left: 10px;
+}
+.dp-card-q {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.55;
+}
+.dp-card-a {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.65;
+    border-top: 1px solid var(--border);
+    padding-top: 9px;
+}
+.dp-card-a.pending { font-style: italic; opacity: 0.7; }
+
+/* ---- compose ---- */
+.dp-compose {
+    flex: none;
+    border-top: 1px solid var(--border);
+    padding: 12px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+/* the held selection, shown as a chip above the input */
+.dp-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent-dim);
+    border: 1px solid rgba(232, 160, 32, 0.3);
+    border-radius: 7px;
+    padding: 6px 9px;
+    font-size: 11px;
+    color: var(--text);
+    min-width: 0;
+}
+.dp-chip[hidden] { display: none; }
+.dp-chip-time {
+    font-family: 'DM Mono', monospace;
+    color: var(--accent);
+    flex: none;
+}
+.dp-chip-text {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-muted);
+}
+.dp-chip-clear {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 2px;
+    flex: none;
+}
+.dp-chip-clear:hover { color: var(--red); }
+
+.dp-input {
+    width: 100%;
+    resize: none;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    min-height: 62px;
+}
+.dp-input:focus { outline: none; border-color: var(--accent); }
+.dp-input::placeholder { color: var(--text-muted); }
+
+.dp-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dp-hint {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+}
+.dp-btns { display: flex; gap: 8px; }
+.dp-flag-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 7px;
+    padding: 7px 12px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.dp-flag-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.dp-flag-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.dp-send { padding: 7px 14px; }
+
+/* ---- press-and-drag selection ----
+   Three meanings, three colours, none of them overlapping:
+     green  — audio playback (span.word:hover / .active, in live.css)
+     purple — being selected right now
+     amber  — flagged as a doubt                                            */
+.dp-selecting-mode {
+    user-select: none;            /* keep native selection out of the way */
+    -webkit-user-select: none;
+    touch-action: none;           /* and don't scroll while sweeping on touch */
+}
+#transcriptContent span.word.dp-selecting,
+#transcriptContent span.word.dp-selecting:hover {
+    background: rgba(125, 110, 224, 0.32);
+    box-shadow: inset 0 -1px 0 #7d6ee0;
+}
+
+/* A flagged span, marked back in the transcript itself. Amber deliberately —
+   green is already taken by span.word:hover and the audio-playback .active
+   highlight, so a doubt reads as a different kind of mark. The :hover rule is
+   needed because this selector out-specifies span.word:hover, which would
+   otherwise leave flagged words dead to the cursor. */
+#transcriptContent span.word.dp-flagged {
+    background: rgba(232, 160, 32, 0.16);
+    box-shadow: inset 0 -1px 0 var(--accent);
+}
+#transcriptContent span.word.dp-flagged:hover {
+    background: rgba(232, 160, 32, 0.32);
+}
+#transcriptContent span.word.dp-jump {
+    animation: dp-pulse 1.1s ease-out;
+}
+@keyframes dp-pulse {
+    0%, 100% { background: rgba(232, 160, 32, 0.16); }
+    35%      { background: rgba(232, 160, 32, 0.55); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dp-panel, .dp-bubble { transition: none; }
+    #transcriptContent span.word.dp-jump { animation: none; }
+}
+
+@media (max-width: 640px) {
+    .dp-panel { right: 16px; left: 16px; width: auto; max-width: none; }
+    .dp-bubble { right: 16px; }
+}

@@ -496,13 +496,17 @@
        transcriptArea.scrollTop = transcriptArea.scrollHeight;
    }
 
-   // After a save, reset the transcript area back to its fresh, empty state.
-   window.addEventListener('transcript:saved', () => {
+   // Reset the transcript area back to its fresh, empty state. Fires on save AND
+   // on discard — discarding also ends the lecture, so leaving the old chunks up
+   // would let them run into the next recording.
+   function resetTranscriptArea() {
        document.querySelectorAll('#transcriptContent .transcript-chunk').forEach(el => el.remove());
        currentChunk = null;
        emptyState.style.display = '';
        document.getElementById('summaryBar')?.classList.remove('visible');
-   });
+   }
+   window.addEventListener('transcript:saved', resetTranscriptArea);
+   window.addEventListener('transcript:discarded', resetTranscriptArea);
 
 
    // ===== 9. WEBSOCKET =====
