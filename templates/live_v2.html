@@ -425,13 +425,16 @@ body.ai-open .main{padding-right:var(--ai)}
 /* the lecture title is the one thing on this page worth renaming, so it edits in place */
 .head h1{
   font-size:31px;font-weight:700;letter-spacing:-.032em;line-height:1.15;
+  cursor:text;                 /* it is editable; the pointer should say so */
   outline:none;border-radius:7px;margin-left:-7px;padding:1px 7px;
   transition:background .15s var(--e),box-shadow .15s var(--e);
 }
 /* Both the name and the course start blank and read as prompts, not as values —
    nothing is chosen on the user's behalf. */
 .head h1:empty::before{content:'Session name';color:var(--g5)}
-.classpick.unset{color:var(--g5);font-weight:400}
+/* Unset, but still a control worth noticing — one step lighter than a chosen
+   course, not the near-invisible grey a pure placeholder gets. */
+.classpick.unset{color:var(--g6);font-weight:500}
 /* one gap value for the whole row; the pick button's padding is cancelled by equal
    negative margins so its hover target can be generous without widening the gap */
 .head .meta{margin-top:7px;font-size:13.5px;color:var(--g6);display:flex;align-items:center;gap:9px}
