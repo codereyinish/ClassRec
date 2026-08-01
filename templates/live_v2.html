@@ -428,7 +428,10 @@ body.ai-open .main{padding-right:var(--ai)}
   outline:none;border-radius:7px;margin-left:-7px;padding:1px 7px;
   transition:background .15s var(--e),box-shadow .15s var(--e);
 }
-.head h1:empty::before{content:'Untitled lecture';color:var(--g5)}
+/* Both the name and the course start blank and read as prompts, not as values —
+   nothing is chosen on the user's behalf. */
+.head h1:empty::before{content:'Session name';color:var(--g5)}
+.classpick.unset{color:var(--g5);font-weight:400}
 /* one gap value for the whole row; the pick button's padding is cancelled by equal
    negative margins so its hover target can be generous without widening the gap */
 .head .meta{margin-top:7px;font-size:13.5px;color:var(--g6);display:flex;align-items:center;gap:9px}
@@ -928,7 +931,7 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
 
   <main class="main">
     <div class="wrap head">
-      <h1 contenteditable="true" spellcheck="false" aria-label="Lecture title" id="title">Chain Rule &amp; Composite Functions</h1>
+      <h1 contenteditable="true" spellcheck="false" aria-label="Session name" id="title"></h1>
       <!-- class comes from a picker, date from the clock; together they name the session -->
       <div class="meta">
         <span class="classwrap">
@@ -1433,43 +1436,39 @@ alertNameRow.onclick=e=>{
    and a session should then carry course_id alongside the existing class_id
    (the voice) that `save_session` already writes.                                */
 const Store={
-  /* A class is a row in `classes` — one class, one voice, many sessions — which the
-     app serves at /voices. So the class list and the voice list are the same call.
+  /* A COURSE. Not a voice — the two are separate things that happen to collide in
+     the backend's naming, and this list must never be filled from /voices: those
+     rows are speaker embeddings, so a course picker built from them offers
+     "Zamaigas_audio" where "CS 301" belongs.
 
-     A row carries ONE name today, and it is the class. Naming the professor
-     separately needs a `voice_name` column that does not exist yet, so the field
-     below is always blank and nothing writes it — the two places that would send
-     it are marked. It lights up on its own once the column lands. */
+     Courses have no table yet, so they live in localStorage and a name is all one
+     is. Every read and write goes through here, so the swap is one fetch per
+     method and nothing else in this file moves. */
   classes:{
+    KEY:'classrecCourses',
     _rows:[],
-    async load(){
-      try{
-        const rows=await Store.voices.list();
-        if(Array.isArray(rows))this._rows=rows.map(r=>({
-          id:r.id, cls:r.name, voice:r.voice_name||'', use:r.use_count||0, hasAudio:!!r.has_audio}));
-      }catch{}
+    async load(){                                           // GET /classes
+      try{ this._rows=JSON.parse(localStorage.getItem(this.KEY)||'[]'); }catch{ this._rows=[]; }
       return this._rows;
     },
+    _persist(){ try{ localStorage.setItem(this.KEY,JSON.stringify(this._rows)); }catch{} },
     list(){return this._rows.slice();},
     names(){return this._rows.map(r=>r.cls);},
     find(name){return this._rows.find(r=>r.cls===name);},
     has(n){return this._rows.some(r=>r.cls===n);},
     count(){return this._rows.length;},
-    /* Creating a class needs audio: the row is the embedding. Record new or Upload
-       are the only ways in, which is why the picker offers nothing else. */
-    async create(cls,voice,file){
-      const q='/voices?name='+encodeURIComponent(cls);   // + &voice_name= once the column exists
-      const fd=new FormData(); fd.append('file',file);
-      const res=await fetch(API+q,{method:'POST',body:fd});
-      if(res.ok)await this.load();
-      return res.ok;
+    /* A course is a name. No audio, no embedding — that is the voice's job. */
+    async add(name){                                        // POST /classes {name}
+      const cls=(name||'').trim();
+      if(!cls||this.has(cls))return cls||null;
+      this._rows.push({id:Date.now(),cls});
+      this._persist();
+      return cls;
     },
-    rename(id,cls,voice){                                   // PATCH /voices/{id}
-      const body={}; if(cls!=null)body.name=cls;             // voice ignored until the column exists
-      return fetch(API+'/voices/'+id,{method:'PATCH',
-        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    async remove(name){                                     // DELETE /classes/{id}
+      this._rows=this._rows.filter(r=>r.cls!==name);
+      this._persist();
     },
-    remove(id){return fetch(API+'/voices/'+id,{method:'DELETE'});},
   },
 
   voices:{
@@ -1511,7 +1510,8 @@ function setTitle(name){
   titleEl.textContent=t;
 }
 function renderClasses(){
-  classPick.innerHTML=(curClass||'No class')+' <span class="c">▾</span>';
+  classPick.classList.toggle('unset',!curClass);
+  classPick.innerHTML=(curClass||'Course name')+' <span class="c">▾</span>';
   classMenu.innerHTML='';
   Store.classes.names().forEach(c=>{
     const b=document.createElement('button');
@@ -1552,8 +1552,7 @@ function renderNsClasses(openAdd){
   Store.classes.names().forEach(c=>{
     const b=document.createElement('button');
     b.type='button';b.className='devopt'+(c===nsClass?' on':'');
-    const row=Store.classes.find(c);
-    b.innerHTML=`<span>${c}${row&&row.voice?`<em class="vsub">${row.voice}</em>`:''}</span><span class="tick">✓</span>`;
+    b.innerHTML=`<span>${c}</span><span class="tick">✓</span>`;
     b.onclick=e=>{e.stopPropagation();nsClass=c;nsClassMenu.classList.remove('open');renderNsClasses();};
     nsClassMenu.appendChild(b);
   });
@@ -1579,10 +1578,10 @@ function renderNsClasses(openAdd){
   };
   const btn=document.createElement('button');
   btn.type='button';btn.className='devopt';
-  btn.innerHTML='<span>＋ Add a class</span><em class="vsub">record or upload a voice</em>';
-  /* A class row is its embedding, so one cannot be created from a name alone —
-     this hands over to the voice flow instead of pretending. */
-  btn.onclick=e=>{e.stopPropagation();closeNs();vp.classList.add('open');vpStatus.textContent='';showHint();};
+  btn.innerHTML='<span>＋ Add a class</span>';
+  /* A course is just a name, so it is typed right here. Voices are enrolled from
+     the rail — a different thing, deliberately not reached from this menu. */
+  btn.onclick=e=>{e.stopPropagation();showInput();};
   add.appendChild(btn);
 }
 nsClassPick.onclick=e=>{
@@ -1644,11 +1643,16 @@ async function loadVoices(){
     rows.forEach((v,i)=>VOICES.push({id:v.id,n:v.name,voice:v.voice_name||'',
                                      d:v.use_count?('used '+v.use_count+'×'):'—',
                                      hasAudio:v.has_audio,sel:i===0}));
-    await Store.classes.load();
-    curClass=VOICES[0]?VOICES[0].n:'';renderClasses();
     renderVoices();
     if(VOICES.length&&B.classList.contains('lockon'))B.classList.add('locked');
   }catch{ /* offline: keep the samples */ }
+}
+
+/* Courses are local and unrelated to the voice fetch, so they load on their own —
+   a backend that is down must not cost you your class list. */
+async function loadCourses(){
+  await Store.classes.load();
+  renderClasses();         // stays unset until picked: nothing is chosen for you
 }
 const vp=document.getElementById('vp'),vpList=document.getElementById('vpList'),
       vpStatus=document.getElementById('vpStatus');
@@ -2100,7 +2104,7 @@ function enrolEnd(ok){
 
 /* The page opens empty and fills from the socket — the mock's "already finished a
    lecture" scaffolding is deliberately not carried over. */
-loadVoices();
+loadVoices(); loadCourses();
 </script>
 </body>
 </html>
