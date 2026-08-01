@@ -655,16 +655,17 @@ body:not(.has-text) .stream{display:none}
 /* No classes yet: the select field and its label would only offer "nothing",
    so both step aside for the single action that is actually available. */
 .ns-addfirst{display:none}
-.ns-classfield.empty .ns-classpick,
-.ns-classfield.empty .devmenu{display:none}
-.ns-classfield.empty .ns-addfirst{display:block}
+.ns-classfield.no-classes .ns-classpick,
+.ns-classfield.no-classes .devmenu{display:none}
+.ns-classfield.no-classes .ns-addfirst{display:block}
 .ns-addfirst .add-first{
   width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
-  padding:13px 10px;border-radius:10px;border:1px dashed var(--tint-3);
-  background:var(--tint-1);font-family:var(--sans);font-size:13.5px;font-weight:600;
-  color:var(--primary);transition:.15s var(--e);
+  padding:13px 10px;border-radius:10px;border:1px dashed var(--g4);
+  background:transparent;font-family:var(--sans);font-size:13.5px;font-weight:600;
+  color:var(--g7);transition:.15s var(--e);
 }
-.ns-addfirst .add-first:hover{background:var(--tint-2);border-color:var(--primary)}
+/* Colour arrives on hover, as everywhere else — at rest it is a neutral outline. */
+.ns-addfirst .add-first:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
 .ctx-foot{display:flex;align-items:center;gap:9px;margin-top:18px}
 .ctx-foot .btn.solid{margin-left:auto}
 /* Dashed: skipping is the optional way out, and the broken border says so
@@ -1669,7 +1670,7 @@ function renderNsClasses(openAdd){
   /* Nothing to pick yet — drop the select entirely and offer the one move that
      makes sense. The field comes back as soon as a class exists. */
   const bare=!Store.classes.count();
-  nsClassField.classList.toggle('empty',bare);
+  nsClassField.classList.toggle('no-classes',bare);
   nsAddFirst.innerHTML='';
   if(!bare)return;
   const b=document.createElement('button');
