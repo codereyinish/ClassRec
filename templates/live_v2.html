@@ -640,6 +640,20 @@ body:not(.has-text) .stream{display:none}
   width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--theme);
   background:var(--g0);font-family:var(--sans);font-size:13px;color:var(--g8);outline:none;
 }
+
+/* No classes yet: the select field and its label would only offer "nothing",
+   so both step aside for the single action that is actually available. */
+.ns-addfirst{display:none}
+.ns-classfield.empty .ns-classpick,
+.ns-classfield.empty .devmenu{display:none}
+.ns-classfield.empty .ns-addfirst{display:block}
+.ns-addfirst .add-first{
+  width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+  padding:13px 10px;border-radius:10px;border:1px dashed var(--tint-3);
+  background:var(--tint-1);font-family:var(--sans);font-size:13.5px;font-weight:600;
+  color:var(--primary);transition:.15s var(--e);
+}
+.ns-addfirst .add-first:hover{background:var(--tint-2);border-color:var(--primary)}
 .ctx-foot{display:flex;align-items:center;gap:9px;margin-top:18px}
 .ctx-foot .btn.solid{margin-left:auto}
 /* Dashed: skipping is the optional way out, and the broken border says so
@@ -1003,12 +1017,15 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
     <label class="ns-label" for="nsInput">Session name</label>
     <input class="ctx-input" id="nsInput" placeholder="e.g. Chain rule &amp; composite functions" autocomplete="off">
 
-    <label class="ns-label">Class</label>
-    <div class="ns-classfield">
+    <label class="ns-label" id="nsClassLabel">Class</label>
+    <div class="ns-classfield" id="nsClassField">
       <button class="ctx-input ns-classpick" id="nsClassPick" type="button">
         <span id="nsClassTxt">Select class</span><span class="c">▾</span>
       </button>
       <div class="devmenu" id="nsClassMenu" role="listbox"></div>
+      <!-- With no classes yet there is nothing to select, so the field gives way
+           to the one thing you can actually do here. -->
+      <div class="ns-addfirst" id="nsAddFirst"></div>
     </div>
 
     <div class="ns-err" id="nsErr"></div>
@@ -1623,7 +1640,8 @@ function resetSession(){
 }
 const ns=document.getElementById('ns'), nsInput=document.getElementById('nsInput'),
       nsClassPick=document.getElementById('nsClassPick'), nsClassMenu=document.getElementById('nsClassMenu'),
-      nsClassTxt=document.getElementById('nsClassTxt');
+      nsClassTxt=document.getElementById('nsClassTxt'),
+      nsClassField=document.getElementById('nsClassField'), nsAddFirst=document.getElementById('nsAddFirst');
 let nsClass=curClass;
 
 /* The class list in the dialog, with "add new" as its last row. Clicking that row
@@ -1633,6 +1651,33 @@ function renderNsClasses(openAdd){
   nsClassTxt.textContent=nsClass||'No class — just recording';
   buildClassMenu(nsClassMenu,{current:nsClass,openAdd,
     onPick:c=>{nsClass=c;renderNsClasses();}});
+
+  /* Nothing to pick yet — drop the select entirely and offer the one move that
+     makes sense. The field comes back as soon as a class exists. */
+  const bare=!Store.classes.count();
+  nsClassField.classList.toggle('empty',bare);
+  nsAddFirst.innerHTML='';
+  if(!bare)return;
+  const b=document.createElement('button');
+  b.type='button';b.className='add-first';
+  b.innerHTML='<span>＋</span><span>Add a class</span>';
+  b.onclick=e=>{
+    e.stopPropagation();
+    nsAddFirst.innerHTML='';
+    const inp=document.createElement('input');
+    inp.className='cls-add-input';inp.placeholder='Class name';inp.autocomplete='off';
+    nsAddFirst.appendChild(inp);inp.focus();
+    inp.onclick=ev=>ev.stopPropagation();
+    inp.onkeydown=async ev=>{
+      ev.stopPropagation();
+      if(ev.key==='Enter'){
+        const created=await Store.classes.add(inp.value);
+        if(!created)return;                 // blank input creates nothing
+        nsClass=created;syncClassMenus();
+      }else if(ev.key==='Escape'){renderNsClasses();}
+    };
+  };
+  nsAddFirst.appendChild(b);
 }
 
 /* A class added in one menu exists in the other, so both are rebuilt together. */
