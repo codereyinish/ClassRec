@@ -232,6 +232,7 @@ body.lockon .voicebtn{display:inline-flex}
 .devopt+.devopt{margin-top:5px}
 .devopt:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
 .devopt.on{color:var(--primary);font-weight:600;background:var(--primary-soft);border-color:var(--theme)}
+.devopt.muted{color:var(--g6)}          /* clearing the choice, not making one */
 .devopt .tick{margin-left:auto;font-size:11px;opacity:0}
 .devopt.on .tick{opacity:1}
 .fi{display:grid;place-items:center;flex:0 0 auto;color:var(--theme)}
@@ -456,7 +457,9 @@ body.ai-open .main{padding-right:var(--ai)}
 }
 .classpick:hover{background:var(--g2);color:var(--g8)}
 .classpick .c{font-size:10px;color:var(--g5)}
-.classwrap .devmenu{left:-7px;right:auto;min-width:220px;top:calc(100% + 4px)}
+/* -16px = the menu's 5px padding + a row's 1px border and 10px padding, so the
+   option text lands exactly under the class name it drops from. */
+.classwrap .devmenu{left:-16px;right:auto;min-width:220px;top:calc(100% + 4px)}
 .head .meta b{color:var(--g8);font-weight:600}
 
 /* audio : a rule, not a box */
@@ -1584,18 +1587,21 @@ async function seedTitles(){
    starts straight in the input for when there is nothing to pick yet. */
 function buildClassMenu(menuEl,{current,onPick,openAdd}={}){
   menuEl.innerHTML='';
-  const names=Store.classes.names();
-  names.forEach(c=>{
+  const row=(label,val,mod)=>{
     const b=document.createElement('button');
-    b.type='button';b.className='devopt'+(c===current?' on':'');
-    b.innerHTML=`<span>${c}</span><span class="tick">✓</span>`;
-    b.onclick=e=>{e.stopPropagation();menuEl.classList.remove('open');onPick(c);};
+    b.type='button';b.className='devopt'+(mod||'');
+    b.innerHTML=`<span>${label}</span><span class="tick">✓</span>`;
+    b.onclick=e=>{e.stopPropagation();menuEl.classList.remove('open');onPick(val);};
     menuEl.appendChild(b);
-  });
+  };
+  /* The chosen class is already shown on the control above, so the menu lists
+     what you could switch TO — repeating it just read as the same name twice.
+     Clearing it is an option in its own right, offered only when one is set. */
+  Store.classes.names().filter(c=>c!==current).forEach(c=>row(c,c));
+  if(current)row('No class','',' muted');
   const add=document.createElement('div');
-  // With no classes above it the divider separates nothing, so it goes away and
-  // the menu is just the one row: Add a class.
-  add.className='cls-add'+(names.length?'':' only');
+  // Nothing above it: the spacing separates nothing, so the menu is the one row.
+  add.className='cls-add'+(menuEl.children.length?'':' only');
   menuEl.appendChild(add);
   const showInput=()=>{
     add.innerHTML='';
