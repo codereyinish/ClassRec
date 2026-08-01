@@ -431,7 +431,9 @@ body.ai-open .main{padding-right:var(--ai)}
 }
 /* Both the name and the course start blank and read as prompts, not as values —
    nothing is chosen on the user's behalf. */
-.head h1:empty::before{content:'Session name';color:var(--g5)}
+/* Cleared for typing, the ghost keeps showing the name you would get anyway —
+   the stand-in never changes into a different word behind your back. */
+.head h1:empty::before{content:var(--ph,'Untitled 1');color:var(--g5)}
 .head h1.auto{color:var(--g5)}          /* a stand-in name, not one you chose */
 /* Unset, but still a control worth noticing — one step lighter than a chosen
    course, not the near-invisible grey a pure placeholder gets. */
@@ -1521,7 +1523,9 @@ function setTitle(name){
    is styled as provisional and steps aside the moment you click in, so you type
    over an empty line instead of deleting someone else's text first. */
 function applyAutoTitle(){
-  titleEl.textContent=nextUntitled();
+  const t=nextUntitled();
+  titleEl.textContent=t;
+  titleEl.style.setProperty('--ph',JSON.stringify(t));   // the ghost, once cleared
   titleEl.classList.add('auto');
 }
 titleEl.addEventListener('focus',()=>{
