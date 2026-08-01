@@ -635,6 +635,7 @@ body:not(.has-text) .stream{display:none}
 .ns-classfield .devmenu{position:static;margin-top:6px;box-shadow:none;max-height:180px;overflow-y:auto}
 /* the add row is a menu row until it is clicked, then it is the field itself */
 .cls-add{border-top:1px solid var(--rule);margin-top:4px;padding-top:4px}
+.cls-add.only{border-top:none;margin-top:0;padding-top:0}   /* nothing above to divide */
 .cls-add-input{
   width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--theme);
   background:var(--g0);font-family:var(--sans);font-size:13px;color:var(--g8);outline:none;
@@ -1547,18 +1548,60 @@ async function seedTitles(){
   }catch{}
   if(titleEl.classList.contains('auto')||!titleEl.textContent.trim())applyAutoTitle();
 }
+/* ONE class menu, rendered into two containers. The picker under the title and
+   the one in the New Session dialog are the same list with the same "add a
+   class" field — only the box around them differs in size, so they share this
+   builder rather than drifting apart as two copies.
+
+   `current` is the selected name, `onPick` takes the chosen one, and `openAdd`
+   starts straight in the input for when there is nothing to pick yet. */
+function buildClassMenu(menuEl,{current,onPick,openAdd}={}){
+  menuEl.innerHTML='';
+  const names=Store.classes.names();
+  names.forEach(c=>{
+    const b=document.createElement('button');
+    b.type='button';b.className='devopt'+(c===current?' on':'');
+    b.innerHTML=`<span>${c}</span><span class="tick">✓</span>`;
+    b.onclick=e=>{e.stopPropagation();menuEl.classList.remove('open');onPick(c);};
+    menuEl.appendChild(b);
+  });
+  const add=document.createElement('div');
+  // With no classes above it the divider separates nothing, so it goes away and
+  // the menu is just the one row: Add a class.
+  add.className='cls-add'+(names.length?'':' only');
+  menuEl.appendChild(add);
+  const showInput=()=>{
+    add.innerHTML='';
+    const inp=document.createElement('input');
+    inp.className='cls-add-input';inp.placeholder='Class name';inp.autocomplete='off';
+    add.appendChild(inp);inp.focus();
+    inp.onclick=e=>e.stopPropagation();
+    inp.onkeydown=async e=>{
+      e.stopPropagation();
+      if(e.key==='Enter'){
+        // awaited so the shape already matches the POST that replaces it
+        const created=await Store.classes.add(inp.value);
+        if(!created)return;                 // blank input creates nothing
+        menuEl.classList.remove('open');
+        onPick(created);                    // a class you just named is the one you meant
+      }else if(e.key==='Escape'){ syncClassMenus(); }
+    };
+  };
+  const btn=document.createElement('button');
+  btn.type='button';btn.className='devopt';
+  btn.innerHTML='<span>＋ Add a class</span>';
+  /* A course is just a name, so it is typed right here. Voices are enrolled from
+     the rail — a different thing, deliberately not reached from this menu. */
+  btn.onclick=e=>{e.stopPropagation();showInput();};
+  add.appendChild(btn);
+  if(openAdd)showInput();
+}
+
 function renderClasses(){
   classPick.classList.toggle('unset',!curClass);
   classPick.innerHTML=(curClass||'Course name')+' <span class="c">▾</span>';
-  classMenu.innerHTML='';
-  Store.classes.names().forEach(c=>{
-    const b=document.createElement('button');
-    b.type='button';b.className='devopt'+(c===curClass?' on':'');
-    b.innerHTML=`<span>${c}</span><span class="tick">✓</span>`;
-    b.onclick=e=>{e.stopPropagation();curClass=c;classMenu.classList.remove('open');
-      renderClasses();};
-    classMenu.appendChild(b);
-  });
+  buildClassMenu(classMenu,{current:curClass,
+    onPick:c=>{curClass=c;syncClassMenus();}});
 }
 renderClasses();
 classPick.onclick=e=>{e.stopPropagation();classMenu.classList.toggle('open');};
@@ -1586,42 +1629,12 @@ let nsClass=curClass;
    selected. Empty input creates nothing — classes are never auto-named. */
 function renderNsClasses(openAdd){
   nsClassTxt.textContent=nsClass||'No class — just recording';
-  nsClassMenu.innerHTML='';
-  Store.classes.names().forEach(c=>{
-    const b=document.createElement('button');
-    b.type='button';b.className='devopt'+(c===nsClass?' on':'');
-    b.innerHTML=`<span>${c}</span><span class="tick">✓</span>`;
-    b.onclick=e=>{e.stopPropagation();nsClass=c;nsClassMenu.classList.remove('open');renderNsClasses();};
-    nsClassMenu.appendChild(b);
-  });
-  const add=document.createElement('div');
-  add.className='cls-add';
-  nsClassMenu.appendChild(add);
-  const showInput=()=>{
-    add.innerHTML='';
-    const inp=document.createElement('input');
-    inp.className='cls-add-input';inp.placeholder='Class name';inp.autocomplete='off';
-    add.appendChild(inp);inp.focus();
-    inp.onclick=e=>e.stopPropagation();
-    inp.onkeydown=async e=>{
-      e.stopPropagation();
-      if(e.key==='Enter'){
-        // awaited so the shape already matches the POST that replaces it
-        const created=await Store.classes.add(inp.value);
-        if(!created)return;                // blank input creates nothing
-        nsClass=created;renderClasses();
-        nsClassMenu.classList.remove('open');renderNsClasses();
-      }else if(e.key==='Escape'){renderNsClasses();}
-    };
-  };
-  const btn=document.createElement('button');
-  btn.type='button';btn.className='devopt';
-  btn.innerHTML='<span>＋ Add a class</span>';
-  /* A course is just a name, so it is typed right here. Voices are enrolled from
-     the rail — a different thing, deliberately not reached from this menu. */
-  btn.onclick=e=>{e.stopPropagation();showInput();};
-  add.appendChild(btn);
+  buildClassMenu(nsClassMenu,{current:nsClass,openAdd,
+    onPick:c=>{nsClass=c;renderNsClasses();}});
 }
+
+/* A class added in one menu exists in the other, so both are rebuilt together. */
+function syncClassMenus(){ renderClasses(); if(typeof renderNsClasses==='function')renderNsClasses(); }
 nsClassPick.onclick=e=>{
   e.stopPropagation();
   const opening=!nsClassMenu.classList.contains('open');
