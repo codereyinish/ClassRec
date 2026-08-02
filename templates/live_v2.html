@@ -1259,6 +1259,7 @@ async function startRecording(){
     return;
   }
   B.classList.add('has-text');        // empty state gives way to the stream
+  startLiveWave();                    // the strip is up for the whole lecture
   setActivity('rec');                 // green, and the clock, only from here
   roL.textContent='good';
   run();
@@ -1694,7 +1695,7 @@ function resetSession(){
   document.querySelector('.stream').innerHTML='';   // last session's blocks go with it
   liveChunk=null;
   // the previous lecture's audio goes with its transcript
-  stopSyncLoop();
+  stopSyncLoop(); stopLiveWave();
   audioPanel.hidden=true;
   if(window.recordingUrl){URL.revokeObjectURL(window.recordingUrl);window.recordingUrl=null;}
   window.recordingBlob=null; pcmBlob=null; waveformBars=null; decodedBuffer=null;
@@ -2054,7 +2055,9 @@ function drawWaveform(currentTime) {
     const centerX = W / 2;
 
     ctx.clearRect(0, 0, W, H);
-    if (!waveformBars || !decodedBuffer) return;
+    // decodedBuffer is absent while the lecture is still running — the bars are
+    // being accumulated live at that point, and are just as drawable.
+    if (!waveformBars || !waveformBars.length) return;
 
     // Exact world pixel position of current time
     const centerWorld = currentTime * BARS_PER_SEC * STEP;
@@ -2103,6 +2106,62 @@ function formatTimeTick(sec) {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
+}
+
+
+// ===== LIVE WAVEFORM =====
+// The strip is up from the first second rather than only after stop, so the
+// lecture is visibly being captured. Peaks accumulate into the same array
+// initWaveform builds, at the same BARS_PER_SEC, so nothing changes shape when
+// the recording ends — the bars are simply recomputed exactly from the WAV.
+//
+// The bar boundary is carried as a float (16000/12 = 1333.33 samples). Rounding
+// it would drift about a second over an hour and slide the waveform out of step
+// with the word timings by the end of a lecture.
+const SAMPLES_PER_BAR = SR / BARS_PER_SEC;
+let liveBars = [], liveSamples = 0, barPeak = 0, barBoundary = 0, liveRaf = null;
+
+function feedLiveWave(float32) {
+    for (let i = 0; i < float32.length; i++) {
+        const a = Math.abs(float32[i]);
+        if (a > barPeak) barPeak = a;
+        liveSamples++;
+        if (liveSamples >= barBoundary) {
+            liveBars.push(barPeak);
+            barPeak = 0;
+            barBoundary += SAMPLES_PER_BAR;
+        }
+    }
+}
+
+function startLiveWave() {
+    liveBars = []; liveSamples = 0; barPeak = 0; barBoundary = SAMPLES_PER_BAR;
+    waveformBars = liveBars;      // drawWaveform reads this either way
+    decodedBuffer = null;
+    audioPanel.hidden = false;
+    const r = devicePixelRatio || 1;
+    canvas.width  = canvas.clientWidth * r;
+    canvas.height = canvas.clientHeight * r;
+    canvas.getContext('2d').setTransform(r, 0, 0, r, 0, 0);
+    resumeLiveWave();
+}
+
+// Following the live edge again after playback let go of the strip. Separate
+// from startLiveWave so replaying part of a lecture mid-lecture does not throw
+// away the bars already drawn.
+function resumeLiveWave() {
+    stopLiveWave();
+    (function loop() {
+        const t = liveSamples / SR;       // playhead sits at the live edge
+        drawWaveform(t);
+        durDisplay.textContent = formatTimeTick(t);
+        timeDisplay.textContent = formatTime(t);
+        liveRaf = requestAnimationFrame(loop);
+    })();
+}
+
+function stopLiveWave() {
+    if (liveRaf) { cancelAnimationFrame(liveRaf); liveRaf = null; }
 }
 
 
@@ -2187,8 +2246,10 @@ function stopSyncLoop() {
 
 // ===== CONTROLS =====
 playPauseBtn.addEventListener('click', () => {
-    if (!window.recordingUrl) return;
+    if (!buildWavUrl() && !window.recordingUrl) return;   // nothing captured yet
     if (audioEl.paused) {
+        if (!audioEl.src) audioEl.src = window.recordingUrl;
+        stopLiveWave();          // the playhead is the user's now, not the live edge
         audioEl.play();
         playPauseBtn.textContent = '⏸';
         startSyncLoop();
@@ -2198,6 +2259,7 @@ playPauseBtn.addEventListener('click', () => {
         stopSyncLoop();
         // Keep last word lit while paused
         if (lastActiveSpan) lastActiveSpan.classList.add('active');
+        if (B.classList.contains('rec')) resumeLiveWave();   // still recording
     }
 });
 
@@ -2207,6 +2269,7 @@ audioEl.addEventListener('ended', () => {
     if (decodedBuffer) drawWaveform(decodedBuffer.duration);
     // Keep last word lit after playback ends
     if (lastActiveSpan) lastActiveSpan.classList.add('active');
+    if (B.classList.contains('rec')) resumeLiveWave();       // back to the live edge
 });
 
 addEventListener('resize', () => { if (!audioPanel.hidden) initWaveform(); });
@@ -2229,8 +2292,9 @@ document.addEventListener('click', (e) => {
     if (!span) return;
     const t = parseFloat(span.dataset.start);
     if (isNaN(t)) return;
-    buildWavUrl();
+    buildWavUrl();               // mid-lecture this is the audio so far
     showAudioPanel();
+    stopLiveWave();              // stop following the live edge; the user is steering
     audioEl.src = window.recordingUrl;
     audioEl.currentTime = t;
     lastActiveSpan = null;  // reset so stale word doesn't show before first hit
@@ -2322,6 +2386,7 @@ async function startCapture(){
     if(enrolCapturing){enrolBuf.push(new Int16Array(pcm));return;}   // sample, not lecture
     if(ws&&ws.readyState===1)ws.send(pcm.buffer);
     appendChunkToPcmBlob(pcm);   // keep the lecture, so it can be played back
+    feedLiveWave(f);             // and draw it as it arrives
   };
 }
 function stopCapture(){
@@ -2459,7 +2524,9 @@ function endLiveSession(){
   ws=null;live=false;setConn('off','Idle');
   roFill.style.width='0%';
 
-  // Build final WAV URL and show player panel — stopRecording() does this too
+  // Build final WAV URL and show player panel — stopRecording() does this too.
+  // The live bars hand over to peaks read straight from the finished WAV.
+  stopLiveWave();
   buildWavUrl();
   pcmBlob = null;
   showAudioPanel();
