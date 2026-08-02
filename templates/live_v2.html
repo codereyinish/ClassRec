@@ -566,6 +566,13 @@ mark[class^="highlight-"]{background:transparent;color:inherit;border-radius:3px
 .highlight-name       {background:rgba(219,166,147,.34)!important}
 .transcript-text{font-size:16.5px;line-height:1.66;letter-spacing:-.008em;color:var(--g8)}
 
+/* Every word is a seek point: clicking one plays the lecture from there, and the
+   word under the playhead lights as it goes. The hover tint says so before the
+   click, without putting a box round every word in the page. */
+.stream span.word{cursor:pointer;border-radius:3px;padding:0 1px;transition:background .12s var(--e)}
+.stream span.word:hover{background:var(--primary-soft)}
+.stream span.word.active{background:var(--primary-soft);color:var(--primary);font-weight:600}
+
 /* The left edge means "something fired here" — an alert matched, or you flagged it.
    A block with no tags never gets one, so the stripe stays meaningful down a long
    lecture. Colour comes from --tagline, set per block to the first tag's colour,
@@ -994,6 +1001,7 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <button class="play" id="pl">▶</button>
       <div class="t"><b id="plAt">00:00</b> / <span id="plDur">00:00</span></div>
       <canvas id="wv"></canvas>
+      <audio id="recAudio" preload="metadata"></audio>
     </div></div>
 
     <div class="scroll"><div class="wrap">
@@ -1568,7 +1576,6 @@ const Store={
   },
 };
 let curClass='';
-const audioBar=document.getElementById('audioBar');
 const titleEl=document.getElementById('title'), durTxt=document.getElementById('durTxt'),
       classPick=document.getElementById('classPick'), classMenu=document.getElementById('classMenu');
 const fmtDate=d=>d.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
@@ -1686,7 +1693,12 @@ function resetSession(){
   B.classList.remove('has-text');
   document.querySelector('.stream').innerHTML='';   // last session's blocks go with it
   liveChunk=null;
-  audioBar.hidden=true;
+  // the previous lecture's audio goes with its transcript
+  stopSyncLoop();
+  audioPanel.hidden=true;
+  if(window.recordingUrl){URL.revokeObjectURL(window.recordingUrl);window.recordingUrl=null;}
+  window.recordingBlob=null; pcmBlob=null; waveformBars=null; decodedBuffer=null;
+  lastActiveSpan=null; playPauseBtn.textContent='▶';
   secs=0;words=0;
   roT.textContent='00:00';roW.textContent='0';roF.textContent='0';roL.textContent='—';
   [roT,roW,roF].forEach(e=>e.classList.add('dim'));
@@ -1945,19 +1957,287 @@ vpFile.onchange=async()=>{
   vpFile.value='';
 };
 
-const c=document.getElementById('wv'),x=c.getContext('2d');
-function draw(){
-  const r=devicePixelRatio||1;
-  c.width=c.clientWidth*r;c.height=c.clientHeight*r;x.setTransform(r,0,0,r,0,0);
-  const w=c.clientWidth,h=c.clientHeight,n=Math.floor(w/3.2),p=Math.floor(n*.27);
-  for(let i=0;i<n;i++){
-    const a=Math.abs(Math.sin(i*.31)*.34+Math.sin(i*.09)*.32+Math.sin(i*1.9)*.14)+.14;
-    const bh=Math.max(2,a*h*.9);
-    x.fillStyle=i<p?'#7678ED':'#E0DCE6';
-    x.fillRect(i*3.2,(h-bh)/2,1.7,bh);
-  }
+/* ── playback : audio-playback.js ─────────────────────────────────────────────
+   Scrolling waveform player and word-audio sync, carried over from
+   static/js/audio-playback.js with its names, constants and structure intact.
+   Fixed playhead at center; waveform slides smoothly underneath via sub-pixel
+   translate. Depends on buildWavUrl / window.recordingBlob / window.recordingUrl
+   above, exactly as it depends on live.js today.
+
+   Two things differ, both forced by where it now lives. The colours are this
+   page's indigo rather than the current page's green on black. And the strip is
+   34px tall, which the ruler cannot share — the elapsed readout beside it says
+   the time instead, so TICK_INTERVAL and the label colours are not carried. */
+
+// ===== CONSTANTS =====
+const BARS_PER_SEC  = 12;   // data resolution — bars per second of audio
+const BAR_W         = 3;    // pixels wide per bar
+const BAR_GAP       = 2;    // pixels gap between bars
+const STEP          = BAR_W + BAR_GAP;  // 4px per bar slot
+
+const COLOR_PLAYED   = '#6365EB';
+const COLOR_UNPLAYED = 'rgba(118,120,237,0.22)';
+const COLOR_PLAYHEAD = '#281F3E';
+
+// ===== STATE =====
+let waveformBars  = null;
+let decodedBuffer = null;
+let rafId         = null;
+
+// ===== DOM REFS =====
+const audioEl      = document.getElementById('recAudio');
+const audioPanel   = document.getElementById('audioBar');
+const canvas       = document.getElementById('wv');
+const playPauseBtn = document.getElementById('pl');
+const timeDisplay  = document.getElementById('plAt');
+const durDisplay   = document.getElementById('plDur');
+
+
+// ===== PANEL =====
+function showAudioPanel() {
+    if (!window.recordingUrl) return;
+    audioEl.src = window.recordingUrl;
+    audioPanel.hidden = false;
+    requestAnimationFrame(() => initWaveform());
 }
-draw();addEventListener('resize',draw);
+
+
+// ===== WAVEFORM INIT =====
+async function initWaveform() {
+    if (!window.recordingBlob) return;
+
+    const r = devicePixelRatio || 1;
+    canvas.width  = canvas.clientWidth * r;
+    canvas.height = canvas.clientHeight * r;
+    canvas.getContext('2d').setTransform(r, 0, 0, r, 0, 0);
+
+    const arrayBuf    = await window.recordingBlob.arrayBuffer();
+    const actx        = new AudioContext();
+    await actx.resume();
+    decodedBuffer     = await actx.decodeAudioData(arrayBuf);
+    await actx.close();
+
+    // One bar = 1/BARS_PER_SEC seconds of audio; store peak amplitude per bar
+    const rawData      = decodedBuffer.getChannelData(0);
+    const sr           = decodedBuffer.sampleRate;
+    const samplesPerBar= Math.max(1, Math.floor(sr / BARS_PER_SEC));
+    const numBars      = Math.ceil(rawData.length / samplesPerBar);
+    waveformBars       = new Float32Array(numBars);
+
+    for (let i = 0; i < numBars; i++) {
+        let peak = 0;
+        const start = i * samplesPerBar;
+        const end   = Math.min(start + samplesPerBar, rawData.length);
+        for (let j = start; j < end; j++) {
+            const a = Math.abs(rawData[j]);
+            if (a > peak) peak = a;
+        }
+        waveformBars[i] = peak;
+    }
+
+    durDisplay.textContent = formatTimeTick(decodedBuffer.duration);
+    drawWaveform(audioEl.currentTime);
+}
+
+
+// ===== WAVEFORM DRAW =====
+// Sub-pixel smooth scrolling:
+//   world-x of bar i  = i * STEP
+//   world-x of center = currentTime * BARS_PER_SEC * STEP
+//   canvas-x of bar i = world-x - leftWorld  (before fractional shift)
+// We ctx.translate(-fracPart, 0) so the canvas slides by less than 1px per frame → smooth.
+function drawWaveform(currentTime) {
+    const ctx     = canvas.getContext('2d');
+    const W       = canvas.clientWidth;
+    const H       = canvas.clientHeight;
+    const PAD_V   = 4;        // top/bottom padding inside waveform zone
+    const centerX = W / 2;
+
+    ctx.clearRect(0, 0, W, H);
+    if (!waveformBars || !decodedBuffer) return;
+
+    // Exact world pixel position of current time
+    const centerWorld = currentTime * BARS_PER_SEC * STEP;
+    const leftWorld   = centerWorld - centerX;
+    const fracPart    = leftWorld - Math.floor(leftWorld);
+
+    // Sub-pixel translate so bars don't jump by whole pixels
+    ctx.save();
+    ctx.translate(-fracPart, 0);
+
+    const firstBar = Math.floor(leftWorld / STEP);
+    const lastBar  = Math.ceil((leftWorld + W + STEP) / STEP);
+    const curBarF  = currentTime * BARS_PER_SEC;  // fractional bar index = playhead
+
+    for (let i = firstBar; i <= lastBar; i++) {
+        if (i < 0 || i >= waveformBars.length) continue;
+        const x    = i * STEP - Math.floor(leftWorld);
+        const amp  = waveformBars[i];
+        const maxBarH = H - PAD_V * 2;
+        const barH    = Math.max(3, amp * maxBarH);
+        ctx.fillStyle = i < curBarF ? COLOR_PLAYED : COLOR_UNPLAYED;
+        ctx.fillRect(x, PAD_V + (maxBarH - barH) / 2, BAR_W, barH);
+    }
+
+    ctx.restore();
+
+    // --- Playhead: vertical line at center ---
+    ctx.fillStyle = COLOR_PLAYHEAD;
+    ctx.fillRect(centerX - 0.5, 2, 1, H - 4);
+
+    timeDisplay.textContent = formatTime(currentTime);
+}
+
+// Full format for main display: m:ss.xx
+function formatTime(sec) {
+    if (sec < 0) sec = 0;
+    const m  = Math.floor(sec / 60);
+    const s  = Math.floor(sec % 60).toString().padStart(2, '0');
+    const ms = Math.floor((sec % 1) * 100).toString().padStart(2, '0');
+    return `${m}:${s}.${ms}`;
+}
+
+// Short format for the duration: m:ss
+function formatTimeTick(sec) {
+    if (sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+}
+
+
+// ===== SYNC LOOP =====
+let lastActiveSpan = null;
+
+// ===== WORD INDEX =====
+// Built once when playback starts rather than re-derived from the DOM every
+// frame. Two Float64Arrays hold each word's start/end so the loop can go
+// straight to the right word instead of testing all of them.
+let idxSpans = [];
+let idxStart = null;
+let idxEnd   = null;
+let cursor   = 0;       // word the previous frame landed on
+let litIndex = -1;      // word currently carrying .active
+let lastT    = -1;      // previous frame's time, used to spot a seek
+
+function buildWordIndex() {
+    idxSpans = Array.prototype.slice.call(document.querySelectorAll('.stream span.word'));
+    const n  = idxSpans.length;
+    idxStart = new Float64Array(n);
+    idxEnd   = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+        idxStart[i] = parseFloat(idxSpans[i].dataset.start);
+        idxEnd[i]   = parseFloat(idxSpans[i].dataset.end);
+    }
+    // Adopt whatever is already highlighted, so resuming from pause doesn't flicker.
+    litIndex = idxSpans.findIndex(s => s.classList.contains('active'));
+    cursor   = litIndex >= 0 ? litIndex : 0;
+    lastT    = -1;      // forces a seek resolution on the first tick
+}
+
+// Words are in time order, so a jump can halve the list instead of walking it —
+// 8,000 words resolves in ~13 comparisons.
+function seekIndex(t) {
+    let lo = 0, hi = idxStart.length - 1, best = 0;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (idxStart[mid] <= t) { best = mid; lo = mid + 1; }
+        else hi = mid - 1;
+    }
+    return best;
+}
+
+function startSyncLoop() {
+    stopSyncLoop();
+    buildWordIndex();
+
+    function tick() {
+        const t = audioEl.currentTime;
+        drawWaveform(t);
+
+        const n = idxSpans.length;
+        if (n) {
+            // A jump of more than a second means the user seeked; otherwise the
+            // audio only crept forward, so step on from where we were — which at
+            // 60fps is almost always zero or one step.
+            if (lastT < 0 || Math.abs(t - lastT) > 1) cursor = seekIndex(t);
+            else while (cursor < n - 1 && t > idxEnd[cursor]) cursor++;
+            lastT = t;
+
+            // Between words, leave the previous one lit. Only the outgoing and
+            // incoming spans are ever touched.
+            if (t >= idxStart[cursor] && t <= idxEnd[cursor] && cursor !== litIndex) {
+                if (litIndex >= 0) idxSpans[litIndex].classList.remove('active');
+                idxSpans[cursor].classList.add('active');
+                litIndex       = cursor;
+                lastActiveSpan = idxSpans[cursor];
+                idxSpans[cursor].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        rafId = requestAnimationFrame(tick);
+    }
+    rafId = requestAnimationFrame(tick);
+}
+
+function stopSyncLoop() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+}
+
+
+// ===== CONTROLS =====
+playPauseBtn.addEventListener('click', () => {
+    if (!window.recordingUrl) return;
+    if (audioEl.paused) {
+        audioEl.play();
+        playPauseBtn.textContent = '⏸';
+        startSyncLoop();
+    } else {
+        audioEl.pause();
+        playPauseBtn.textContent = '▶';
+        stopSyncLoop();
+        // Keep last word lit while paused
+        if (lastActiveSpan) lastActiveSpan.classList.add('active');
+    }
+});
+
+audioEl.addEventListener('ended', () => {
+    playPauseBtn.textContent = '▶';
+    stopSyncLoop();
+    if (decodedBuffer) drawWaveform(decodedBuffer.duration);
+    // Keep last word lit after playback ends
+    if (lastActiveSpan) lastActiveSpan.classList.add('active');
+});
+
+addEventListener('resize', () => { if (!audioPanel.hidden) initWaveform(); });
+
+// ===== SEEK =====
+// Click on canvas: offset from center → time delta
+canvas.addEventListener('click', (e) => {
+    if (!decodedBuffer) return;
+    const rect    = canvas.getBoundingClientRect();
+    const clickX  = e.clientX - rect.left;
+    const dt      = (clickX - rect.width / 2) / (BARS_PER_SEC * STEP);
+    const newTime = Math.max(0, Math.min(decodedBuffer.duration, audioEl.currentTime + dt));
+    audioEl.currentTime = newTime;
+    drawWaveform(newTime);
+});
+
+// Click word span → seek and play
+document.addEventListener('click', (e) => {
+    const span = e.target.closest('.stream span.word');
+    if (!span) return;
+    const t = parseFloat(span.dataset.start);
+    if (isNaN(t)) return;
+    buildWavUrl();
+    showAudioPanel();
+    audioEl.src = window.recordingUrl;
+    audioEl.currentTime = t;
+    lastActiveSpan = null;  // reset so stale word doesn't show before first hit
+    audioEl.play();
+    playPauseBtn.textContent = '⏸';
+    startSyncLoop();
+});
 
 /* ══ LIVE BACKEND ═══════════════════════════════════════════════════════════════
    Speaks the protocol src/main.py already serves — nothing here asks the server to
@@ -2041,6 +2321,7 @@ async function startCapture(){
     meter(Math.sqrt(sum/f.length));                        // the rail's input level, from real audio
     if(enrolCapturing){enrolBuf.push(new Int16Array(pcm));return;}   // sample, not lecture
     if(ws&&ws.readyState===1)ws.send(pcm.buffer);
+    appendChunkToPcmBlob(pcm);   // keep the lecture, so it can be played back
   };
 }
 function stopCapture(){
@@ -2117,6 +2398,38 @@ function highlight(textEl,tags){
   });
 }
 
+/* ── keeping the recording ────────────────────────────────────────────────────
+   live.js's approach, unchanged: every frame is appended to a growing headerless
+   Blob rather than held as an array of Int16Arrays. The browser keeps a reference
+   to the previous blob instead of copying it, so an hour of audio costs no
+   resident memory — which raw PCM in an array would, at 32 KB a second.
+
+   The 44-byte WAV header is written only when playback is wanted, in front of
+   whatever has accumulated. */
+let pcmBlob=null;
+function appendChunkToPcmBlob(int16Chunk){
+  const piece=new Blob([int16Chunk.buffer]);
+  pcmBlob=pcmBlob?new Blob([pcmBlob,piece]):piece;
+}
+function makeWavHeader(dataSize){
+  const buf=new ArrayBuffer(44), v=new DataView(buf);
+  const str=(off,s)=>[...s].forEach((c,i)=>v.setUint8(off+i,c.charCodeAt(0)));
+  str(0,'RIFF'); v.setUint32(4,36+dataSize,true); str(8,'WAVE');
+  str(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true);
+  v.setUint16(22,1,true); v.setUint32(24,SR,true);
+  v.setUint32(28,SR*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  str(36,'data'); v.setUint32(40,dataSize,true);
+  return buf;
+}
+function buildWavUrl(){
+  if(!pcmBlob)return false;
+  const wav=new Blob([makeWavHeader(pcmBlob.size),pcmBlob],{type:'audio/wav'});
+  if(window.recordingUrl)URL.revokeObjectURL(window.recordingUrl);
+  window.recordingBlob=wav;
+  window.recordingUrl=URL.createObjectURL(wav);
+  return true;
+}
+
 /* ── session start : try the real thing, fall back to the demo ── */
 async function beginLiveSession(){
   try{
@@ -2145,6 +2458,11 @@ function endLiveSession(){
   if(ws&&ws.readyState===1)ws.close();
   ws=null;live=false;setConn('off','Idle');
   roFill.style.width='0%';
+
+  // Build final WAV URL and show player panel — stopRecording() does this too
+  buildWavUrl();
+  pcmBlob = null;
+  showAudioPanel();
 }
 
 /* the old simulation, kept for when there is no backend to talk to */
