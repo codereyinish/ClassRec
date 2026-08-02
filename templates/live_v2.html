@@ -2060,7 +2060,12 @@ function drawWaveform(currentTime) {
     const W       = canvas.clientWidth;
     const H       = canvas.clientHeight;
     const PAD_V   = 4;        // top/bottom padding inside waveform zone
-    const centerX = W / 2;
+    // While recording, "now" is the newest bar and there is nothing after it, so a
+    // centred playhead leaves the right half of the strip empty. Anchored at the
+    // right edge instead, audio enters on the right and the history slides left.
+    // Playback goes back to centre, where seeing what is ahead of the playhead is
+    // the point of the strip.
+    const centerX = liveRaf ? W : W / 2;
 
     ctx.clearRect(0, 0, W, H);
     // decodedBuffer is absent while the lecture is still running — the bars are
@@ -2093,8 +2098,12 @@ function drawWaveform(currentTime) {
     ctx.restore();
 
     // --- Playhead: vertical line at center ---
-    ctx.fillStyle = COLOR_PLAYHEAD;
-    ctx.fillRect(centerX - 0.5, 2, 1, H - 4);
+    // Not while recording: the right edge is where "now" is, and a line drawn on
+    // the edge is a sliver against the strip's own border.
+    if (!liveRaf) {
+        ctx.fillStyle = COLOR_PLAYHEAD;
+        ctx.fillRect(centerX - 0.5, 2, 1, H - 4);
+    }
 
     timeDisplay.textContent = formatTime(currentTime);
 }
