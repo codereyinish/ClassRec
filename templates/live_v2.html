@@ -2023,6 +2023,17 @@ const STEP          = BAR_W + BAR_GAP;  // 4px per bar slot
 const LIVE_INSET = 14;
 const anchorX = (W) => (B.classList.contains('rec') ? W - LIVE_INSET : W / 2);
 
+/* Speech peaks around 0.05–0.3 of full scale, so drawing amplitude straight to
+   pixels pins nearly every bar to the floor and the strip looks flat whatever
+   was said. Loudness is perceived closer to a power law than a linear one, which
+   is why meters are drawn on a curve: 0.05 lifts to about a fifth of the height,
+   0.3 to just over half, and the difference between a word and a pause becomes
+   visible. Peaks near full scale still reach the top, so nothing is invented —
+   the same numbers are simply spread over the height instead of the bottom
+   tenth of it. Genuinely silent audio still draws flat, which is worth knowing
+   rather than hiding. */
+const barScale = (amp) => Math.pow(Math.min(1, amp), 0.55);
+
 const COLOR_PLAYED   = '#6365EB';
 const COLOR_UNPLAYED = 'rgba(118,120,237,0.22)';
 const COLOR_PLAYHEAD = '#281F3E';
@@ -2124,7 +2135,7 @@ function drawWaveform(currentTime) {
         const x    = i * STEP - Math.floor(leftWorld);
         const amp  = waveformBars[i];
         const maxBarH = H - PAD_V * 2;
-        const barH    = Math.max(3, amp * maxBarH);
+        const barH    = Math.max(2, barScale(amp) * maxBarH);
         ctx.fillStyle = i < curBarF ? COLOR_PLAYED : COLOR_UNPLAYED;
         ctx.fillRect(x, PAD_V + (maxBarH - barH) / 2, BAR_W, barH);
     }
