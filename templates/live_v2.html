@@ -1171,13 +1171,16 @@ const mmss=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart
    longer a branch that invents words when there is no microphone. */
 const run=()=>{tick=setInterval(()=>{
   secs++;
-  roT.textContent=mmss(secs);
-  durTxt.textContent=mmss(secs);           /* header length follows the session */
-  /* The strip's total is the same number. It had three writers, none of which
-     ran while playing back mid-lecture, so it sat at 0:33 under a Length of
-     0:47 — a total that stops counting reads as a broken clock. One owner now:
-     whatever Length says, the strip says. */
-  durDisplay.textContent=mmss(secs);},1000);};
+  /* The audio is the authority, not this interval. setInterval is throttled in a
+     background tab, so a lecture recorded while you were in another tab counted
+     fewer seconds than it captured — the playhead, which reads real samples, ran
+     past a total that had fallen behind. Sample count cannot drift from the file
+     it describes, and it is exactly what playback can reach.
+     Length, Elapsed and the strip's total are all this one number. */
+  const t = liveSamples ? Math.floor(liveSamples / SR) : secs;
+  roT.textContent=mmss(t);
+  durTxt.textContent=mmss(t);
+  durDisplay.textContent=mmss(t);},1000);};
 /* ── mic state machine, transcribed from live.js ─────────────────────
    lock off  : click → recording
    lock on   : HOLD to enrol a voice. ≥10s → locked. <10s → error.
