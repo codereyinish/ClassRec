@@ -1250,8 +1250,16 @@ async function startRecording(){
     /* Denied, or no server. Back to idle — the clock never started and the halo
        never went green, so there is nothing to undo. */
     setActivity('');
-    showError(err&&(err.name==='NotAllowedError'||err.name==='SecurityError')
-      ? 'Microphone blocked — allow it to record' : 'Could not reach the server');
+    /* Name what actually failed. Everything that was not a permission denial
+       used to be reported as "could not reach the server", which sent us looking
+       at a backend that was answering fine while the microphone was the problem. */
+    const n=(err&&err.name)||'';
+    showError(
+      n==='NotAllowedError'||n==='SecurityError' ? 'Microphone blocked — allow it to record' :
+      n==='NotFoundError'                        ? 'No microphone found' :
+      n==='NotReadableError'                     ? 'Microphone is in use by another app' :
+      err&&err.stage==='mic'                     ? 'Microphone unavailable ('+(n||'unknown')+')' :
+                                                   'Could not reach the server');
     return;
   }
   if(!B.classList.contains('starting')){
@@ -2366,8 +2374,17 @@ async function startCapture(){
   /* No timeout on the prompt. It used to give up after 8s and call that a refusal,
      which turned "still reading the permission sheet" into a fabricated session.
      An unanswered prompt just means not started yet — the page waits. */
-  micStream=await navigator.mediaDevices.getUserMedia({
-    audio:{sampleRate:SR,channelCount:1,echoCancellation:true,noiseSuppression:true}});
+  /* Exactly live.js's constraints. Asking for echoCancellation and
+     noiseSuppression on top of a sample-rate constraint is enough for Safari to
+     reject the whole request, and the failure arrives as a bare error with the
+     microphone never prompting. */
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({
+      audio:{sampleRate:SR,channelCount:1}});
+  }catch(err){
+    err.stage='mic';        // so the caller does not blame the server for this
+    throw err;
+  }
   audioCtx=new AudioContext({sampleRate:SR});
   srcNode=audioCtx.createMediaStreamSource(micStream);
   node=audioCtx.createScriptProcessor(FRAME,1,1);
