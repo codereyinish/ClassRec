@@ -2036,7 +2036,7 @@ const barScale = (amp) => Math.pow(Math.min(1, amp), 0.55);
 
 const COLOR_PLAYED   = '#6365EB';
 const COLOR_UNPLAYED = 'rgba(118,120,237,0.22)';
-const COLOR_PLAYHEAD = '#281F3E';
+const COLOR_PLAYHEAD = '#4A3FBF';   // --lock-deep: the app's dark indigo
 
 // ===== STATE =====
 let waveformBars  = null;
@@ -2132,6 +2132,10 @@ function drawWaveform(currentTime) {
 
     for (let i = firstBar; i <= lastBar; i++) {
         if (i < 0 || i >= waveformBars.length) continue;
+        // Nothing is drawn past the playhead while recording: there is no audio
+        // after "now", and the few bars that fitted in the inset read as a stray
+        // dash floating beyond the line.
+        if (B.classList.contains('rec') && i > curBarF) continue;
         const x    = i * STEP - Math.floor(leftWorld);
         const amp  = waveformBars[i];
         const maxBarH = H - PAD_V * 2;
@@ -2142,15 +2146,16 @@ function drawWaveform(currentTime) {
 
     ctx.restore();
 
-    // --- Playhead: a line with a grip at the top, so it reads as something you
-    // can take hold of rather than a hairline the bars could have drawn. 2px and
-    // a 3.5px cap is enough at this size; anything larger covers the audio it is
-    // meant to point at.
+    // --- Playhead: a full-height bar in the lock indigo. Weight alone carries it
+    // against 3px bars; the pin head that was here read as a map marker.
     ctx.fillStyle = COLOR_PLAYHEAD;
-    ctx.fillRect(centerX - 1, 3, 2, H - 6);
-    ctx.beginPath();
-    ctx.arc(centerX, 3, 3.5, 0, Math.PI * 2);
-    ctx.fill();
+    if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(centerX - 1.5, 0, 3, H, 1.5);
+        ctx.fill();
+    } else {
+        ctx.fillRect(centerX - 1.5, 0, 3, H);
+    }
 
     timeDisplay.textContent = formatTime(currentTime);
 }
@@ -2350,7 +2355,30 @@ addEventListener('resize', () => { if (!audioPanel.hidden) initWaveform(); });
    pcmBlob and to the bars, and the session clock keeps counting, so a lecture
    examined at minute 2 while it is at minute 9 loses nothing — rejoining the
    live edge shows every bar that arrived meanwhile. */
+/* Held, it shuttles rather than tracks: how far the cursor sits from where it
+   went down sets the speed, and it keeps winding at that speed until you move or
+   let go — so reaching minute 2 of a long lecture does not mean dragging the
+   width of the strip. Push right and the recording runs forward, which slides
+   the waveform left, against the cursor.
+   SHUTTLE_PX is the displacement worth one second of audio per second. */
+const SHUTTLE_PX = 22, SHUTTLE_MAX = 60;   // cap so a flick does not fly to the end
 let dragging = false, dragStartX = 0, dragStartT = 0, dragT = 0, dragMoved = false;
+let shuttleDX = 0, shuttleRaf = null, shuttleLast = 0;
+
+function shuttleStep(now) {
+    if (!dragging) return;
+    const dt = Math.min(0.1, (now - shuttleLast) / 1000);   // a stall must not lurch
+    shuttleLast = now;
+    const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
+    const rate = Math.max(-SHUTTLE_MAX, Math.min(SHUTTLE_MAX, shuttleDX / SHUTTLE_PX));
+    dragT = Math.max(0, Math.min(captured, dragT + rate * dt));
+    drawWaveform(dragT);
+    const rect = canvas.getBoundingClientRect();
+    wvTime.hidden = false;
+    wvTime.textContent = formatTimeTick(dragT);
+    wvTime.style.left = (canvas.offsetLeft + anchorX(rect.width)) + 'px';
+    shuttleRaf = requestAnimationFrame(shuttleStep);
+}
 const wvTime = document.getElementById('wvTime');
 const pxPerSec = () => BARS_PER_SEC * STEP;
 
@@ -2361,31 +2389,26 @@ function viewTime() {
 canvas.addEventListener('pointerdown', (e) => {
     const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
     if (!captured) return;
-    dragging = true; dragMoved = false;
+    dragging = true; dragMoved = false; shuttleDX = 0;
     dragStartX = e.clientX;
     dragStartT = dragT = viewTime();
     canvas.setPointerCapture(e.pointerId);
     stopLiveWave();                    // the playhead answers to the cursor now
     audioEl.pause(); playPauseBtn.textContent = '▶'; stopSyncLoop();
+    shuttleLast = performance.now();
+    shuttleRaf = requestAnimationFrame(shuttleStep);
 });
 
 canvas.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const dx = e.clientX - dragStartX;
-    if (Math.abs(dx) > 2) dragMoved = true;
-    const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
-    // Pull left and the strip winds back: dx is negative, so time decreases.
-    dragT = Math.max(0, Math.min(captured, dragStartT + dx / pxPerSec()));
-    drawWaveform(dragT);
-    const rect = canvas.getBoundingClientRect();
-    wvTime.hidden = false;
-    wvTime.textContent = formatTimeTick(dragT);
-    wvTime.style.left = (canvas.offsetLeft + anchorX(rect.width)) + 'px';
+    shuttleDX = e.clientX - dragStartX;
+    if (Math.abs(shuttleDX) > 2) dragMoved = true;
 });
 
 canvas.addEventListener('pointerup', (e) => {
     if (!dragging) return;
-    dragging = false;
+    dragging = false; shuttleDX = 0;
+    if (shuttleRaf) { cancelAnimationFrame(shuttleRaf); shuttleRaf = null; }
     wvTime.hidden = true;
     canvas.releasePointerCapture(e.pointerId);
     if (!dragMoved) return;            // a plain click: the handler below has it
