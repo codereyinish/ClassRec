@@ -295,6 +295,9 @@ body.paused .glow::before{
   background:conic-gradient(from 0deg,var(--red) 0deg,#F87171 60deg,#C0392B 120deg,var(--red) 180deg,#F87171 240deg,#C0392B 300deg,var(--red) 360deg);
   animation:spin 60s linear infinite;
 }
+/* waiting for the mic: the neutral base gradient, dim and slow. Deliberately not
+   green — nothing is being captured until the prompt is answered. */
+body.starting .glow::before{opacity:.45;animation:spin 8s linear infinite}
 /* enrolling: the LOCK colour — same #7678ED as the Lock Mode toggle, 3s */
 body.enrolling .glow::before{
   opacity:.9;
@@ -976,7 +979,7 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <!-- class comes from a picker, date from the clock; together they name the session -->
       <div class="meta">
         <span class="classwrap">
-          <button class="classpick" id="classPick" type="button">CS 301 <span class="c">▾</span></button>
+          <button class="classpick unset" id="classPick" type="button">Course name <span class="c">▾</span></button>
           <div class="devmenu" id="classMenu" role="listbox"></div>
         </span>
         <span class="sep">·</span>
@@ -984,9 +987,12 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       </div>
     </div>
 
-    <div class="wrap"><div class="audio">
+    <!-- Playback belongs to a finished lecture, and a live session has no file to
+         scrub yet. Hidden until one exists, rather than showing the mock's 02:14
+         of audio that was never recorded. -->
+    <div class="wrap" id="audioBar" hidden><div class="audio">
       <button class="play" id="pl">▶</button>
-      <div class="t"><b>02:14</b> / 08:03</div>
+      <div class="t"><b id="plAt">00:00</b> / <span id="plDur">00:00</span></div>
       <canvas id="wv"></canvas>
     </div></div>
 
@@ -1131,16 +1137,10 @@ const mmss=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart
 /* Chunks arrive with the session instead of being there from the start, so the
    empty state is a real state and the stream is something you watch fill. Driven
    off the session tick, which means it pauses when the session does. */
-const chunks=[...document.querySelectorAll('.chunk')];
-let shown=0;
-const showNextChunk=()=>{if(shown<chunks.length)chunks[shown++].classList.add('in');};
+/* The clock only runs while audio is genuinely being captured — there is no
+   longer a branch that invents words when there is no microphone. */
 const run=()=>{tick=setInterval(()=>{
   secs++;
-  if(!live){                       // demo only: fake the words and reveal a block
-    words+=Math.round(2+Math.random()*3);
-    if(secs%4===0)showNextChunk();
-    roW.textContent=words.toLocaleString();
-  }
   roT.textContent=mmss(secs);
   durTxt.textContent=mmss(secs);},1000);};   /* header length follows the session */
 /* ── mic state machine, transcribed from live.js ─────────────────────
@@ -1166,11 +1166,14 @@ const idleCap=()=>
   B.classList.contains('locked') ? 'Click to start recording' :
   B.classList.contains('lockon') ? 'Hold the mic to record a voice' :
                                    'Click the microphone to start recording';
-const isBusy=()=>['rec','paused','enrolling'].some(c=>B.classList.contains(c));
+const isBusy=()=>['starting','rec','paused','enrolling'].some(c=>B.classList.contains(c));
 /* Pause is a sub-state of recording, not a sibling: `paused` keeps `rec` on,
    because the mic click and Save both gate on `rec`, and .glow's paused rules
    sit alongside the recording ones. */
-const ACT={'':[], rec:['rec'], paused:['rec','paused'], enrolling:['enrolling']};
+/* `starting` is deliberately NOT `rec`: between the click and the microphone
+   actually being granted, nothing is being captured, and the green halo would
+   be claiming otherwise while the permission sheet is still open. */
+const ACT={'':[], starting:['starting'], rec:['rec'], paused:['rec','paused'], enrolling:['enrolling']};
 /* Errors are transient: a failed hold explains itself and then gets out of the way,
    rather than sitting in red until something else happens to overwrite it. */
 let errTimer=null;
@@ -1181,10 +1184,11 @@ const showError=msg=>{
 };
 function setActivity(a){
   clearTimeout(errTimer);     // any real state change outranks a pending revert
-  B.classList.remove('rec','paused','enrolling');
+  B.classList.remove('starting','rec','paused','enrolling');
   (ACT[a]||[]).forEach(c=>B.classList.add(c));
   if(a!=='rec')clearInterval(tick);
   if(a==='rec')setCap('Recording… (click to pause)');
+  else if(a==='starting')setCap('Waiting for the microphone…');
   else if(a==='paused')setCap('Paused');
   else if(!a)setCap(idleCap());   // enrolling writes its own countdown
 }
@@ -1229,14 +1233,23 @@ lockToggle.onchange=()=>{
 async function startRecording(){
   B.classList.remove('rail-open');
   secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
-  setActivity('rec');roL.textContent='—';
+  setActivity('starting');roL.textContent='—';
   [roT,roW,roF].forEach(e=>e.classList.remove('dim'));roF.textContent='0';
-  B.classList.add('has-text');   // empty state gives way to the stream
-  setCap('Starting…');           // not "recording" until audio is actually moving
-  await beginLiveSession();      // resolves either way: live, or demo
-  if(!B.classList.contains('rec'))return;                 // abandoned while we waited
-  setCap(live?'Recording… (click to pause)':'Demo mode — no mic or server');
-  roL.textContent=live?'good':'—';
+  durTxt.textContent='00:00';
+  try{
+    await beginLiveSession();        // returns only once the mic is actually granted
+  }catch(err){
+    /* Denied, or no server. Back to idle — the clock never started and the halo
+       never went green, so there is nothing to undo. */
+    setActivity('');
+    showError(err&&(err.name==='NotAllowedError'||err.name==='SecurityError')
+      ? 'Microphone blocked — allow it to record' : 'Could not reach the server');
+    return;
+  }
+  if(!B.classList.contains('starting'))return;   // abandoned while we waited
+  B.classList.add('has-text');        // empty state gives way to the stream
+  setActivity('rec');                 // green, and the clock, only from here
+  roL.textContent='good';
   run();
 }
 
@@ -1537,6 +1550,7 @@ const Store={
   },
 };
 let curClass='';
+const audioBar=document.getElementById('audioBar');
 const titleEl=document.getElementById('title'), durTxt=document.getElementById('durTxt'),
       classPick=document.getElementById('classPick'), classMenu=document.getElementById('classMenu');
 const fmtDate=d=>d.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
@@ -1652,7 +1666,9 @@ document.addEventListener('click',()=>classMenu.classList.remove('open'));
 function resetSession(){
   setActivity('');
   B.classList.remove('has-text');
-  shown=0;chunks.forEach(c=>c.classList.remove('in'));
+  document.querySelector('.stream').innerHTML='';   // last session's blocks go with it
+  liveChunk=null;
+  audioBar.hidden=true;
   secs=0;words=0;
   roT.textContent='00:00';roW.textContent='0';roF.textContent='0';roL.textContent='—';
   [roT,roW,roF].forEach(e=>e.classList.add('dim'));
@@ -1977,7 +1993,7 @@ async function openSocket(){
       resolve(s);
     };
     s.onerror=fail;
-    s.onclose=()=>{if(ws===s){ws=null;live=false;setConn('off','Demo mode');}};
+    s.onclose=()=>{if(ws===s){ws=null;live=false;setConn('off','Disconnected');}};
     s.onmessage=e=>onServer(JSON.parse(e.data));
     setTimeout(()=>{if(s.readyState!==1)fail();},2500);   // don't hang on a dead host
   });
@@ -1986,13 +2002,11 @@ async function openSocket(){
 /* ── microphone → Int16 PCM, exactly as live.js does it ── */
 async function startCapture(){
   setConn('wait','Waiting for mic…');
-  /* An unanswered permission prompt never settles, and the page was left claiming to
-     record with no audio flowing. Give it a bound and treat silence as a refusal. */
-  micStream=await Promise.race([
-    navigator.mediaDevices.getUserMedia({
-      audio:{sampleRate:SR,channelCount:1,echoCancellation:true,noiseSuppression:true}}),
-    new Promise((_,rej)=>setTimeout(()=>rej(Object.assign(new Error('mic'),{name:'NotAllowedError'})),8000))
-  ]);
+  /* No timeout on the prompt. It used to give up after 8s and call that a refusal,
+     which turned "still reading the permission sheet" into a fabricated session.
+     An unanswered prompt just means not started yet — the page waits. */
+  micStream=await navigator.mediaDevices.getUserMedia({
+    audio:{sampleRate:SR,channelCount:1,echoCancellation:true,noiseSuppression:true}});
   audioCtx=new AudioContext({sampleRate:SR});
   srcNode=audioCtx.createMediaStreamSource(micStream);
   node=audioCtx.createScriptProcessor(FRAME,1,1);
@@ -2101,8 +2115,12 @@ async function beginLiveSession(){
     // the socket may have opened before the mic was refused — don't leave it dangling
     if(ws&&ws.readyState<=1){try{ws.close();}catch{} ws=null;}
     stopCapture();
-    setConn('off',err&&err.name==='NotAllowedError'?'Mic blocked — demo':'No server — demo');
-    demoStream();                                     // the page still shows something
+    /* Nothing is faked when this fails. A page that invents a transcript after a
+       denied microphone is lying about what it recorded, so it says what went
+       wrong and goes back to idle. */
+    const denied=err&&(err.name==='NotAllowedError'||err.name==='SecurityError');
+    setConn('off',denied?'Mic blocked':'No server');
+    throw err;
   }
 }
 function endLiveSession(){
@@ -2113,13 +2131,6 @@ function endLiveSession(){
 }
 
 /* the old simulation, kept for when there is no backend to talk to */
-function demoStream(){
-  shown=0;chunks.forEach(c=>c.classList.remove('in'));
-  if(!document.querySelector('.stream').children.length)
-    chunks.forEach(c=>document.querySelector('.stream').appendChild(c));
-  showNextChunk();
-}
-
 /* ── the two messages the current page also sends ── */
 function useSavedVoice(v){                       // voice-picker.js → live.js does this
   if(!v||!v.id||!ws||ws.readyState!==1)return;
