@@ -477,6 +477,15 @@ body.ai-open .main{padding-right:var(--ai)}
 .play:hover{background:var(--primary-hi)}
 .t{font-family:var(--mono);font-size:12.5px;color:var(--g6);font-variant-numeric:tabular-nums;flex:0 0 auto}
 .t b{color:var(--g8);font-weight:500}
+
+/* The total is also the way back to now: it is the live length, so clicking it
+   takes the playhead there. Coloured so it reads as a control rather than a
+   second timestamp sitting next to the first. */
+#plDur{color:var(--primary);cursor:pointer;border-radius:5px;padding:1px 4px;margin:0 -4px;
+  transition:background .14s var(--e),color .14s var(--e)}
+#plDur:hover{background:var(--primary-soft)}
+body.rec #plDur::after{content:'';display:inline-block;width:5px;height:5px;margin-left:5px;
+  border-radius:999px;background:var(--green-ink);vertical-align:middle}
 canvas{flex:1;height:34px;display:block;min-width:0;cursor:grab}
 canvas:active{cursor:grabbing}
 
@@ -1163,7 +1172,12 @@ const mmss=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart
 const run=()=>{tick=setInterval(()=>{
   secs++;
   roT.textContent=mmss(secs);
-  durTxt.textContent=mmss(secs);},1000);};   /* header length follows the session */
+  durTxt.textContent=mmss(secs);           /* header length follows the session */
+  /* The strip's total is the same number. It had three writers, none of which
+     ran while playing back mid-lecture, so it sat at 0:33 under a Length of
+     0:47 — a total that stops counting reads as a broken clock. One owner now:
+     whatever Length says, the strip says. */
+  durDisplay.textContent=mmss(secs);},1000);};
 /* ── mic state machine, transcribed from live.js ─────────────────────
    lock off  : click → recording
    lock on   : HOLD to enrol a voice. ≥10s → locked. <10s → error.
@@ -2069,7 +2083,7 @@ async function initWaveform() {
         waveformBars[i] = peak;
     }
 
-    durDisplay.textContent = formatTimeTick(decodedBuffer.duration);
+    durDisplay.textContent = mmss(Math.round(decodedBuffer.duration));   // same format as Length
     drawWaveform(audioEl.currentTime);
 }
 
@@ -2117,9 +2131,15 @@ function drawWaveform(currentTime) {
 
     ctx.restore();
 
-    // --- Playhead: vertical line at center ---
+    // --- Playhead: a line with a grip at the top, so it reads as something you
+    // can take hold of rather than a hairline the bars could have drawn. 2px and
+    // a 3.5px cap is enough at this size; anything larger covers the audio it is
+    // meant to point at.
     ctx.fillStyle = COLOR_PLAYHEAD;
-    ctx.fillRect(centerX - 0.5, 2, 1, H - 4);
+    ctx.fillRect(centerX - 1, 3, 2, H - 6);
+    ctx.beginPath();
+    ctx.arc(centerX, 3, 3.5, 0, Math.PI * 2);
+    ctx.fill();
 
     timeDisplay.textContent = formatTime(currentTime);
 }
@@ -2189,7 +2209,6 @@ function resumeLiveWave() {
     (function loop() {
         const t = liveSamples / SR;       // playhead sits at the live edge
         drawWaveform(t);
-        durDisplay.textContent = formatTimeTick(t);
         timeDisplay.textContent = formatTime(t);
         liveRaf = requestAnimationFrame(loop);
     })();
@@ -2351,9 +2370,6 @@ canvas.addEventListener('pointermove', (e) => {
     wvTime.hidden = false;
     wvTime.textContent = formatTimeTick(dragT);
     wvTime.style.left = (canvas.offsetLeft + anchorX(rect.width)) + 'px';
-    // The lecture is still being recorded while you hold the strip, so the total
-    // keeps climbing even though the playhead is parked in the past.
-    if (B.classList.contains('rec')) durDisplay.textContent = formatTimeTick(liveSamples / SR);
 });
 
 canvas.addEventListener('pointerup', (e) => {
@@ -2363,6 +2379,15 @@ canvas.addEventListener('pointerup', (e) => {
     canvas.releasePointerCapture(e.pointerId);
     if (!dragMoved) return;            // a plain click: the handler below has it
     playFrom(dragT);
+});
+
+/* The total is the live length, so clicking it means "take me to now". While
+   recording that rejoins the live edge; on a finished recording it is the end. */
+durDisplay.addEventListener('click', () => {
+    if (audioPanel.hidden) return;
+    audioEl.pause(); playPauseBtn.textContent = '▶'; stopSyncLoop();
+    if (B.classList.contains('rec')) { resumeLiveWave(); return; }
+    if (decodedBuffer) { audioEl.currentTime = decodedBuffer.duration; drawWaveform(decodedBuffer.duration); }
 });
 
 /* Play from a point on a recording that may still be growing — the header has to
