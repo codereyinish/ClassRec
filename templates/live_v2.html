@@ -618,15 +618,17 @@ body:not(.has-text) .stream{display:none}
 /* Dialog controls sit on tints of the theme rather than neutral grey — three light
    steps of the same indigo (wash → line → deep) instead of borrowing the grey ramp. */
 :root{--tint-1:#FAFAFE; --tint-2:#E7E7FB; --tint-3:#C9C9F5}
-#ns .ctx-input,#ns .ns-classpick{background:var(--tint-1);border-color:var(--tint-2)}
-#ns .ctx-input:hover,#ns .ns-classpick:hover{border-color:var(--tint-3)}
+/* One step deeper than the wash the fields sit on, so an edge is visible before
+   you hover it — --tint-2 read as no border at all against white. */
+#ns .ctx-input,#ns .ns-classpick{background:var(--tint-1);border-color:var(--tint-3)}
+#ns .ctx-input:hover,#ns .ns-classpick:hover{border-color:var(--theme)}
 #ns .ctx-input:focus{border-color:var(--theme);background:var(--g0)}
 #ns .devmenu{border-color:var(--tint-2);background:var(--g0)}
 #ns .devopt{border-color:var(--tint-2)}
 #ns .devopt:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
 #ns .cls-add{border-top-color:var(--tint-2)}
-#ns .ctx-skip{border-color:var(--tint-2)}
-#ns .ctx-skip:hover{background:var(--tint-1);border-color:var(--tint-3)}
+#ns .ctx-skip{border-width:1.5px;border-color:var(--tint-3)}
+#ns .ctx-skip:hover{background:var(--tint-1);border-color:var(--theme)}
 .ns-err{
   font-size:12.5px;font-weight:500;color:var(--red-ink);
   max-height:0;opacity:0;overflow:hidden;transition:.2s var(--e);
@@ -670,7 +672,7 @@ body:not(.has-text) .stream{display:none}
 .ctx-foot .btn.solid{margin-left:auto}
 /* Dashed: skipping is the optional way out, and the broken border says so
    without needing a second colour. */
-.ctx-skip{border:1px dashed var(--g4)}
+.ctx-skip{border:1.5px dashed var(--g5)}
 
 /* ── AI panel : right side, like Audionotes ── */
 .ai{
