@@ -1246,7 +1246,10 @@ async function startRecording(){
       ? 'Microphone blocked — allow it to record' : 'Could not reach the server');
     return;
   }
-  if(!B.classList.contains('starting'))return;   // abandoned while we waited
+  if(!B.classList.contains('starting')){
+    endLiveSession();      // cancelled while we waited: let the mic and socket go
+    return;
+  }
   B.classList.add('has-text');        // empty state gives way to the stream
   setActivity('rec');                 // green, and the clock, only from here
   roL.textContent='good';
@@ -1344,6 +1347,13 @@ mic.addEventListener('click',()=>{
   // With a default voice on file, `locked` is already set when Lock Mode goes on, so
   // this no longer gates the normal path -- it only bites when every voice has been
   // deleted and there is nothing to lock onto. Never blocks a live session.
+  /* Already waiting on the permission sheet: this click cancels rather than
+     starting a second attempt, which would open a second prompt and a second
+     socket. Whatever the pending request does later is discarded. */
+  if(B.classList.contains('starting')){
+    setActivity('');setConn('off','Idle');
+    return;
+  }
   const live=B.classList.contains('rec');
   if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return;
   if(!B.classList.contains('rec')){
