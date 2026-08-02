@@ -1387,23 +1387,27 @@ document.addEventListener('keydown',e=>{
    context, which is what the floating button does for a selection. */
 const aiQuote=document.querySelector('.quote');
 const blockText=c=>c.querySelector('.transcript-text').textContent.replace(/\s+/g,' ').trim();
-chunks.forEach(c=>{
-  const stamp=c.querySelector('.timestamp').firstChild.textContent.trim();
-  c.querySelector('.copy').onclick=async e=>{
-    e.stopPropagation();
-    const b=e.currentTarget;
+/* Delegated, because blocks arrive during the lecture. This used to bind over a
+   fixed list of blocks that existed at load — which was true of the mock and is
+   not true of a live session, where the stream starts empty. */
+document.querySelector('.stream').addEventListener('click',async e=>{
+  const copy=e.target.closest('.copy'), ask=e.target.closest('.ask');
+  const c=e.target.closest('.chunk');
+  if(!c||(!copy&&!ask))return;
+  e.stopPropagation();
+  if(copy){
     try{await navigator.clipboard.writeText(blockText(c));}catch{}
-    b.classList.add('done');
-    b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-    setTimeout(()=>{b.classList.remove('done');
-      b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';},1400);
-  };
-  c.querySelector('.ask').onclick=e=>{
-    e.stopPropagation();
-    const t=blockText(c);
-    aiQuote.innerHTML='<em>'+stamp+'</em>“'+(t.length>180?t.slice(0,180).trim()+'…':t)+'”';
-    openAI();
-  };
+    copy.classList.add('done');
+    copy.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+    setTimeout(()=>{copy.classList.remove('done');
+      copy.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';},1400);
+    return;
+  }
+  const stampEl=c.querySelector('.timestamp');
+  const stamp=stampEl&&stampEl.firstChild?stampEl.firstChild.textContent.trim():'';
+  const t=blockText(c);
+  aiQuote.innerHTML='<em>'+stamp+'</em>“'+(t.length>180?t.slice(0,180).trim()+'…':t)+'”';
+  openAI();
 });
 document.getElementById('aiX').onclick=()=>B.classList.remove('ai-open');
 
