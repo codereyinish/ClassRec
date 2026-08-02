@@ -1736,7 +1736,7 @@ function resetSession(){
   stopSyncLoop(); stopLiveWave();
   audioPanel.hidden=true;
   if(window.recordingUrl){URL.revokeObjectURL(window.recordingUrl);window.recordingUrl=null;}
-  window.recordingBlob=null; pcmBlob=null; waveformBars=null; decodedBuffer=null;
+  window.recordingBlob=null; pcmBlob=null; hifiChunks=[]; waveformBars=null; decodedBuffer=null;
   lastActiveSpan=null; playPauseBtn.textContent='▶';
   secs=0;words=0;
   roT.textContent='00:00';roW.textContent='0';roF.textContent='0';roL.textContent='—';
@@ -2595,6 +2595,7 @@ async function startCapture(){
     err.stage='mic';        // so the caller does not blame the server for this
     throw err;
   }
+  startHifiRecorder(micStream);   // the copy you will actually listen to
   audioCtx=new AudioContext({sampleRate:SR});
   srcNode=audioCtx.createMediaStreamSource(micStream);
   node=audioCtx.createScriptProcessor(FRAME,1,1);
@@ -2617,6 +2618,7 @@ async function startCapture(){
   };
 }
 function stopCapture(){
+  stopHifiRecorder();   // before the tracks go, or the last chunk is lost
   try{node&&node.disconnect();srcNode&&srcNode.disconnect();}catch{}
   try{audioCtx&&audioCtx.close();}catch{}
   try{micStream&&micStream.getTracks().forEach(t=>t.stop());}catch{}
@@ -2713,12 +2715,59 @@ function makeWavHeader(dataSize){
   str(36,'data'); v.setUint32(40,dataSize,true);
   return buf;
 }
+/* ── the listenable copy ──────────────────────────────────────────────────────
+   Whisper is fed 16 kHz mono because that is what it wants, and that discards
+   everything above 8 kHz — the band that makes speech sound crisp rather than
+   like a phone call. Fine for recognition, poor to listen back to.
+
+   So the same microphone stream is recorded a second time by MediaRecorder at
+   the device's own rate, compressed. That copy is what playback uses; the 16 kHz
+   PCM still goes to the server untouched, and still backs playback if the
+   browser gives us no recorder.
+
+   Both start from the same stream within a frame of each other, so word
+   timings from the server line up with either. */
+let hifiRec=null, hifiChunks=[], hifiType='';
+function startHifiRecorder(stream){
+  hifiChunks=[]; hifiRec=null;
+  if(typeof MediaRecorder==='undefined')return;
+  const types=['audio/mp4','audio/webm;codecs=opus','audio/webm'];   // Safari first
+  hifiType=types.find(t=>{try{return MediaRecorder.isTypeSupported(t);}catch{return false;}})||'';
+  try{
+    hifiRec=hifiType?new MediaRecorder(stream,{mimeType:hifiType}):new MediaRecorder(stream);
+    hifiRec.ondataavailable=e=>{if(e.data&&e.data.size)hifiChunks.push(e.data);};
+    // A timeslice means the header chunk arrives early, so the pieces collected
+    // so far are already playable — needed for scrubbing mid-lecture.
+    hifiRec.start(1000);
+  }catch{ hifiRec=null; }
+}
+function stopHifiRecorder(){
+  try{
+    if(hifiRec&&hifiRec.state!=='inactive'){
+      /* stop() flushes one final chunk, and it arrives after this returns. The
+         panel is already open by then, so the source is rebuilt when it lands —
+         otherwise playback is missing the last second of the lecture. */
+      hifiRec.onstop=()=>{
+        if(audioPanel.hidden)return;
+        buildWavUrl();
+        audioEl.src=window.recordingUrl;
+        initWaveform();
+      };
+      hifiRec.stop();
+    }
+  }catch{}
+  hifiRec=null;
+}
+
 function buildWavUrl(){
-  if(!pcmBlob)return false;
-  const wav=new Blob([makeWavHeader(pcmBlob.size),pcmBlob],{type:'audio/wav'});
+  // The good copy when there is one, the 16 kHz PCM when there is not.
+  const blob = hifiChunks.length
+    ? new Blob(hifiChunks,{type:hifiType||'audio/webm'})
+    : (pcmBlob ? new Blob([makeWavHeader(pcmBlob.size),pcmBlob],{type:'audio/wav'}) : null);
+  if(!blob)return false;
   if(window.recordingUrl)URL.revokeObjectURL(window.recordingUrl);
-  window.recordingBlob=wav;
-  window.recordingUrl=URL.createObjectURL(wav);
+  window.recordingBlob=blob;
+  window.recordingUrl=URL.createObjectURL(blob);
   return true;
 }
 
