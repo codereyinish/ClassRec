@@ -1984,6 +1984,18 @@ const BAR_W         = 3;    // pixels wide per bar
 const BAR_GAP       = 2;    // pixels gap between bars
 const STEP          = BAR_W + BAR_GAP;  // 4px per bar slot
 
+// While recording, "now" is the newest bar and there is nothing after it, so a
+// centred playhead leaves the right half of the strip empty. Anchored near the
+// right instead, audio enters on the right and the history slides left, held
+// LIVE_INSET off the edge so the playhead is a line rather than a sliver on the
+// border. Playback goes back to centre, where seeing what is ahead of the
+// playhead is the point of the strip.
+//
+// It keys off the recording state, not the live loop: scrubbing stops the loop,
+// and the anchor must not jump under the cursor when it does.
+const LIVE_INSET = 14;
+const anchorX = (W) => (B.classList.contains('rec') ? W - LIVE_INSET : W / 2);
+
 const COLOR_PLAYED   = '#6365EB';
 const COLOR_UNPLAYED = 'rgba(118,120,237,0.22)';
 const COLOR_PLAYHEAD = '#281F3E';
@@ -2060,15 +2072,7 @@ function drawWaveform(currentTime) {
     const W       = canvas.clientWidth;
     const H       = canvas.clientHeight;
     const PAD_V   = 4;        // top/bottom padding inside waveform zone
-    // While recording, "now" is the newest bar and there is nothing after it, so a
-    // centred playhead leaves the right half of the strip empty. Anchored near the
-    // right instead, audio enters on the right and the history slides left.
-    // Held LIVE_INSET off the edge so the playhead is a line you can see rather
-    // than a sliver merging into the strip's own border.
-    // Playback goes back to centre, where seeing what is ahead of the playhead is
-    // the point of the strip.
-    const LIVE_INSET = 14;
-    const centerX = liveRaf ? W - LIVE_INSET : W / 2;
+    const centerX = anchorX(W);
 
     ctx.clearRect(0, 0, W, H);
     // decodedBuffer is absent while the lecture is still running — the bars are
@@ -2294,12 +2298,42 @@ addEventListener('resize', () => { if (!audioPanel.hidden) initWaveform(); });
 
 // ===== SEEK =====
 // Click on canvas: offset from center → time delta
+// Works mid-lecture too: the audio up to this moment already exists in pcmBlob,
+// so there is nothing to wait for. Scrubbing takes the strip off the live edge;
+// pausing or reaching the end gives it back.
 canvas.addEventListener('click', (e) => {
-    if (!decodedBuffer) return;
+    const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
+    if (!captured) return;                       // nothing recorded yet
+
+    const wasLive = !!liveRaf;
     const rect    = canvas.getBoundingClientRect();
     const clickX  = e.clientX - rect.left;
-    const dt      = (clickX - rect.width / 2) / (BARS_PER_SEC * STEP);
-    const newTime = Math.max(0, Math.min(decodedBuffer.duration, audioEl.currentTime + dt));
+
+    // Clicking at the live edge while recording rejoins it. Without this a scrub
+    // mid-lecture freezes the strip with no way back to now.
+    if (B.classList.contains('rec') && clickX >= anchorX(rect.width)) {
+        audioEl.pause(); playPauseBtn.textContent = '▶'; stopSyncLoop();
+        resumeLiveWave();
+        return;
+    }
+
+    // Measured against the anchor actually in use, not a hardcoded centre —
+    // otherwise every click on the right-anchored live strip lands
+    // half a canvas early.
+    const dt      = (clickX - anchorX(rect.width)) / (BARS_PER_SEC * STEP);
+    const from    = wasLive ? liveSamples / SR : audioEl.currentTime;
+    const newTime = Math.max(0, Math.min(captured, from + dt));
+
+    stopLiveWave();                              // the playhead is the user's now
+    if (wasLive || !audioEl.src) {
+        buildWavUrl();                           // the lecture so far
+        audioEl.src = window.recordingUrl;
+        audioEl.addEventListener('loadedmetadata', () => {
+            audioEl.currentTime = newTime;
+            drawWaveform(newTime);
+        }, { once: true });
+        return;
+    }
     audioEl.currentTime = newTime;
     drawWaveform(newTime);
 });
