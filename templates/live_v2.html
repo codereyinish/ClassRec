@@ -28,6 +28,9 @@
   /* lock states → theme · recording → green · paused → red */
   --mic-bg:#7678ED; --red:#EF4444; --red-ink:#DC0D0D;
   --green:#4ADE80; --green-2:#86EFAC; --green-ink:#14803B;
+  /* skipping → amber: a step aside, not a failure, so it sits warm of the
+     theme without borrowing red's alarm */
+  --amber:#E9A23B; --amber-ink:#A65B12; --amber-soft:rgba(233,162,59,.12);
 
   /* transcript block ground: violet-tinted, one step off white — enough to draw a
      border against without turning the column into a row of cards */
@@ -627,8 +630,8 @@ body:not(.has-text) .stream{display:none}
 #ns .devopt{border-color:var(--tint-2)}
 #ns .devopt:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
 #ns .cls-add{border-top-color:var(--tint-2)}
-#ns .ctx-skip{border-width:1.5px;border-color:var(--tint-3)}
-#ns .ctx-skip:hover{background:var(--tint-1);border-color:var(--theme)}
+/* Skip keeps its amber in here too — the dialog tints everything else indigo,
+   but the way past a step should read the same wherever it appears. */
 .ns-err{
   font-size:12.5px;font-weight:500;color:var(--red-ink);
   max-height:0;opacity:0;overflow:hidden;transition:.2s var(--e);
@@ -672,7 +675,8 @@ body:not(.has-text) .stream{display:none}
 .ctx-foot .btn.solid{margin-left:auto}
 /* Dashed: skipping is the optional way out, and the broken border says so
    without needing a second colour. */
-.ctx-skip{border:1.5px dashed var(--g5)}
+.ctx-skip{border:1.5px dashed var(--amber);color:var(--amber-ink)}
+.ctx-skip:hover{background:var(--amber-soft);border-color:var(--amber-ink)}
 
 /* ── AI panel : right side, like Audionotes ── */
 .ai{
