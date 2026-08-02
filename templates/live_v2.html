@@ -2220,14 +2220,29 @@ function startLiveWave() {
 // Following the live edge again after playback let go of the strip. Separate
 // from startLiveWave so replaying part of a lecture mid-lecture does not throw
 // away the bars already drawn.
+/* Capture runs on the main thread — createScriptProcessor, as live.js uses — so
+   anything drawing at 60fps competes with it for the same thread and a missed
+   callback is a dropped audio frame, heard as a click. The existing app draws
+   nothing while recording and never had to share.
+   20fps is smooth for a waveform and leaves four frames in five for audio. */
+const DRAW_MS = 50;
+let lastDraw = 0;
+function dueToDraw(now) {
+    if (now - lastDraw < DRAW_MS) return false;
+    lastDraw = now;
+    return true;
+}
+
 function resumeLiveWave() {
     stopLiveWave();
-    (function loop() {
-        const t = liveSamples / SR;       // playhead sits at the live edge
-        drawWaveform(t);
-        timeDisplay.textContent = formatTime(t);
+    (function loop(now) {
+        if (dueToDraw(now || 0)) {
+            const t = liveSamples / SR;   // playhead sits at the live edge
+            drawWaveform(t);
+            timeDisplay.textContent = formatTime(t);
+        }
         liveRaf = requestAnimationFrame(loop);
-    })();
+    })(performance.now());
 }
 
 function stopLiveWave() {
@@ -2280,9 +2295,11 @@ function startSyncLoop() {
     stopSyncLoop();
     buildWordIndex();
 
-    function tick() {
+    function tick(now) {
         const t = audioEl.currentTime;
-        drawWaveform(t);
+        // Word highlighting stays per-frame — it is a class swap. Redrawing the
+        // canvas is the expensive part, and it shares a thread with capture.
+        if (dueToDraw(now || performance.now())) drawWaveform(t);
 
         const n = idxSpans.length;
         if (n) {
@@ -2372,11 +2389,15 @@ function shuttleStep(now) {
     const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
     const rate = Math.max(-SHUTTLE_MAX, Math.min(SHUTTLE_MAX, shuttleDX / SHUTTLE_PX));
     dragT = Math.max(0, Math.min(captured, dragT + rate * dt));
-    drawWaveform(dragT);
-    const rect = canvas.getBoundingClientRect();
-    wvTime.hidden = false;
-    wvTime.textContent = formatTimeTick(dragT);
-    wvTime.style.left = (canvas.offsetLeft + anchorX(rect.width)) + 'px';
+    // Time still advances every frame — only the drawing is rationed, so the
+    // shuttle stays smooth while the microphone keeps its share of the thread.
+    if (dueToDraw(now)) {
+        drawWaveform(dragT);
+        const rect = canvas.getBoundingClientRect();
+        wvTime.hidden = false;
+        wvTime.textContent = formatTimeTick(dragT);
+        wvTime.style.left = (canvas.offsetLeft + anchorX(rect.width)) + 'px';
+    }
     shuttleRaf = requestAnimationFrame(shuttleStep);
 }
 const wvTime = document.getElementById('wvTime');
