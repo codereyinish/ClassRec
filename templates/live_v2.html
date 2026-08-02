@@ -2126,7 +2126,9 @@ function formatTimeTick(sec) {
 // The bar boundary is carried as a float (16000/12 = 1333.33 samples). Rounding
 // it would drift about a second over an hour and slide the waveform out of step
 // with the word timings by the end of a lecture.
-const SAMPLES_PER_BAR = SR / BARS_PER_SEC;
+// Evaluated when called, not at load: SR is declared further down, and reading it
+// up here is a temporal-dead-zone error that kills the rest of the script.
+const liveSamplesPerBar = () => SR / BARS_PER_SEC;
 let liveBars = [], liveSamples = 0, barPeak = 0, barBoundary = 0, liveRaf = null;
 
 function feedLiveWave(float32) {
@@ -2137,13 +2139,13 @@ function feedLiveWave(float32) {
         if (liveSamples >= barBoundary) {
             liveBars.push(barPeak);
             barPeak = 0;
-            barBoundary += SAMPLES_PER_BAR;
+            barBoundary += liveSamplesPerBar();
         }
     }
 }
 
 function startLiveWave() {
-    liveBars = []; liveSamples = 0; barPeak = 0; barBoundary = SAMPLES_PER_BAR;
+    liveBars = []; liveSamples = 0; barPeak = 0; barBoundary = liveSamplesPerBar();
     waveformBars = liveBars;      // drawWaveform reads this either way
     decodedBuffer = null;
     audioPanel.hidden = false;
