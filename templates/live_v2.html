@@ -477,7 +477,18 @@ body.ai-open .main{padding-right:var(--ai)}
 .play:hover{background:var(--primary-hi)}
 .t{font-family:var(--mono);font-size:12.5px;color:var(--g6);font-variant-numeric:tabular-nums;flex:0 0 auto}
 .t b{color:var(--g8);font-weight:500}
-canvas{flex:1;height:34px;display:block;min-width:0}
+canvas{flex:1;height:34px;display:block;min-width:0;cursor:grab}
+canvas:active{cursor:grabbing}
+
+/* The time under the cursor while scrubbing. Mono here is right — it is a
+   timestamp, and the digits must not shuffle as they change. */
+.audio{position:relative}
+.wv-time{
+  position:absolute;top:-11px;transform:translateX(-50%);
+  padding:3px 7px;border-radius:6px;background:var(--g8);color:#fff;
+  font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;
+  pointer-events:none;white-space:nowrap;z-index:2;
+}
 
 .scroll{flex:1;overflow-y:auto;padding-bottom:80px}
 
@@ -1001,6 +1012,8 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <button class="play" id="pl">▶</button>
       <div class="t"><b id="plAt">00:00</b> / <span id="plDur">00:00</span></div>
       <canvas id="wv"></canvas>
+      <!-- rides above the playhead while dragging, so you can see where you are -->
+      <div class="wv-time" id="wvTime" hidden></div>
       <audio id="recAudio" preload="metadata"></audio>
     </div></div>
 
@@ -2298,10 +2311,80 @@ addEventListener('resize', () => { if (!audioPanel.hidden) initWaveform(); });
 
 // ===== SEEK =====
 // Click on canvas: offset from center → time delta
+/* ===== DRAG SCRUB =====
+   Hold the strip and pull: the recording slides under a fixed playhead, back
+   towards 0:00 as you drag left, and the time you are over rides above the
+   playhead. Let go and playback carries on from there.
+
+   Capture never pauses for any of this. onaudioprocess keeps appending to
+   pcmBlob and to the bars, and the session clock keeps counting, so a lecture
+   examined at minute 2 while it is at minute 9 loses nothing — rejoining the
+   live edge shows every bar that arrived meanwhile. */
+let dragging = false, dragStartX = 0, dragStartT = 0, dragT = 0, dragMoved = false;
+const wvTime = document.getElementById('wvTime');
+const pxPerSec = () => BARS_PER_SEC * STEP;
+
+function viewTime() {
+    return liveRaf ? liveSamples / SR : audioEl.currentTime;
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+    const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
+    if (!captured) return;
+    dragging = true; dragMoved = false;
+    dragStartX = e.clientX;
+    dragStartT = dragT = viewTime();
+    canvas.setPointerCapture(e.pointerId);
+    stopLiveWave();                    // the playhead answers to the cursor now
+    audioEl.pause(); playPauseBtn.textContent = '▶'; stopSyncLoop();
+});
+
+canvas.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - dragStartX;
+    if (Math.abs(dx) > 2) dragMoved = true;
+    const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
+    // Pull left and the strip winds back: dx is negative, so time decreases.
+    dragT = Math.max(0, Math.min(captured, dragStartT + dx / pxPerSec()));
+    drawWaveform(dragT);
+    const rect = canvas.getBoundingClientRect();
+    wvTime.hidden = false;
+    wvTime.textContent = formatTimeTick(dragT);
+    wvTime.style.left = (canvas.offsetLeft + anchorX(rect.width)) + 'px';
+    // The lecture is still being recorded while you hold the strip, so the total
+    // keeps climbing even though the playhead is parked in the past.
+    if (B.classList.contains('rec')) durDisplay.textContent = formatTimeTick(liveSamples / SR);
+});
+
+canvas.addEventListener('pointerup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    wvTime.hidden = true;
+    canvas.releasePointerCapture(e.pointerId);
+    if (!dragMoved) return;            // a plain click: the handler below has it
+    playFrom(dragT);
+});
+
+/* Play from a point on a recording that may still be growing — the header has to
+   be written over whatever pcmBlob holds now, and currentTime cannot be set
+   before the browser knows the duration of that new source. */
+function playFrom(t) {
+    buildWavUrl();
+    audioEl.src = window.recordingUrl;
+    audioEl.addEventListener('loadedmetadata', () => {
+        audioEl.currentTime = Math.min(t, audioEl.duration || t);
+        drawWaveform(audioEl.currentTime);
+        audioEl.play();
+        playPauseBtn.textContent = '⏸';
+        startSyncLoop();
+    }, { once: true });
+}
+
 // Works mid-lecture too: the audio up to this moment already exists in pcmBlob,
 // so there is nothing to wait for. Scrubbing takes the strip off the live edge;
 // pausing or reaching the end gives it back.
 canvas.addEventListener('click', (e) => {
+    if (dragMoved) { dragMoved = false; return; }   // that was a drag, not a click
     const captured = decodedBuffer ? decodedBuffer.duration : liveSamples / SR;
     if (!captured) return;                       // nothing recorded yet
 
