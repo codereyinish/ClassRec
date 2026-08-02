@@ -1347,7 +1347,11 @@ mic.addEventListener('click',()=>{
   const live=B.classList.contains('rec');
   if(!live&&B.classList.contains('lockon')&&!B.classList.contains('locked'))return;
   if(!B.classList.contains('rec')){
-    askContext();          // a fresh session asks first; pause/resume below do not
+    /* Straight to recording. The context prompt used to sit here, but the server
+       never passes it to Whisper — it is accepted and dropped — so it was a step
+       between the click and the lecture that bought nothing. The dialog and its
+       plumbing stay in the file for when the prompt actually reaches the model. */
+    startRecording();
   }else if(!B.classList.contains('paused')){
     setActivity('paused');roL.textContent='paused';
   }else{
@@ -1903,8 +1907,7 @@ document.getElementById('vpRecordNew').onclick=()=>{
 };
 // "Start session" — commits the picked voice and goes straight into recording
 vpStart.onclick=()=>{
-  // askContext closes the picker itself, so the two panels never stack
-  if(!B.classList.contains('rec'))askContext();
+  if(!B.classList.contains('rec')){vp.classList.remove('open');stopPlay();startRecording();}
   else {vp.classList.remove('open');stopPlay();}
 };
 // Upload — the other way to get a sample in. Named from the file, selected on arrival.
