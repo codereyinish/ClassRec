@@ -782,18 +782,15 @@ body.ai-open .ai{transform:none}
 .vp-item-name.playing{color:var(--primary)}
 .vp-item-name.editing{color:var(--g8);cursor:text;background:var(--g2)}
 .vp-dur{font-size:11.5px;color:var(--g5);font-family:var(--mono);flex:0 0 auto}
-/* A transport control, not a decoration: it was a 12px grey glyph floating
-   between the use count and the bin, which read as punctuation. Given a disc of
-   its own it is findable, and it fills in while the clip runs. */
+/* Minimal: the glyph carries it, in the theme colour so it is findable, with no
+   disc behind it and no colour shift under the cursor. */
 .vp-item-arrow{
-  width:24px;height:24px;flex:0 0 auto;border-radius:999px;
-  display:grid;place-items:center;font-size:10px;line-height:1;
-  color:var(--primary);background:var(--primary-soft);
-  transition:.14s var(--e);
+  width:22px;height:22px;flex:0 0 auto;
+  display:grid;place-items:center;font-size:11px;line-height:1;
+  color:var(--primary);
 }
-.vp-item:hover .vp-item-arrow{background:var(--theme);color:#fff}
 /* ▸ becomes || while this voice is playing — the glyph is the transport state */
-.vp-item-arrow.on{background:var(--primary);color:#fff;font-weight:700;letter-spacing:1px}
+.vp-item-arrow.on{font-weight:700;letter-spacing:1px}
 .vp-trash{
   width:26px;height:26px;border-radius:7px;flex:0 0 auto;
   /* red at rest, not only under the cursor — delete should read as destructive
@@ -1943,7 +1940,15 @@ function renderVoices(editIdx){
     // row click selects; name click plays; dblclick renames
     // the ring and the slot both say which voice is picked; a sentence saying it
     // again is just noise
-    row.onclick=()=>{VOICES.forEach(o=>o.sel=false);v.sel=true;renderVoices();
+    /* Selecting marks the rows in place rather than rebuilding the list. The
+       rebuild replaced every node on the first click of a double-click, so the
+       second landed on a new element and dblclick never fired — renaming only
+       worked on the name itself, which stops propagation and so never triggered
+       the rebuild. */
+    row.onclick=()=>{
+      VOICES.forEach(o=>o.sel=false); v.sel=true;
+      [...vpList.children].forEach((el,idx)=>el.classList.toggle('selected',idx===i));
+      syncSelection();
       useSavedVoice(v);                       // {type:'use_saved_voice', class_id}
       B.classList.add('locked');
       if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
