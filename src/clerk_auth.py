@@ -16,10 +16,16 @@ import base64
 import os
 
 import jwt
+from fastapi import Depends, HTTPException, Request
 from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientError
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session as DBSession
 
+from database import get_db
 from logger import logger
+from models import User
 
 # The publishable key encodes the Clerk domain, so there is nothing extra to
 # configure: pk_test_<base64 of "your-app.clerk.accounts.dev$">
@@ -89,3 +95,74 @@ def clerk_user_id_from_token(token: str) -> str:
     if not sub:
         raise AuthError("token has no subject")
     return sub
+
+
+# ======= FROM A TOKEN TO A ROW =======
+
+def _bearer_token(request: Request) -> str:
+    """Pull the token out of `Authorization: Bearer <token>`."""
+    header = request.headers.get("authorization", "")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() != "bearer":
+        return ""
+    return token.strip()
+
+
+def get_or_create_user(db: DBSession, clerk_user_id: str) -> User:
+    """The row for this Clerk account, made on first sight.
+
+    Clerk creates the account, so we only learn of someone when they first make a
+    request — there is no sign-up hook to write a row from. That makes this
+    get-or-create rather than a lookup, and it is where a new user's defaults
+    (free plan, zero usage) come from.
+    """
+    user = db.execute(
+        select(User).where(User.clerk_user_id == clerk_user_id)
+    ).scalar_one_or_none()
+    if user is not None:
+        return user
+
+    user = User(clerk_user_id=clerk_user_id)
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two requests from the same new user can arrive together — the browser
+        # fires several on load. Both find nothing, both insert, one loses on the
+        # unique index. Losing that race is not an error: re-read and carry on.
+        db.rollback()
+        user = db.execute(
+            select(User).where(User.clerk_user_id == clerk_user_id)
+        ).scalar_one()
+        return user
+    db.refresh(user)
+    logger.info(f"[auth] first sight of {clerk_user_id} -> user id={user.id}")
+    return user
+
+
+def current_user_optional(request: Request, db: DBSession = Depends(get_db)) -> User | None:
+    """The user, or None if this request is anonymous.
+
+    Anonymous use is allowed — a visitor can record before signing in — so a
+    missing or bad token is not an error here. Routes that require an account use
+    current_user instead.
+    """
+    token = _bearer_token(request)
+    if not token:
+        return None
+    try:
+        return get_or_create_user(db, clerk_user_id_from_token(token))
+    except AuthError as e:
+        logger.debug(f"[auth] anonymous: {e}")
+        return None
+
+
+def current_user(request: Request, db: DBSession = Depends(get_db)) -> User:
+    """The user, or 401. For routes that must belong to someone."""
+    token = _bearer_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Sign in to continue")
+    try:
+        return get_or_create_user(db, clerk_user_id_from_token(token))
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
