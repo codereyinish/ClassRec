@@ -508,8 +508,18 @@ body.ai-open .main{padding-right:var(--ai)}
    .wrap carries 28px of inline padding, so a border on the box itself started
    28px left of the title's glyphs while every other rule on the page (they sit on
    children of .wrap) started at the text. This one now matches them. */
+/* Title on the left, Save on the right, both above the rule. Save is hidden
+   until a transcript exists — an empty session has nothing to save, and a button
+   that does nothing yet is worse than one that arrives when it is useful. */
 .head{padding-top:34px;padding-bottom:0}
+/* The rule stays a child so it starts at the text, not 28px out in the wrap's
+   padding — which is why it was an ::after in the first place. The flex row goes
+   inside, so the rule is not dragged into it as a 1px column. */
 .head::after{content:'';display:block;height:1px;background:var(--rule);margin-top:18px}
+.head-row{display:flex;align-items:flex-start;gap:20px}
+.head-text{flex:1;min-width:0}
+.head #save{display:none;flex:0 0 auto;margin-top:4px}
+body.has-text .head #save{display:inline-flex}
 /* the lecture title is the one thing on this page worth renaming, so it edits in place */
 .head h1{
   font-size:31px;font-weight:700;letter-spacing:-.032em;line-height:1.15;
@@ -980,11 +990,6 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
         </label>
       </div>
     </div>
-    <button class="btn solid" id="save">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>
-      </svg>Save
-    </button>
     <!-- the header's other two pieces, as base.html has them -->
     <a href="/lectures" class="top-link">My Lectures</a>
     <div id="clerk-auth-mount"></div>
@@ -1089,6 +1094,8 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
 
   <main class="main">
     <div class="wrap head">
+      <div class="head-row">
+      <div class="head-text">
       <h1 contenteditable="true" spellcheck="false" aria-label="Session name" id="title"></h1>
       <!-- class comes from a picker, date from the clock; together they name the session -->
       <div class="meta">
@@ -1098,6 +1105,15 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
         </span>
         <span class="sep">·</span>
         <span class="len">Length <b id="durTxt">0 min</b></span>
+      </div>
+      </div>
+      <!-- Save belongs to the transcript, so it sits with it and appears only
+           once there is something to save -->
+      <button class="btn solid" id="save">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>
+        </svg>Save
+      </button>
       </div>
     </div>
 
@@ -1505,10 +1521,15 @@ mic.addEventListener('click',()=>{
 });
 
 document.getElementById('save').onclick=()=>{
-  if(!B.classList.contains('rec'))return;
+  /* Reachable after the session ends now that the button lives with the
+     transcript, so it saves whatever is on the page and only closes a session
+     that is still running. */
+  if(!document.querySelector('.stream .transcript-text'))return;   // nothing to save
   saveSession();                 // POST /sessions before the page forgets the transcript
-  endLiveSession();
-  setActivity('');roL.textContent='—';
+  if(B.classList.contains('rec')){
+    endLiveSession();
+    setActivity('');roL.textContent='—';
+  }
 };
 const openAI=()=>B.classList.add('ai-open');
 document.getElementById('aibtn').onclick=openAI;
