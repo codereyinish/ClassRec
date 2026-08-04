@@ -516,10 +516,15 @@ body.ai-open .main{padding-right:var(--ai)}
    padding — which is why it was an ::after in the first place. The flex row goes
    inside, so the rule is not dragged into it as a 1px column. */
 .head::after{content:'';display:block;height:1px;background:var(--rule);margin-top:18px}
-.head-row{display:flex;align-items:flex-start;gap:20px}
-.head-text{flex:1;min-width:0}
-.head #save{display:none;flex:0 0 auto;margin-top:4px}
-body.has-text .head #save{display:inline-flex}
+/* Small and outlined, not a second solid button competing with the primary
+   action — and only once a sentence exists to save. */
+.meta #save{
+  display:none;margin-left:auto;padding:5px 11px;font-size:12.5px;font-weight:600;
+  border:1px solid #CFCFF6;background:var(--primary-soft);color:var(--primary);border-radius:8px;
+}
+.meta #save svg{width:14px;height:14px;color:var(--primary)}
+.meta #save:hover{background:#E7E7FB;border-color:var(--theme)}
+body.has-lines .meta #save{display:inline-flex}
 /* the lecture title is the one thing on this page worth renaming, so it edits in place */
 .head h1{
   font-size:31px;font-weight:700;letter-spacing:-.032em;line-height:1.15;
@@ -1094,8 +1099,6 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
 
   <main class="main">
     <div class="wrap head">
-      <div class="head-row">
-      <div class="head-text">
       <h1 contenteditable="true" spellcheck="false" aria-label="Session name" id="title"></h1>
       <!-- class comes from a picker, date from the clock; together they name the session -->
       <div class="meta">
@@ -1106,10 +1109,9 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
         <span class="sep">·</span>
         <span class="len">Length <b id="durTxt">0 min</b></span>
       </div>
-      </div>
-      <!-- Save belongs to the transcript, so it sits with it and appears only
-           once there is something to save -->
-      <button class="btn solid" id="save">
+      <!-- on the meta line, pushed right: it belongs with the session's own
+           details, and only turns up once a sentence has been transcribed -->
+      <button class="btn" id="save">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>
         </svg>Save
@@ -1878,6 +1880,7 @@ function resetSession(){
   setActivity('');
   B.classList.remove('has-text');
   document.querySelector('.stream').innerHTML='';   // last session's blocks go with it
+  B.classList.remove('has-lines');
   liveChunk=null;
   // the previous lecture's audio goes with its transcript
   stopSyncLoop(); stopLiveWave();
@@ -2839,6 +2842,9 @@ function onServer(d){
       ? d.words.map(w=>`<span class="word" data-start="${w.s}" data-end="${w.e}">${esc(w.w)}</span>`).join(' ')
       : esc(d.text||'');
     t.innerHTML+=(t.innerHTML?' ':'')+html;
+    // a sentence exists now, which is what Save waits for — has-text only means
+    // the session started and the empty state stepped aside
+    if(t.textContent.trim())B.classList.add('has-lines');
     if(d.tags&&d.tags.length){applyTags(c,d.tags);highlight(t,d.tags);}
     words+=(d.words?d.words.length:(d.text||'').split(/\s+/).filter(Boolean).length);
     roW.textContent=words.toLocaleString();
@@ -2964,6 +2970,7 @@ async function beginLiveSession(){
     await startCapture();
     live=true;
     document.querySelector('.stream').innerHTML='';   // real words replace the samples
+    B.classList.remove('has-lines');                  // a new session has none yet
     liveChunk=null;words=0;roW.textContent='0';roF.textContent='0';
     setConn('on','Live · recording');
   }catch(err){
