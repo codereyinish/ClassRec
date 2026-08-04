@@ -893,7 +893,9 @@ body.ai-open .ai{transform:none}
 }
 .vp-trash svg{width:14px;height:14px}
 .vp-trash:hover{opacity:1;color:var(--red-ink);background:rgba(239,68,68,.1)}
-.vp-empty{padding:22px 0;text-align:center;font-size:13.5px;color:var(--g5)}
+.vp-empty{padding:20px 4px 6px;text-align:center;display:grid;gap:6px}
+.vp-empty strong{font-size:14px;font-weight:600;color:var(--g7)}
+.vp-empty span{font-size:12.5px;line-height:1.55;color:var(--g6)}
 /* last row of the list, so it takes the box's shape and the list's gap */
 .vp-recnew{
   width:100%;margin-top:7px;padding:11px 13px;border-radius:11px;
@@ -2035,7 +2037,15 @@ function syncSelection(){
 }
 function renderVoices(editIdx){
   playing=null;   // rows are rebuilt below; the old refs are about to be detached
-  if(!VOICES.length){vpList.innerHTML='<div class="vp-empty">No voices yet.</div>';syncSelection();return;}
+  if(!VOICES.length){
+    /* A new account lands here. "No voices yet" states a fact and leaves you
+       stuck; the two ways out are already in this panel, so say which. */
+    vpList.innerHTML='<div class="vp-empty">'
+      +'<strong>No voices yet</strong>'
+      +'<span>Hold the microphone for ten seconds while your professor is talking, '
+      +'or upload a clip of them.</span></div>';
+    syncSelection();return;
+  }
   vpList.innerHTML='';
   VOICES.forEach((v,i)=>{
     const row=document.createElement('div');
