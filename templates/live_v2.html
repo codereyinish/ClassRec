@@ -1712,6 +1712,26 @@ alertNameRow.onclick=e=>{
      remove(name)  DELETE /classes/{id}
    and a session should then carry course_id alongside the existing class_id
    (the voice) that `save_session` already writes.                                */
+/* Every call to our server goes through here so the token is attached in one
+   place rather than at each call site. getToken() is asked each time rather than
+   cached: Clerk's tokens last about a minute, and the SDK hands back the current
+   one or quietly mints a fresh one from the session cookie.
+
+   Signed out it returns nothing and the request goes anonymous, which the API
+   allows for reads — that is how a visitor records before having an account. */
+async function authHeaders(){
+  try{
+    const t = window.Clerk && window.Clerk.session
+      ? await window.Clerk.session.getToken() : null;
+    return t ? {Authorization:'Bearer '+t} : {};
+  }catch{ return {}; }
+}
+
+async function api(path, opts={}){
+  const auth = await authHeaders();
+  return fetch(API+path, {...opts, headers:{...(opts.headers||{}), ...auth}});
+}
+
 const Store={
   /* A COURSE. Not a voice — the two are separate things that happen to collide in
      the backend's naming, and this list must never be filled from /voices: those
@@ -1749,22 +1769,28 @@ const Store={
   },
 
   voices:{
-    list(){       return fetch(API+'/voices').then(r=>r.json()); },              // GET    /voices
+    async list(){ return (await api('/voices')).json(); },                       // GET    /voices
     add(name,file){                                                             // POST   /voices?name=
       const fd=new FormData(); fd.append('file',file);
-      return fetch(API+'/voices?name='+encodeURIComponent(name),{method:'POST',body:fd});
+      return api('/voices?name='+encodeURIComponent(name),{method:'POST',body:fd});
     },
     rename(id,name){                                                            // PATCH  /voices/{id}
-      return fetch(API+'/voices/'+id,{method:'PATCH',
+      return api('/voices/'+id,{method:'PATCH',
         headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
     },
-    remove(id){   return fetch(API+'/voices/'+id,{method:'DELETE'}); },          // DELETE /voices/{id}
-    audioUrl(id){ return API+'/voices/'+id+'/audio'; },                          // GET    /voices/{id}/audio
+    remove(id){   return api('/voices/'+id,{method:'DELETE'}); },                // DELETE /voices/{id}
+    /* Not a URL: the route needs the token, and an <audio src> cannot carry a
+       header. Fetched with one and handed to the player as a blob instead. */
+    async audioBlobUrl(id){
+      const r=await api('/voices/'+id+'/audio');
+      if(!r.ok)return null;
+      return URL.createObjectURL(await r.blob());
+    },
   },
   sessions:{
-    list(){       return fetch(API+'/sessions').then(r=>r.json()); },            // GET    /sessions
+    async list(){ return (await api('/sessions')).json(); },                     // GET    /sessions
     save(body){                                                                 // POST   /sessions
-      return fetch(API+'/sessions',{method:'POST',
+      return api('/sessions',{method:'POST',
         headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     },
   },
@@ -2024,6 +2050,7 @@ const stopPlay=()=>{
      so clicking a playing voice again looked like it did nothing, and closing
      the picker left a clip talking over the page. */
   try{ if(voiceAudio){voiceAudio.pause();voiceAudio.currentTime=0;voiceAudio=null;} }catch{}
+  if(voiceAudioUrl){URL.revokeObjectURL(voiceAudioUrl);voiceAudioUrl=null;}
   if(!playing)return;
   playing.name.classList.remove('playing');
   playing.arrow.textContent='▸';playing.arrow.classList.remove('on');
@@ -3023,13 +3050,19 @@ function useSavedVoice(v){                       // voice-picker.js → live.js 
 function voiceLockOff(){                         // sent when Lock Mode is switched off
   if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'voice_lock_off'}));
 }
-let voiceAudio=null;
-function playVoice(id){                          // GET /voices/{id}/audio
-  try{if(voiceAudio){voiceAudio.pause();voiceAudio=null;}
-    voiceAudio=new Audio(Store.voices.audioUrl(id));
+let voiceAudio=null, voiceAudioUrl=null;
+async function playVoice(id){                    // GET /voices/{id}/audio
+  try{
+    if(voiceAudio){voiceAudio.pause();voiceAudio=null;}
+    if(voiceAudioUrl){URL.revokeObjectURL(voiceAudioUrl);voiceAudioUrl=null;}
+    // fetched rather than linked, because the route wants the token
+    voiceAudioUrl=await Store.voices.audioBlobUrl(id);
+    if(!voiceAudioUrl){stopPlay();return;}
+    voiceAudio=new Audio(voiceAudioUrl);
     // a clip that reaches its end leaves the row showing a pause glyph otherwise
     voiceAudio.onended=()=>stopPlay();
-    voiceAudio.play().catch(()=>{});}catch{}
+    voiceAudio.play().catch(()=>{});
+  }catch{ stopPlay(); }
 }
 
 /* ── saving : POST /sessions with the body save-transcript.js sends ── */
@@ -3045,12 +3078,34 @@ async function saveSession(){
   };
   if(wordEls.length)body.words=wordEls.map(w=>({w:w.textContent,s:+w.dataset.start,e:+w.dataset.end}));
   try{
-    const res=await Store.sessions.save(body);
+    let res=await Store.sessions.save(body);
+
+    /* Saving is the moment an account becomes necessary — a lecture has to
+       belong to someone. A visitor records freely and is asked to sign in only
+       here, then the same save goes through without them repeating anything. */
+    if(res&&res.status===401&&window.Clerk){
+      setConn('wait','Sign in to save this lecture');
+      try{ await window.Clerk.openSignIn(); }catch{}
+      await new Promise(r=>setTimeout(r,400));      // let the session settle
+      if(window.Clerk.session){
+        await refreshForUser();                     // their voices and lectures
+        res=await Store.sessions.save(body);        // retry with the token
+      }
+    }
+
     if(res&&res.ok){const j=await res.json().catch(()=>({}));
       setConn('on','Saved · session '+(j.id??''));return true;}
+    if(res&&res.status===401){setConn('off','Not saved — sign in to keep lectures');return false;}
   }catch{}
   setConn('off','Saved locally only');
   return false;
+}
+
+/* Signing in mid-session changes who the page is for, so the lists it loaded as
+   a visitor — empty — are fetched again as them. */
+async function refreshForUser(){
+  await loadVoices();
+  await seedTitles();
 }
 
 /* ── enrolment : hold 10s → name it → saved ──────────────────────────────────
@@ -3122,6 +3177,18 @@ function enrolEnd(ok){
 /* The page opens empty and fills from the socket — the mock's "already finished a
    lecture" scaffolding is deliberately not carried over. */
 loadVoices(); loadCourses(); applyAutoTitle(); seedTitles();
+
+/* Those four ran before Clerk had finished loading, so they went out without a
+   token and came back empty. Once Clerk settles — and again whenever the signed
+   in user changes — they are re-run as whoever is now signed in. */
+(async()=>{
+  try{
+    await window.__clerk_loaded;
+    if(!window.Clerk)return;
+    if(window.Clerk.session)await refreshForUser();
+    window.Clerk.addListener(({user})=>{ refreshForUser(); });
+  }catch{}
+})();
 </script>
 </body>
 </html>
