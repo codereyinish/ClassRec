@@ -200,11 +200,30 @@ def _run_pipeline_sync(
     raw_transcript = ' '.join(w['word'] for w in words).strip()
     logger.debug(f"[raw whisper] {raw_transcript}")
 
-    # Voice lock off — send raw transcript without speaker filtering
+    # Voice lock off — no speaker filtering, but the hallucination filter still
+    # applies. It used to sit at Step 6, past this return, so an unlocked
+    # recording — the common case — received "Thank you for watching" and the
+    # rest of what Whisper emits over silence.
+    #
+    # The words are re-aligned as well as the text: the page renders the word
+    # spans rather than the string, so trimming only the string would drop
+    # nothing from what is actually displayed.
     if professor_embedding is None:
-        detected_tags = analyze_text(raw_transcript, selected_tags, custom_name)
-        word_list = [{"w": w["word"], "s": round(w["start"] + chunk_offset, 3), "e": round(w["end"] + chunk_offset, 3)} for w in words]
-        return {"type": "transcription", "text": raw_transcript, "tags": detected_tags, "words": word_list}
+        transcript = filter_hallucinations(raw_transcript)
+        if not transcript:
+            logger.debug("[chunk] transcript empty after hallucination filter")
+            return None
+        final_words = words_for_transcript(transcript, words)
+        # "Thank you for watching." filters down to "." — the phrase goes, its
+        # punctuation stays. No words survive re-alignment in that case, so this
+        # catches a chunk that was nothing but hallucination and would otherwise
+        # reach the page as a block containing a full stop.
+        if not final_words:
+            logger.debug("[chunk] nothing but hallucination in this chunk")
+            return None
+        detected_tags = analyze_text(transcript, selected_tags, custom_name)
+        word_list = [{"w": w["word"], "s": round(w["start"] + chunk_offset, 3), "e": round(w["end"] + chunk_offset, 3)} for w in final_words]
+        return {"type": "transcription", "text": transcript, "tags": detected_tags, "words": word_list}
 
     # Step 2: VAD — find speech regions, filter silence
     vad_h = session_state.get('vad_h', np.zeros((2, 1, 64), dtype=np.float32))
