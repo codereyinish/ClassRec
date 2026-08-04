@@ -17,6 +17,7 @@ import os
 
 import jwt
 from jwt import PyJWKClient
+from jwt.exceptions import PyJWKClientError
 
 from logger import logger
 
@@ -60,7 +61,15 @@ def clerk_user_id_from_token(token: str) -> str:
     try:
         # Reads the token's header to find which key signed it, then returns that
         # key — fetching the key set if this id has not been seen before.
-        signing_key = _jwks.get_signing_key_from_jwt(token).key
+        #
+        # A token naming a key that is not in our set raises rather than
+        # returning None, and it is a different exception from the ones jwt.decode
+        # raises. Uncaught it would surface as a 500 on a request that is simply
+        # unauthenticated — which is exactly what a forged kid produces.
+        try:
+            signing_key = _jwks.get_signing_key_from_jwt(token).key
+        except PyJWKClientError as e:
+            raise AuthError(f"unknown signing key: {e}")
 
         claims = jwt.decode(
             token,
