@@ -722,6 +722,7 @@ body.ai-open .ai{transform:none}
 .ai-x:hover{background:var(--g2);color:var(--g8)}
 .ai-body{flex:1;overflow-y:auto;padding:18px 20px}
 .quote{border-left:2px solid var(--corn);padding:2px 0 2px 12px;margin-bottom:18px;font-size:14.5px;line-height:1.6;color:var(--g7)}
+.quote:empty{display:none}   /* no block picked yet: no rule, no gap */
 .quote em{display:block;font-size:11.5px;font-style:normal;font-weight:500;color:var(--g5);margin-bottom:4px;letter-spacing:.02em}
 .chips{display:grid;gap:7px}
 .chip{
@@ -1048,7 +1049,8 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <button class="ai-x" id="aiX">✕</button>
     </div>
     <div class="ai-body">
-      <div class="quote"><em>09:41:35</em>“…itself a composition of two maps — you end up applying the rule recursively.”</div>
+      <!-- filled by Ask on a block; empty until then, and hidden while empty -->
+      <div class="quote"></div>
       <div class="chips">
         <button class="chip">Explain this in simpler terms</button>
         <button class="chip">Give me a worked example</button>
