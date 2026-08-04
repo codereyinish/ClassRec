@@ -16,7 +16,8 @@ import requests
 from logger import logger
 from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
 from database import get_db, SessionLocal  # get_db for routes; SessionLocal for the WS handler
-import repository as repo                # our data operations (create/list/...)
+import repository as repo                  # our data operations (create/list/...)
+from clerk_auth import current_user, current_user_optional
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
 import onnxruntime as ort
@@ -447,6 +448,7 @@ async def create_voice_route(
     name: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    user = Depends(current_user),          # a voice is stored server-side, so it needs an owner
 ):
     """Enroll a professor from an audio file → compute + save the embedding as a Voice.
     The uploaded clip is also stored on disk so it can be played back later."""
@@ -455,9 +457,9 @@ async def create_voice_route(
     if result is None:
         raise HTTPException(status_code=422, detail="No usable speech found in the audio.")
     embedding_bytes, threshold = result
-    unique_name = _unique_voice_name(db, name, user_id=None)
+    unique_name = _unique_voice_name(db, name, user_id=user.id)
     voice = repo.create_class(db, name=unique_name, embedding=embedding_bytes,
-                              threshold=threshold, user_id=None)
+                              threshold=threshold, user_id=user.id)
 
     # store the clip for playback: data/voice_audio/<id>.<ext>
     VOICE_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
@@ -471,19 +473,25 @@ async def create_voice_route(
 
 
 @app.get("/voices")
-def list_voices_route(db: Session = Depends(get_db)):
+def list_voices_route(db: Session = Depends(get_db),
+                      user = Depends(current_user_optional)):
     """The Voice picker: top-4 most-used, non-hidden voices."""
+    # Signed out: no voices to show. Not an error — a visitor can still record,
+    # they just have nothing saved and nothing of anyone else's is offered.
+    if user is None:
+        return []
     return [
         {"id": v.id, "name": v.name, "use_count": v.use_count, "has_audio": bool(v.audio_path)}
-        for v in repo.top_voices(db, user_id=None, limit=4)
+        for v in repo.top_voices(db, user_id=user.id, limit=4)
     ]
 
 
 @app.get("/voices/{voice_id}/audio")
-def voice_audio_route(voice_id: int, db: Session = Depends(get_db)):
+def voice_audio_route(voice_id: int, db: Session = Depends(get_db),
+                      user = Depends(current_user)):
     """Serve a Voice's stored enrollment clip (for click-to-play)."""
-    voice = repo.get_class(db, voice_id)
-    if voice is None or not voice.audio_path or not Path(voice.audio_path).exists():
+    voice = _own_voice_or_404(db, voice_id, user)
+    if not voice.audio_path or not Path(voice.audio_path).exists():
         raise HTTPException(status_code=404, detail="No audio for this voice")
     return FileResponse(voice.audio_path)
 
@@ -492,9 +500,20 @@ class VoiceRename(BaseModel):
     name: str = Field(min_length=1, max_length=60)
 
 
+def _own_voice_or_404(db: Session, voice_id: int, user):
+    """The voice, if it is this user's. 404 otherwise — not 403, which would
+    confirm the row exists to someone who has no business knowing."""
+    voice = repo.get_class(db, voice_id)
+    if voice is None or voice.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Voice not found")
+    return voice
+
+
 @app.patch("/voices/{voice_id}")
-def rename_voice_route(voice_id: int, payload: VoiceRename, db: Session = Depends(get_db)):
+def rename_voice_route(voice_id: int, payload: VoiceRename, db: Session = Depends(get_db),
+                       user = Depends(current_user)):
     """Rename a Voice (double-click-to-edit)."""
+    _own_voice_or_404(db, voice_id, user)
     voice = repo.rename_class(db, voice_id, payload.name.strip())
     if voice is None:
         raise HTTPException(status_code=404, detail="Voice not found")
@@ -502,8 +521,10 @@ def rename_voice_route(voice_id: int, payload: VoiceRename, db: Session = Depend
 
 
 @app.delete("/voices/{voice_id}")
-def hide_voice_route(voice_id: int, db: Session = Depends(get_db)):
+def hide_voice_route(voice_id: int, db: Session = Depends(get_db),
+                     user = Depends(current_user)):
     """The 🗑️ in the picker: hide (or delete if it has no lectures)."""
+    _own_voice_or_404(db, voice_id, user)
     repo.hide_class(db, voice_id)
     return {"ok": True}
 
@@ -534,10 +555,11 @@ class SessionIn(BaseModel):
 
 
 @app.post("/sessions")
-def create_session_route(payload: SessionIn, db: Session = Depends(get_db)):
+def create_session_route(payload: SessionIn, db: Session = Depends(get_db),
+                         user = Depends(current_user)):   # saving is what requires signing in
     """Save a finished transcript. Called by both live + upload when user hits 'save'."""
     s = repo.save_session(
-        db, class_id=payload.class_id, user_id=None, title=payload.title,
+        db, class_id=payload.class_id, user_id=user.id, title=payload.title,
         transcript=payload.transcript, words=payload.words, audio_path=payload.audio_path,
         flags=[f.model_dump() for f in payload.flags] if payload.flags else None,
     )
@@ -545,20 +567,24 @@ def create_session_route(payload: SessionIn, db: Session = Depends(get_db)):
 
 
 @app.get("/sessions")
-def list_sessions_route(db: Session = Depends(get_db)):
+def list_sessions_route(db: Session = Depends(get_db),
+                        user = Depends(current_user_optional)):
     """List saved lectures (lightweight — a short preview, not the full transcript)."""
+    if user is None:
+        return []           # signed out: nothing of your own, and nothing of anyone else's
     return [
         {"id": s.id, "title": s.title, "class_id": s.class_id,
          "preview": (s.transcript or "")[:200], "created_at": str(s.created_at)}
-        for s in repo.list_sessions(db, user_id=None)
+        for s in repo.list_sessions(db, user_id=user.id)
     ]
 
 
 @app.get("/sessions/{session_id}")
-def get_session_route(session_id: int, db: Session = Depends(get_db)):
+def get_session_route(session_id: int, db: Session = Depends(get_db),
+                      user = Depends(current_user)):
     """One full lecture (whole transcript + word timestamps)."""
     s = repo.get_session(db, session_id)
-    if s is None:
+    if s is None or s.user_id != user.id:
         raise HTTPException(status_code=404, detail="Session not found")
     return {
         "id": s.id, "title": s.title, "class_id": s.class_id,
@@ -604,8 +630,12 @@ def ask_route(payload: AskIn):
 
 
 @app.delete("/sessions/{session_id}")
-def delete_session_route(session_id: int, db: Session = Depends(get_db)):
+def delete_session_route(session_id: int, db: Session = Depends(get_db),
+                         user = Depends(current_user)):
     """Delete a lecture (its audio file + any orphaned hidden Voice are cleaned up)."""
+    s = repo.get_session(db, session_id)
+    if s is None or s.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
     repo.delete_session(db, session_id)
     return {"ok": True}
 

@@ -74,8 +74,12 @@ class Class(Base):
 
     # id INTEGER PRIMARY KEY (auto)
     id:         Mapped[int]               = mapped_column(primary_key=True)
-    # user_id TEXT (nullable)
-    user_id:    Mapped[str | None]        = mapped_column(String)
+    # user_id -> users.id. Nullable: rows predating accounts have no owner, and
+    # they stay that way. ON DELETE CASCADE so deleting an account takes its
+    # voices with it — required for "delete my data" to mean anything.
+    user_id:    Mapped[int | None]        = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     # name TEXT NOT NULL  (Mapped[str] without "| None" = NOT NULL)
     name:       Mapped[str]               = mapped_column(String)
     # embedding BLOB (nullable) — LargeBinary is SQLAlchemy's word for BLOB
@@ -111,7 +115,9 @@ class Session(Base):
     class_id:   Mapped[int | None]        = mapped_column(
         ForeignKey("classes.id", ondelete="RESTRICT")
     )
-    user_id:    Mapped[str | None]        = mapped_column(String)
+    user_id:    Mapped[int | None]        = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     title:      Mapped[str]               = mapped_column(String)
     transcript: Mapped[str | None]        = mapped_column(Text)
     summary:    Mapped[str | None]        = mapped_column(Text)
