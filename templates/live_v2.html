@@ -781,6 +781,7 @@ body.ai-open .ai{transform:none}
 .vsub{display:block;font-style:normal;font-size:11px;font-weight:400;color:var(--g6);margin-top:1px}
 .vp-item-name.playing{color:var(--primary)}
 .vp-item-name.editing{color:var(--g8);cursor:text;background:var(--g2)}
+.vp-item.editing{cursor:text}   /* renaming: the row is a field, so it stops offering a pointer */
 .vp-dur{font-size:11.5px;color:var(--g5);font-family:var(--mono);flex:0 0 auto}
 /* Minimal: the glyph carries it, in the theme colour so it is findable, with no
    disc behind it and no colour shift under the cursor. */
@@ -1973,15 +1974,19 @@ function renderVoices(editIdx){
     name.onclick=toggle;
     arrow.onclick=toggle;      // the glyph is a control, so it takes the click too
     const startEdit=()=>{
-      name.contentEditable='true';name.classList.add('editing');name.focus();
+      name.contentEditable='true';name.classList.add('editing');
+      row.classList.add('editing');   // the whole box is a field now, not a target
+      name.focus();
       const r=document.createRange();r.selectNodeContents(name);
-      const s=getSelection();s.removeAllRanges();s.addRange(r);   // preselect for retyping
+      r.collapse(false);      // caret at the end, not the whole name selected —
+                              // renaming is usually a correction, not a retype
+      const s=getSelection();s.removeAllRanges();s.addRange(r);
       name.onkeydown=ev=>{
         if(ev.key==='Enter'){ev.preventDefault();name.blur();stopPlay();vp.classList.remove('open');}
         if(ev.key==='Escape'){name.textContent=v.n;name.blur();}
       };
       name.onblur=async()=>{
-        name.contentEditable='false';name.classList.remove('editing');
+        name.contentEditable='false';name.classList.remove('editing');row.classList.remove('editing');
         const nn=name.textContent.trim()||v.n;
         const was=v.n; v.n=nn;name.textContent=nn;syncSelection();
         if(v.pending){                    // just held: this is the moment it is saved
