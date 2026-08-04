@@ -1459,7 +1459,16 @@ document.querySelector('.stream').addEventListener('click',async e=>{
 document.getElementById('aiX').onclick=()=>B.classList.remove('ai-open');
 
 /* ── input device picker ──────────────────────────────────────── */
-const DEVICES=['MacBook Pro Microphone','AirPods Pro','Yeti Nano (USB)','Aggregate Device'];
+/* Real inputs, the way live.js gets them: enumerateDevices, audioinput only, and
+   the same exclusion of AirPods and Bluetooth mics it applies.
+
+   live.js calls getUserMedia at page load purely to unlock the labels, which
+   pops the permission sheet before you have asked for anything. This page waits
+   instead: with no permission yet the browser returns entries with blank labels,
+   so the picker shows "System default" and refills with real names the moment
+   recording starts and permission is granted. devicechange keeps it current when
+   something is plugged in. */
+let DEVICES=[{id:'',label:'System default'}];
 const devField=document.getElementById('devField'), devMenu=document.getElementById('devMenu'),
       devTxt=document.getElementById('devTxt');
 let devCur=0;
@@ -1468,13 +1477,36 @@ function renderDevices(){
   DEVICES.forEach((d,i)=>{
     const b=document.createElement('button');
     b.type='button';b.className='devopt'+(i===devCur?' on':'');
-    b.innerHTML=`<span>${d}</span><span class="tick">✓</span>`;
-    b.onclick=e=>{e.stopPropagation();devCur=i;devTxt.textContent=d;
+    // textContent, not innerHTML: a device name is whatever the OS reports, and
+    // this runs before esc() exists if enumerateDevices is missing entirely.
+    const nameEl=document.createElement('span'); nameEl.textContent=d.label;
+    const tickEl=document.createElement('span'); tickEl.className='tick'; tickEl.textContent='✓';
+    b.append(nameEl,tickEl);
+    b.onclick=e=>{e.stopPropagation();devCur=i;devTxt.textContent=d.label;
       devMenu.classList.remove('open');renderDevices();};
     devMenu.appendChild(b);
   });
+  devTxt.textContent=(DEVICES[devCur]||DEVICES[0]).label;
 }
-renderDevices();
+
+async function loadDevices(){
+  const keepId=(DEVICES[devCur]||{}).id;        // survive a re-enumeration
+  let found=[];
+  try{
+    const all=await navigator.mediaDevices.enumerateDevices();
+    found=all.filter(d=>d.kind==='audioinput')
+             // live.js drops these, so this does too
+             .filter(d=>!/airpods|bluetooth/i.test(d.label||''))
+             .map(d=>({id:d.deviceId,label:d.label||'System default'}));
+  }catch{}
+  DEVICES=found.length?found:[{id:'',label:'System default'}];
+  const at=DEVICES.findIndex(d=>d.id===keepId);
+  devCur=at>=0?at:0;
+  renderDevices();
+}
+loadDevices();
+if(navigator.mediaDevices&&navigator.mediaDevices.addEventListener)
+  navigator.mediaDevices.addEventListener('devicechange',loadDevices);
 devField.onclick=e=>{e.stopPropagation();devMenu.classList.toggle('open');};
 document.addEventListener('click',()=>devMenu.classList.remove('open'));
 
@@ -2589,8 +2621,10 @@ async function startCapture(){
      reject the whole request, and the failure arrives as a bare error with the
      microphone never prompting. */
   try{
+    const pick=(DEVICES[devCur]||{}).id;
     micStream=await navigator.mediaDevices.getUserMedia({
-      audio:{sampleRate:SR,channelCount:1}});
+      audio:{deviceId:pick?{ideal:pick}:undefined,sampleRate:SR,channelCount:1}});
+    loadDevices();     // labels are readable now that permission is granted
   }catch(err){
     err.stage='mic';        // so the caller does not blame the server for this
     throw err;
