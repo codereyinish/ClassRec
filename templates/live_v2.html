@@ -1461,15 +1461,10 @@ document.querySelector('.stream').addEventListener('click',async e=>{
 document.getElementById('aiX').onclick=()=>B.classList.remove('ai-open');
 
 /* ── input device picker ──────────────────────────────────────── */
-/* Real inputs, the way live.js gets them: enumerateDevices, audioinput only, and
-   the same exclusion of AirPods and Bluetooth mics it applies.
-
-   live.js calls getUserMedia at page load purely to unlock the labels, which
-   pops the permission sheet before you have asked for anything. This page waits
-   instead: with no permission yet the browser returns entries with blank labels,
-   so the picker shows "System default" and refills with real names the moment
-   recording starts and permission is granted. devicechange keeps it current when
-   something is plugged in. */
+/* Real inputs, as live.js gets them — see the four functions below, carried over
+   unchanged: a brief getUserMedia at load to unlock the labels the browser hides
+   until permission exists, then enumerateDevices filtered to audio inputs, minus
+   AirPods and Bluetooth. Until that resolves this is what the field shows. */
 let DEVICES=[{id:'',label:'System default'}];
 const devField=document.getElementById('devField'), devMenu=document.getElementById('devMenu'),
       devTxt=document.getElementById('devTxt');
@@ -1491,24 +1486,35 @@ function renderDevices(){
   devTxt.textContent=(DEVICES[devCur]||DEVICES[0]).label;
 }
 
-async function loadDevices(){
-  const keepId=(DEVICES[devCur]||{}).id;        // survive a re-enumeration
-  let found=[];
-  try{
-    const all=await navigator.mediaDevices.enumerateDevices();
-    found=all.filter(d=>d.kind==='audioinput')
-             // live.js drops these, so this does too
-             .filter(d=>!/airpods|bluetooth/i.test(d.label||''))
-             .map(d=>({id:d.deviceId,label:d.label||'System default'}));
-  }catch{}
-  DEVICES=found.length?found:[{id:'',label:'System default'}];
-  const at=DEVICES.findIndex(d=>d.id===keepId);
-  devCur=at>=0?at:0;
-  renderDevices();
+/* ==== 4. DEVICE SELECTOR DROPDOWN=====  — live.js, same functions, same order */
+async function requestMicPermissionBriefly(){
+    const stream = await navigator.mediaDevices.getUserMedia({ audio : true })
+    stream.getTracks().forEach(track => track.stop());
 }
-loadDevices();
-if(navigator.mediaDevices&&navigator.mediaDevices.addEventListener)
-  navigator.mediaDevices.addEventListener('devicechange',loadDevices);
+
+async function getAudioInputDevices(){
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+    return audioInputs;
+}
+
+function createDeviceDropdown(audioInputs){
+    const filtered = audioInputs.filter(device =>
+        !device.label.toLowerCase().includes('airpods') &&
+        !device.label.toLowerCase().includes('bluetooth')
+    );
+    DEVICES = filtered.map(d => ({id:d.deviceId, label:d.label}));
+    if(!DEVICES.length) DEVICES = [{id:'', label:'System default'}];
+    devCur = 0;
+    renderDevices();
+}
+
+async function loadMicDevices(){
+    await requestMicPermissionBriefly();
+    const audioInputs = await getAudioInputDevices();
+    createDeviceDropdown(audioInputs);
+}
+loadMicDevices();
 devField.onclick=e=>{e.stopPropagation();devMenu.classList.toggle('open');};
 document.addEventListener('click',()=>devMenu.classList.remove('open'));
 
@@ -2626,7 +2632,6 @@ async function startCapture(){
     const pick=(DEVICES[devCur]||{}).id;
     micStream=await navigator.mediaDevices.getUserMedia({
       audio:{deviceId:pick?{ideal:pick}:undefined,sampleRate:SR,channelCount:1}});
-    loadDevices();     // labels are readable now that permission is granted
   }catch(err){
     err.stage='mic';        // so the caller does not blame the server for this
     throw err;
