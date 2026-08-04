@@ -1975,7 +1975,14 @@ function renderVoices(editIdx){
         if(v.id&&nn!==was)Store.voices.rename(v.id,nn).catch(()=>{});   // PATCH /voices/{id}
       };
     };
-    name.ondblclick=e=>{e.stopPropagation();startEdit();};
+    /* Anywhere in the row, not only on the name itself — the row is the voice,
+       and hunting for the few pixels the text happens to occupy is a worse
+       target the shorter the name is. The bin keeps its own click. */
+    row.ondblclick=e=>{
+      if(e.target.closest('.vp-trash'))return;
+      e.stopPropagation();
+      startEdit();
+    };
     if(i===editIdx)setTimeout(startEdit,60);   // freshly captured → name it now
     row.querySelector('.vp-trash').onclick=e=>{e.stopPropagation();
       if(v.id)Store.voices.remove(v.id).catch(()=>{});                  // DELETE /voices/{id}
