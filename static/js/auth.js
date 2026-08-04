@@ -281,12 +281,86 @@ function _showUpgradeModal(clerk) {
     }
 
     // Not signed in — open Clerk's own modal with dark theme
-    clerk.openSignIn({ appearance: clerkDarkTheme() });
+    clerk.openSignIn({ appearance: clerkTheme() });
 }
 
 // ===== STANDARD AUTH MODAL (sign in button click) =====
 function showAuthModal(clerk) {
-    clerk.openSignIn({ appearance: clerkDarkTheme() });
+    clerk.openSignIn({ appearance: clerkTheme() });
+}
+
+// ===== WHICH THEME =====
+// Clerk's modal is drawn by Clerk, so page CSS cannot reach it — the only way in
+// is this appearance object. base.html's pages are the dark amber ones and keep
+// what they had; a page that asks for the light theme on <html> gets the indigo
+// one, so the modal matches whatever opened it.
+function clerkTheme() {
+    return document.documentElement.dataset.clerkTheme === "light"
+        ? clerkLightTheme()
+        : clerkDarkTheme();
+}
+
+// ===== CLERK LIGHT THEME (redesigned pages) =====
+// Same keys as the dark one below, in the app's own palette: Midnight Violet on
+// a violet-tinted grey ramp, DM Sans throughout.
+function clerkLightTheme() {
+    return {
+        variables: {
+            colorBackground:        "#FFFFFF",
+            colorInputBackground:   "#F4F3FA",
+            colorInputText:         "#281F3E",
+            colorText:              "#281F3E",
+            colorTextSecondary:     "#8B8399",
+            /* --lock-deep, not the --primary the page's own buttons use: an
+               account panel should not read as another New session dialog. */
+            colorPrimary:           "#4A3FBF",
+            colorDanger:            "#DC0D0D",
+            borderRadius:           "10px",
+            fontFamily:             "'DM Sans', sans-serif",
+        },
+        elements: {
+            card: {
+                background: "#FFFFFF",
+                border: "1px solid #E2DEE7",
+                boxShadow: "0 24px 60px -20px rgba(40,31,62,.34)",
+                borderRadius: "16px",
+            },
+            headerTitle: {
+                fontFamily: "'DM Sans', sans-serif",
+                fontWeight: "700",
+                letterSpacing: "-.02em",
+                color: "#281F3E",
+            },
+            headerSubtitle: {
+                color: "#8B8399",
+            },
+            socialButtonsBlockButton: {
+                background: "#FFFFFF",
+                border: "1px solid #E2DEE7",
+                color: "#281F3E",
+            },
+            socialButtonsBlockButton__google: {
+                background: "#FFFFFF",
+            },
+            formButtonPrimary: {
+                background: "#4A3FBF",
+                color: "#FFFFFF",
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: "13.5px",
+                fontWeight: "600",
+                textTransform: "none",
+            },
+            footerActionLink: {
+                color: "#4A3FBF",
+            },
+            dividerLine: {
+                background: "#E2DEE7",
+            },
+            dividerText: {
+                color: "#8B8399",
+            },
+        }
+    };
 }
 
 // ===== CLERK DARK THEME =====
