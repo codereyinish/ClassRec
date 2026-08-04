@@ -17,7 +17,9 @@ from logger import logger
 from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
 from database import get_db, SessionLocal  # get_db for routes; SessionLocal for the WS handler
 import repository as repo                  # our data operations (create/list/...)
-from clerk_auth import current_user, current_user_optional
+from clerk_auth import (current_user, current_user_optional,
+                        clerk_user_id_from_token, get_or_create_user, AuthError)
+from models import User                    # for the usage write on the socket
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
 import onnxruntime as ort
@@ -84,6 +86,20 @@ MIN_SEGMENT_SEC   = 0.5
 # Similarity
 SIMILARITY_THRESHOLD = 0.20
 
+# ======= USAGE POLICY =======
+# Every second of audio accepted here costs a Modal GPU call, so the ceiling is
+# enforced on the server. The same numbers exist in static/js/tracker.js, which
+# is a courtesy to the UI — clearing localStorage resets those, and nothing about
+# them reaches this file.
+FREE_LIVE_SECONDS  = 20 * 60      # a signed-in account, free plan
+
+FLUSH_EVERY = 30                  # seconds of audio between database writes
+
+# Recording requires an account. An anonymous allowance cannot be a real limit:
+# with nobody to recognise, every reconnection starts a fresh count, so it is
+# friction rather than a ceiling. Requiring identity is what makes the 20 minutes
+# mean 20 minutes.
+
 
 # ======= PYDANTIC DATA VALIDATION =======
 VALID_TAGS = {"exam", "assignment", "important", "attendance", "classwork"}
@@ -102,6 +118,10 @@ class ContextMessage(BaseModel):
     prompt: str = Field(default="", max_length=300)
     tagConfig: TagConfig = Field(default_factory=TagConfig)
     class_id: int | None = None      # for "use_saved_voice": which saved Voice to load
+    # The browser cannot put a header on a WebSocket handshake, so the token
+    # arrives in the opening message instead. Deliberately not the query string:
+    # URLs end up in access logs, proxies and error reports.
+    token: str = ""
 
 
 # ======= AUDIO HELPERS =======
@@ -979,6 +999,22 @@ def show_Graphical_Audio_Progress(filled):
 
 
 # ======= WEBSOCKET =======
+def _persist_live_seconds(user_id: int | None, total: float) -> None:
+    """Store the running total. Called every FLUSH_EVERY seconds and once at the
+    end — never per packet, which would be thousands of writes a lecture."""
+    if user_id is None:
+        return
+    try:
+        with SessionLocal() as db:
+            u = db.get(User, user_id)
+            if u is not None:
+                u.live_seconds = int(total)
+                db.commit()
+    except Exception as e:
+        # Losing a usage write must not take the recording down with it.
+        logger.error(f"[ws] could not persist usage for user {user_id}: {e}")
+
+
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
     """
@@ -993,6 +1029,15 @@ async def websocket_transcribe(websocket: WebSocket):
     selected_tags     = []
     custom_name       = ""
     enrolling         = False
+
+    # Who is on this socket, and what they are allowed to use. Both are settled
+    # by the opening message; until then the connection is anonymous and its
+    # smaller ceiling applies.
+    ws_user_id: int | None = None
+    seconds_allowed = FREE_LIVE_SECONDS
+    seconds_used    = 0.0
+    seconds_at_start = 0.0        # what was already used before this connection
+    seconds_flushed  = 0.0        # how much of it the database already knows
     enrollment_buffer = bytearray()
     chunk_count       = 0
 
@@ -1022,6 +1067,37 @@ async def websocket_transcribe(websocket: WebSocket):
                         lecture_prompt = msg.prompt
                         selected_tags  = msg.tagConfig.tags
                         custom_name    = msg.tagConfig.name
+
+                        # Every second accepted here costs a GPU call, so the
+                        # allowance is decided from a verified identity rather
+                        # than from anything the page claims about itself.
+                        # Both refusals happen before a single byte of audio is
+                        # read, so a connection that is not allowed to record
+                        # costs nothing.
+                        try:
+                            clerk_id = clerk_user_id_from_token(msg.token)
+                        except AuthError as e:
+                            logger.info(f"[ws] refused: {e}")
+                            await websocket.send_json({
+                                "type": "error", "message": "Sign in to record."})
+                            await websocket.close()
+                            break
+
+                        with SessionLocal() as db:
+                            u = get_or_create_user(db, clerk_id)
+                            ws_user_id       = u.id
+                            seconds_used     = float(u.live_seconds)
+                            seconds_at_start = seconds_used
+                            seconds_flushed  = seconds_used
+                        logger.info(f"[ws] {clerk_id} -> user {ws_user_id}, "
+                                    f"{seconds_used:.0f}/{seconds_allowed}s used")
+
+                        if seconds_used >= seconds_allowed:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "You have used your free recording minutes."})
+                            await websocket.close()
+                            break
 
                     elif msg.type == "enroll_start":
                         enrolling = True
@@ -1060,6 +1136,13 @@ async def websocket_transcribe(websocket: WebSocket):
                         # lock onto it — same effect as enroll_end, no live audio needed.
                         with SessionLocal() as db:
                             voice = repo.get_class(db, msg.class_id) if msg.class_id else None
+                            # Someone else's voice is not yours to lock onto — the
+                            # id is just a number in a message, and guessing it
+                            # would otherwise work.
+                            if voice is not None and voice.user_id != ws_user_id:
+                                logger.info(f"[ws] user {ws_user_id} asked for voice "
+                                            f"{msg.class_id}, which is not theirs")
+                                voice = None
                         if voice is not None and voice.embedding:
                             professor_embedding  = np.frombuffer(voice.embedding, dtype="float32")
                             similarity_threshold = voice.threshold
@@ -1109,6 +1192,29 @@ async def websocket_transcribe(websocket: WebSocket):
                     await websocket.close()
                     break
 
+                # Metered here, where the audio actually arrives, rather than from
+                # a clock or from anything the page reports. The format is fixed —
+                # 16 kHz, 16-bit mono — so bytes convert straight to seconds, and
+                # this is the same audio Modal will be asked to transcribe.
+                seconds_used += len(packet) / BYTES_PER_SECOND
+
+                # Persisted every FLUSH_EVERY seconds rather than on every packet:
+                # packets arrive four times a second, and the database only needs
+                # to know roughly where we are. Writing at the end alone would give
+                # away the whole session if the server restarted mid-lecture; this
+                # bounds that loss to the interval.
+                if seconds_used - seconds_flushed >= FLUSH_EVERY:
+                    _persist_live_seconds(ws_user_id, seconds_used)
+                    seconds_flushed = seconds_used
+
+                if seconds_used >= seconds_allowed:
+                    logger.info(f"[ws] user {ws_user_id} hit the limit at {seconds_used:.0f}s")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "You have used your free recording minutes."})
+                    await websocket.close()
+                    break
+
                 audio_buffer.extend(packet)
 
                 if len(audio_buffer) >= CHUNK_BYTES:
@@ -1131,6 +1237,15 @@ async def websocket_transcribe(websocket: WebSocket):
         print("Client disconnected from WebSocket")
     except Exception as e:
         print(f"WebSocket error: {e}")
+    finally:
+        # However the connection ended — closed, dropped, errored — what was used
+        # is written down. In the finally block precisely because the ways a
+        # socket ends without warning are the ways usage would otherwise vanish.
+        if ws_user_id is not None and seconds_used > seconds_flushed:
+            _persist_live_seconds(ws_user_id, seconds_used)
+            logger.info(f"[ws] user {ws_user_id} used "
+                        f"{seconds_used - seconds_at_start:.0f}s this session, "
+                        f"{seconds_used:.0f}/{seconds_allowed}s total")
 
 
 # ======= STARTUP =======

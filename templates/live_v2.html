@@ -1381,6 +1381,17 @@ lockToggle.onchange=()=>{
 /* One way in to a session, so the mic and "Start session" cannot drift apart on
    which counters they reset. */
 async function startRecording(){
+  /* Recording needs an account, so the prompt comes before the microphone rather
+     than after a lecture has been recorded and cannot be saved. Signing in here
+     continues into the recording — no second click. */
+  if(window.Clerk && !window.Clerk.session){
+    setActivity('');
+    setCap('Sign in to record');
+    try{ await window.Clerk.openSignIn(); }catch{}
+    await new Promise(r=>setTimeout(r,400));
+    if(!window.Clerk.session){ showError('Sign in to record'); return; }
+    await refreshForUser();
+  }
   B.classList.remove('rail-open');
   secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
   setActivity('starting');roL.textContent='—';
@@ -2789,6 +2800,10 @@ const setConn=(state,msg)=>{     // one place decides what the rail says about t
 
 async function openSocket(){
   if(ws&&ws.readyState<=1)return ws;
+  // fetched before opening, since the first message must carry it
+  let wsToken='';
+  try{ wsToken = (window.Clerk&&window.Clerk.session)
+        ? await window.Clerk.session.getToken() : ''; }catch{}
   return new Promise((resolve,reject)=>{
     let s;
     try{s=new WebSocket(WS_URL);}catch(e){reject(e);return;}
@@ -2796,7 +2811,11 @@ async function openSocket(){
     s.binaryType='arraybuffer';
     s.onopen=()=>{
       ws=s;setConn('on','Connected');
-      s.send(JSON.stringify({type:'context',prompt:lectureContext,tagConfig:alertConfig()}));
+      /* The token rides in the opening message: a browser cannot put a header on
+         a WebSocket handshake, and a query string would put it in every access
+         log between here and the server. */
+      s.send(JSON.stringify({type:'context',prompt:lectureContext,
+                             tagConfig:alertConfig(),token:wsToken}));
       resolve(s);
     };
     s.onerror=fail;
