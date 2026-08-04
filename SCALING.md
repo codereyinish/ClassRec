@@ -67,6 +67,46 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4
 using Uvicorn's --workers flag. Each worker is an independent Python process
 with its own model copy, bypassing the GIL."
 
+### What breaks the moment you add the second worker
+
+Each worker is a separate process with **separate memory**. Anything held in a
+Python variable stops being shared, silently — nothing errors, the limit simply
+stops applying.
+
+Audit before switching this on:
+
+| state | lives in | survives workers |
+|---|---|---|
+| a WebSocket's own counters | that connection | yes — a socket stays in one worker |
+| the Clerk JWKS key cache | each worker's memory | yes — each fetches its own, harmless |
+| `users.live_seconds` | the database | yes — one row, every worker sees it |
+| an in-memory count of open sockets | one worker's memory | **no — 5 per worker becomes 20** |
+
+The rule: **a per-user limit kept in process memory is wrong as soon as there is
+more than one process.** Shared limits need shared storage.
+
+### Redis — when it earns its place
+
+Not needed yet, and worth being clear about why. A local SQLite write is ~0.2ms,
+in the same range as a Redis round trip, so this is not about speed. What Redis
+provides that a database does not:
+
+- **TTL** — keys that delete themselves, which is how a crashed worker's
+  "socket still open" entry disappears without a cleanup job.
+- **Atomic counters** — `INCR` in one operation, no transaction to reason about.
+- **Write concurrency** — SQLite locks the whole file for a write, so ten workers
+  writing means nine waiting. This is the real ceiling here, not latency.
+- **Pub/sub** — one worker telling the others something immediately. A database
+  can only be polled, which is what a flush interval already is.
+- **Disposability** — losing it loses counters, not lectures.
+
+**Adopt it when:** several workers need to share ephemeral state that changes
+often — concurrent-session limits, per-IP rate limiting, or pushing "this user
+hit their limit" to a worker holding their other socket.
+
+**Not for:** anything durable. Lectures, voices and usage totals stay in the
+database.
+
 ---
 
 ## Level 3: Multiple Servers + Load Balancer (horizontal scaling)
