@@ -14,6 +14,7 @@ import json
 import io
 import requests
 from logger import logger
+from sqlalchemy import update           # for the atomic usage increment
 from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
 from database import get_db, SessionLocal  # get_db for routes; SessionLocal for the WS handler
 import repository as repo                  # our data operations (create/list/...)
@@ -999,20 +1000,33 @@ def show_Graphical_Audio_Progress(filled):
 
 
 # ======= WEBSOCKET =======
-def _persist_live_seconds(user_id: int | None, total: float) -> None:
-    """Store the running total. Called every FLUSH_EVERY seconds and once at the
-    end — never per packet, which would be thousands of writes a lecture."""
-    if user_id is None:
-        return
+def _add_live_seconds(user_id: int | None, delta: float) -> int | None:
+    """Add this connection's new seconds to the account and return the fresh total.
+
+    Adds rather than assigns, and does it in one UPDATE so the database performs
+    the arithmetic. A device recording on a phone and a laptop at once would
+    otherwise each read the same starting number, count separately, and write
+    their own total — the last one winning and the rest of the usage vanishing.
+    Reading the total back is also how each connection learns about the others:
+    the ceiling is shared, so it has to be re-checked rather than assumed from
+    whatever was true at connect.
+    """
+    if user_id is None or delta <= 0:
+        return None
     try:
         with SessionLocal() as db:
+            db.execute(
+                update(User)
+                .where(User.id == user_id)
+                .values(live_seconds=User.live_seconds + int(delta))
+            )
+            db.commit()
             u = db.get(User, user_id)
-            if u is not None:
-                u.live_seconds = int(total)
-                db.commit()
+            return int(u.live_seconds) if u else None
     except Exception as e:
         # Losing a usage write must not take the recording down with it.
         logger.error(f"[ws] could not persist usage for user {user_id}: {e}")
+        return None
 
 
 @app.websocket("/ws/transcribe")
@@ -1034,10 +1048,10 @@ async def websocket_transcribe(websocket: WebSocket):
     # by the opening message; until then the connection is anonymous and its
     # smaller ceiling applies.
     ws_user_id: int | None = None
-    seconds_allowed = FREE_LIVE_SECONDS
-    seconds_used    = 0.0
-    seconds_at_start = 0.0        # what was already used before this connection
-    seconds_flushed  = 0.0        # how much of it the database already knows
+    seconds_allowed  = FREE_LIVE_SECONDS
+    account_total    = 0.0        # the shared total, as last read from the database
+    seconds_this_ws  = 0.0        # audio this connection has taken
+    seconds_unflushed = 0.0       # of that, what has not been added yet
     enrollment_buffer = bytearray()
     chunk_count       = 0
 
@@ -1085,14 +1099,12 @@ async def websocket_transcribe(websocket: WebSocket):
 
                         with SessionLocal() as db:
                             u = get_or_create_user(db, clerk_id)
-                            ws_user_id       = u.id
-                            seconds_used     = float(u.live_seconds)
-                            seconds_at_start = seconds_used
-                            seconds_flushed  = seconds_used
+                            ws_user_id    = u.id
+                            account_total = float(u.live_seconds)
                         logger.info(f"[ws] {clerk_id} -> user {ws_user_id}, "
-                                    f"{seconds_used:.0f}/{seconds_allowed}s used")
+                                    f"{account_total:.0f}/{seconds_allowed}s used")
 
-                        if seconds_used >= seconds_allowed:
+                        if account_total >= seconds_allowed:
                             await websocket.send_json({
                                 "type": "error",
                                 "message": "You have used your free recording minutes."})
@@ -1196,19 +1208,24 @@ async def websocket_transcribe(websocket: WebSocket):
                 # a clock or from anything the page reports. The format is fixed —
                 # 16 kHz, 16-bit mono — so bytes convert straight to seconds, and
                 # this is the same audio Modal will be asked to transcribe.
-                seconds_used += len(packet) / BYTES_PER_SECOND
+                seconds_this_ws   += len(packet) / BYTES_PER_SECOND
+                seconds_unflushed += len(packet) / BYTES_PER_SECOND
 
-                # Persisted every FLUSH_EVERY seconds rather than on every packet:
-                # packets arrive four times a second, and the database only needs
-                # to know roughly where we are. Writing at the end alone would give
-                # away the whole session if the server restarted mid-lecture; this
-                # bounds that loss to the interval.
-                if seconds_used - seconds_flushed >= FLUSH_EVERY:
-                    _persist_live_seconds(ws_user_id, seconds_used)
-                    seconds_flushed = seconds_used
+                # Added every FLUSH_EVERY seconds rather than on every packet —
+                # packets arrive four times a second. The write returns the shared
+                # total, which is how this connection finds out about recordings
+                # happening on the user's other devices.
+                if seconds_unflushed >= FLUSH_EVERY:
+                    fresh = _add_live_seconds(ws_user_id, seconds_unflushed)
+                    if fresh is not None:
+                        account_total = float(fresh)
+                    seconds_unflushed = 0.0
 
-                if seconds_used >= seconds_allowed:
-                    logger.info(f"[ws] user {ws_user_id} hit the limit at {seconds_used:.0f}s")
+                # Between writes the ceiling is judged on the last known shared
+                # total plus what this connection has taken since.
+                if account_total + seconds_unflushed >= seconds_allowed:
+                    logger.info(f"[ws] user {ws_user_id} hit the limit at "
+                                f"{account_total + seconds_unflushed:.0f}s")
                     await websocket.send_json({
                         "type": "error",
                         "message": "You have used your free recording minutes."})
@@ -1241,11 +1258,10 @@ async def websocket_transcribe(websocket: WebSocket):
         # However the connection ended — closed, dropped, errored — what was used
         # is written down. In the finally block precisely because the ways a
         # socket ends without warning are the ways usage would otherwise vanish.
-        if ws_user_id is not None and seconds_used > seconds_flushed:
-            _persist_live_seconds(ws_user_id, seconds_used)
-            logger.info(f"[ws] user {ws_user_id} used "
-                        f"{seconds_used - seconds_at_start:.0f}s this session, "
-                        f"{seconds_used:.0f}/{seconds_allowed}s total")
+        if ws_user_id is not None and seconds_unflushed > 0:
+            fresh = _add_live_seconds(ws_user_id, seconds_unflushed)
+            logger.info(f"[ws] user {ws_user_id} used {seconds_this_ws:.0f}s here, "
+                        f"account now {fresh}/{seconds_allowed}s")
 
 
 # ======= STARTUP =======
