@@ -791,6 +791,7 @@ body.ai-open .ai{transform:none}
 }
 /* ▸ becomes || while this voice is playing — the glyph is the transport state */
 .vp-item-arrow.on{font-weight:700;letter-spacing:1px}
+.vp-item-arrow.mute{color:var(--g4)}   /* no clip stored: nothing to press */
 .vp-trash{
   width:26px;height:26px;border-radius:7px;flex:0 0 auto;
   /* red at rest, not only under the cursor — delete should read as destructive
@@ -1954,12 +1955,23 @@ function renderVoices(editIdx){
       if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
       vpStatus.textContent='';};
     const arrow=row.querySelector('.vp-item-arrow');
-    name.onclick=e=>{e.stopPropagation();
+    /* Playable only when the server actually holds a clip for it. A voice
+       captured in this session has no id until it is saved, and nothing is
+       stored for it — the row used to show the pause glyph regardless, so the
+       control sat there claiming to play something that did not exist. */
+    const playable = !!(v.id && v.hasAudio);
+    if(!playable) arrow.classList.add('mute');
+    const toggle = e => {
+      e.stopPropagation();
       if(playing&&playing.name===name){stopPlay();return;}
       stopPlay();
-      if(v.id&&v.hasAudio)playVoice(v.id);                              // GET /voices/{id}/audio
+      if(!playable) return;                                             // nothing to play
+      playVoice(v.id);                                                  // GET /voices/{id}/audio
       name.classList.add('playing');arrow.textContent='||';arrow.classList.add('on');
-      playing={name,arrow};};
+      playing={name,arrow};
+    };
+    name.onclick=toggle;
+    arrow.onclick=toggle;      // the glyph is a control, so it takes the click too
     const startEdit=()=>{
       name.contentEditable='true';name.classList.add('editing');name.focus();
       const r=document.createRange();r.selectNodeContents(name);
