@@ -782,10 +782,18 @@ body.ai-open .ai{transform:none}
 .vp-item-name.playing{color:var(--primary)}
 .vp-item-name.editing{color:var(--g8);cursor:text;background:var(--g2)}
 .vp-dur{font-size:11.5px;color:var(--g5);font-family:var(--mono);flex:0 0 auto}
-.vp-item-arrow{color:var(--g5);font-size:12px;flex:0 0 auto}
-.vp-item.selected .vp-item-arrow{color:var(--theme)}
+/* A transport control, not a decoration: it was a 12px grey glyph floating
+   between the use count and the bin, which read as punctuation. Given a disc of
+   its own it is findable, and it fills in while the clip runs. */
+.vp-item-arrow{
+  width:24px;height:24px;flex:0 0 auto;border-radius:999px;
+  display:grid;place-items:center;font-size:10px;line-height:1;
+  color:var(--primary);background:var(--primary-soft);
+  transition:.14s var(--e);
+}
+.vp-item:hover .vp-item-arrow{background:var(--theme);color:#fff}
 /* ▸ becomes || while this voice is playing — the glyph is the transport state */
-.vp-item-arrow.on{color:var(--primary);font-weight:700;letter-spacing:1.5px}
+.vp-item-arrow.on{background:var(--primary);color:#fff;font-weight:700;letter-spacing:1px}
 .vp-trash{
   width:26px;height:26px;border-radius:7px;flex:0 0 auto;
   /* red at rest, not only under the cursor — delete should read as destructive
@@ -1310,8 +1318,8 @@ async function startRecording(){
 const ctx=document.getElementById('ctx'), ctxInput=document.getElementById('ctxInput');
 let lectureContext='';
 function askContext(){
-  vp.classList.remove('open');    // the picker leaves rather than stacking underneath
   stopPlay();
+  vp.classList.remove('open');    // the picker leaves rather than stacking underneath
   ctxInput.value=lectureContext;
   ctx.classList.add('open');
   setTimeout(()=>ctxInput.focus(),140);
@@ -1904,6 +1912,10 @@ const TRASH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
 const vpStart=document.getElementById('vpStart');
 let playing=null;   // {name, arrow} of the row currently playing
 const stopPlay=()=>{
+  /* Stop the audio, not just the arrow. This only reset the row's appearance,
+     so clicking a playing voice again looked like it did nothing, and closing
+     the picker left a clip talking over the page. */
+  try{ if(voiceAudio){voiceAudio.pause();voiceAudio.currentTime=0;voiceAudio=null;} }catch{}
   if(!playing)return;
   playing.name.classList.remove('playing');
   playing.arrow.textContent='▸';playing.arrow.classList.remove('on');
@@ -1948,7 +1960,7 @@ function renderVoices(editIdx){
       const r=document.createRange();r.selectNodeContents(name);
       const s=getSelection();s.removeAllRanges();s.addRange(r);   // preselect for retyping
       name.onkeydown=ev=>{
-        if(ev.key==='Enter'){ev.preventDefault();name.blur();vp.classList.remove('open');}
+        if(ev.key==='Enter'){ev.preventDefault();name.blur();stopPlay();vp.classList.remove('open');}
         if(ev.key==='Escape'){name.textContent=v.n;name.blur();}
       };
       name.onblur=async()=>{
@@ -1988,8 +2000,10 @@ function addCapturedVoice(secs){
   VOICES.forEach(o=>o.sel=false);
   VOICES.unshift({n:'Voice '+untitledN,d:'0:'+String(secs).padStart(2,'0'),sel:true,pending:true});
   vp.classList.add('open');
-  vpStatus.className='vp-status ok';
-  vpStatus.textContent='Captured '+secs+'s — name it, or skip for “Voice '+untitledN+'”';
+  /* No status line here: the row is already at the top of the list in edit mode
+     with "Voice N" in the field, which says the same thing twice over. */
+  vpStatus.className='vp-status';
+  vpStatus.textContent='';
   renderVoices(0);
 }
 /* Dismissing without typing is the skip: the generated name stands and the voice is
@@ -2002,10 +2016,11 @@ async function acceptPendingName(){
 }
 renderVoices();
 document.getElementById('voicebtn').onclick=()=>{vp.classList.add('open');vpStatus.textContent='';};
-vp.onclick=e=>{if(e.target===vp){acceptPendingName();vp.classList.remove('open');}};
+vp.onclick=e=>{if(e.target===vp){acceptPendingName();stopPlay();vp.classList.remove('open');}};
 // "Record new" — back to the rail with the prompt showing, so the next hold enrols
 document.getElementById('vpRecordNew').onclick=()=>{
   acceptPendingName();
+  stopPlay();
   vp.classList.remove('open');
   vpStatus.textContent='';
   showHint();
@@ -2861,7 +2876,10 @@ function voiceLockOff(){                         // sent when Lock Mode is switc
 let voiceAudio=null;
 function playVoice(id){                          // GET /voices/{id}/audio
   try{if(voiceAudio){voiceAudio.pause();voiceAudio=null;}
-    voiceAudio=new Audio(Store.voices.audioUrl(id));voiceAudio.play().catch(()=>{});}catch{}
+    voiceAudio=new Audio(Store.voices.audioUrl(id));
+    // a clip that reaches its end leaves the row showing a pause glyph otherwise
+    voiceAudio.onended=()=>stopPlay();
+    voiceAudio.play().catch(()=>{});}catch{}
 }
 
 /* ── saving : POST /sessions with the body save-transcript.js sends ── */
