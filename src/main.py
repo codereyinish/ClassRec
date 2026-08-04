@@ -96,6 +96,14 @@ FREE_LIVE_SECONDS  = 20 * 60      # a signed-in account, free plan
 
 FLUSH_EVERY = 30                  # seconds of audio between database writes
 
+# How many recordings one account may have open at once. Not a quota — the quota
+# is shared and already correct across tabs. This bounds the SLACK in it: each
+# socket may be up to FLUSH_EVERY seconds stale before it sees the shared total,
+# so the worst-case overshoot is FLUSH_EVERY x this number. Five keeps that
+# under three minutes, and leaves room for a phone, a laptop, and a reconnect
+# racing a socket that has not finished closing.
+MAX_SOCKETS_PER_USER = 5
+
 # Recording requires an account. An anonymous allowance cannot be a real limit:
 # with nobody to recognise, every reconnection starts a fresh count, so it is
 # friction rather than a ceiling. Requiring identity is what makes the 20 minutes
@@ -1000,6 +1008,37 @@ def show_Graphical_Audio_Progress(filled):
 
 
 # ======= WEBSOCKET =======
+# Open recordings per user, for MAX_SOCKETS_PER_USER.
+#
+# ONE PROCESS ONLY. This dict belongs to this worker, so with `--workers 4` each
+# worker counts only its own sockets and the real cap becomes 5 x 4 = 20, with
+# nothing raising an error to tell you. Moving to several workers means moving
+# this to shared storage — a table keyed (user_id, slot) with a unique
+# constraint and a staleness timeout, or Redis. See SCALING.md, Level 2.
+_open_sockets: dict[int, int] = {}
+
+
+def _claim_socket(user_id: int) -> bool:
+    """Take a slot for this user, or return False if they are at the limit."""
+    if _open_sockets.get(user_id, 0) >= MAX_SOCKETS_PER_USER:
+        return False
+    _open_sockets[user_id] = _open_sockets.get(user_id, 0) + 1
+    return True
+
+
+def _release_socket(user_id: int | None) -> None:
+    """Give the slot back. Called from a finally block, because sockets mostly
+    end by being dropped rather than closed politely — and a slot that is never
+    released locks the user out of their own account."""
+    if user_id is None:
+        return
+    n = _open_sockets.get(user_id, 0) - 1
+    if n > 0:
+        _open_sockets[user_id] = n
+    else:
+        _open_sockets.pop(user_id, None)
+
+
 def _add_live_seconds(user_id: int | None, delta: float) -> int | None:
     """Add this connection's new seconds to the account and return the fresh total.
 
@@ -1109,6 +1148,16 @@ async def websocket_transcribe(websocket: WebSocket):
                                 "type": "error",
                                 "message": "You have used your free recording minutes."})
                             await websocket.close()
+                            break
+
+                        if not _claim_socket(ws_user_id):
+                            logger.info(f"[ws] user {ws_user_id} already has "
+                                        f"{MAX_SOCKETS_PER_USER} recordings open")
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Too many recordings open. Close one and try again."})
+                            await websocket.close()
+                            ws_user_id = None      # nothing claimed, nothing to release
                             break
 
                     elif msg.type == "enroll_start":
@@ -1262,6 +1311,7 @@ async def websocket_transcribe(websocket: WebSocket):
             fresh = _add_live_seconds(ws_user_id, seconds_unflushed)
             logger.info(f"[ws] user {ws_user_id} used {seconds_this_ws:.0f}s here, "
                         f"account now {fresh}/{seconds_allowed}s")
+        _release_socket(ws_user_id)
 
 
 # ======= STARTUP =======
