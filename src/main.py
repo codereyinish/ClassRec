@@ -202,9 +202,10 @@ def analyze_text(text: str, selected_tags: list, custom_name: str) -> list:
     return tags
 
 
-# ======= TRANSCRIBE CHUNK (full pipeline from VAD to dedup) =======
+# ======= TRANSCRIBE CHUNK (speaker filtering, Steps 2-7) =======
 def _run_pipeline_sync(
-    pcm_bytes: bytes,
+    samples: np.ndarray,
+    words: list[dict],
     lecture_prompt: str,
     selected_tags: list,
     custom_name: str,
@@ -214,19 +215,21 @@ def _run_pipeline_sync(
     chunk_offset: float,
 ) -> dict | None:
     """
-    CPU-bound pipeline: Steps 1-7 (all model inference).
-    Runs in a thread pool via run_in_executor so the async event loop
-    stays free to handle other users while models are running.
+    The model half of the pipeline: Steps 2-7, VAD through dedup.
+
+    Whisper (Step 1) used to run in here too. It is a call to Modal, which means
+    two of the two and a half seconds this took were spent waiting on a remote
+    GPU — while holding the semaphore that exists to cap MEMORY. Every other
+    chunk queued behind a thread that was using ~5MB and no CPU.
+
+    Transcription now happens before this is called and outside the gate, so the
+    limit guards only the part that actually allocates: VAD, segmentation and
+    ECAPA.
+
+    Runs in a thread pool via run_in_executor so the async event loop stays free
+    to handle other users while models are running.
     Returns a JSON-ready dict to send, or None if nothing to send.
     """
-    samples = pcm_to_float(pcm_bytes)
-
-    # Step 1: Whisper — always runs on full chunk for best accuracy
-    words = transcribe_with_timestamps(samples)
-    if not words:
-        logger.debug("[chunk] no words from Whisper")
-        return None
-
     raw_transcript = ' '.join(w['word'] for w in words).strip()
     logger.debug(f"[raw whisper] {raw_transcript}")
 
@@ -344,12 +347,25 @@ async def transcribe_chunk(
     """
     try:
         loop = asyncio.get_event_loop()
+
+        # Step 1 — Whisper, on Modal. Network waiting, a few MB, no models: it is
+        # deliberately OUTSIDE the semaphore so chunks can wait on the GPU
+        # concurrently instead of single file. This was the whole bottleneck.
+        samples = pcm_to_float(pcm_bytes)
+        words = await loop.run_in_executor(None, transcribe_with_timestamps, samples)
+        if not words:
+            logger.debug("[chunk] no words from Whisper")
+            return
+
+        # Steps 2-7 — the models, and the only part that allocates ~350MB. The
+        # gate belongs here.
         async with _pipeline_semaphore:
             result = await loop.run_in_executor(
                 None,
                 partial(
                     _run_pipeline_sync,
-                    pcm_bytes,
+                    samples,
+                    words,
                     lecture_prompt,
                     selected_tags,
                     custom_name,
