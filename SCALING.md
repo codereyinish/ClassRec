@@ -109,6 +109,47 @@ database.
 
 ---
 
+## Where the delay comes from
+
+Measured on an 8-core Mac, one 10-second chunk:
+
+```
+local models (VAD, segmentation, ECAPA)   0.28s
+Modal round trip, warm                    1.74s
+```
+
+What a user sees is a sawtooth, not a fixed lag. Every word in a chunk appears
+at once, so just after an update the transcript is ~2s behind live speech, then
+drifts until the next chunk lands 10 seconds later.
+
+```
+floor  ~2s     processing: Modal + local + any queueing
+drift  ~10s    CHUNK_DURATION - how far it falls behind before catching up
+```
+
+The floor is the number a user judges by, because they compare the transcript to
+the words they just heard. Queueing raises it directly: a chunk waiting behind
+two others adds ~3.4s, and the transcript then never gets closer than five
+seconds behind.
+
+**Capacity follows from that.** One T4 container serves one chunk at a time, so
+about three concurrent recordings keeps it near half busy and the floor low.
+Past four, queueing raises the floor faster than it raises throughput.
+
+```
+3 recordings -> 1 container        12 recordings -> 4 containers
+```
+
+**The server is not what scales.** One core serves roughly 35 concurrent
+recordings, since each needs 0.28s once every 10 seconds, and memory stays near
+1GB regardless because the pipeline semaphore caps concurrent inference at two.
+Capacity is bought in Modal containers, not droplet size.
+
+**If the lag needs to come down**, CHUNK_DURATION is the lever - it owns two
+thirds of the delay. The cost is accuracy, since Whisper gets less context.
+
+---
+
 ## Level 3: Multiple Servers + Load Balancer (horizontal scaling)
 
 **Problem:** One server has a RAM/CPU ceiling. Can't add more workers indefinitely.
