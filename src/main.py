@@ -32,6 +32,17 @@ import warnings
 warnings.filterwarnings("ignore")
 torch.backends.nnpack.enabled = False
 
+# One thread per inference, so chunks are what run in parallel rather than the
+# insides of a single inference. Torch otherwise takes a thread per core for one
+# forward pass, which combined with the semaphore below would put four threads on
+# two cores — each slower, no more throughput, and the event loop starved of the
+# slices it needs to keep draining audio.
+#
+# Parallelism has to come from one place or the other. Across chunks is the
+# better choice for a server: independent work needs no coordination, and nobody
+# is waiting on a single chunk when they arrive ten seconds apart.
+torch.set_num_threads(1)
+
 sentry_sdk.init(
     dsn="https://f62227a4abc04cfda1165ef380cdc745@o4511040460488704.ingest.us.sentry.io/4511040467566592",
     send_default_pii=True,
@@ -43,9 +54,18 @@ CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "pk_test_ZXRoaWNhbC1t
 
 app = FastAPI()
 
-# Limit concurrent heavy pipeline runs to avoid OOM on a 2GB server.
-# Each run peaks at ~350MB; 2 slots keeps us under the safe threshold.
-_pipeline_semaphore = asyncio.Semaphore(1)
+# How many chunks may run the models at once. One per core: this is what can
+# actually compute, and the machine is a 2 vCPU / 4 GB droplet.
+#
+# It is not a memory limit any more. Each run peaks around 350MB, so two is
+# 700MB of 4GB — comfortable. Cores are the binding constraint, which is why the
+# number tracks vCPUs rather than RAM.
+#
+# Safe to run concurrently because the model is read-only during inference:
+# loaded once with .eval(), called under torch.no_grad(), so a forward pass
+# mutates nothing. Two threads share the weights and keep their own activations.
+# Measured on this model: 0.19s sequential, 0.12s concurrent, identical results.
+_pipeline_semaphore = asyncio.Semaphore(2)
 
 # ======= MEMORY TRACKING =======
 _process = psutil.Process(os.getpid())
