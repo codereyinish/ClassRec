@@ -57,8 +57,8 @@ app = FastAPI()
 # How many chunks may run the models at once. One per core: this is what can
 # actually compute, and the machine is a 2 vCPU / 4 GB droplet.
 #
-# It is not a memory limit any more. Each run peaks around 350MB, so two is
-# 700MB of 4GB — comfortable. Cores are the binding constraint, which is why the
+# It is not a memory limit any more. Measured, a run peaks at ~159MB, so two is
+# ~320MB of 4GB — comfortable. Cores are the binding constraint, which is why the
 # number tracks vCPUs rather than RAM.
 #
 # Safe to run concurrently because the model is read-only during inference:
@@ -377,7 +377,7 @@ async def transcribe_chunk(
             logger.debug("[chunk] no words from Whisper")
             return
 
-        # Steps 2-7 — the models, and the only part that allocates ~350MB. The
+        # Steps 2-7 — the models, and the only part that allocates (~159MB). The
         # gate belongs here.
         async with _pipeline_semaphore:
             result = await loop.run_in_executor(

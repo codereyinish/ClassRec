@@ -59,7 +59,13 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-**RAM cost:** Each worker loads all models (~1GB) → 4 workers = ~4GB RAM.
+**RAM cost:** measured, not estimated — Python and its libraries are 277MB, the
+models add 293MB on top, so a worker sits at ~570MB with everything loaded. Four
+workers is ~2.3GB before any recording starts.
+
+**On the current droplet (2 vCPU, 4GB):** two workers fit, four is tight. But see
+"Where the delay comes from" below — the server is not the constraint on this
+workload, so extra workers buy very little.
 **Throughput:** 4 users can be processed truly in parallel.
 **When to do this:** Server CPU is maxed out but you have RAM to spare.
 
