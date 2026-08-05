@@ -1324,6 +1324,11 @@ async def startup_event():
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
     logger.info(f"Startup baseline memory: {_mem_baseline_mb:.1f} MB")
 
+    # Stated every boot, because the assumption is invisible in the code that
+    # depends on it and the flag that breaks it is typed somewhere else entirely.
+    logger.info(f"Socket cap is {MAX_SOCKETS_PER_USER} per user, counted PER PROCESS. "
+                f"Running --workers N multiplies it by N — see SCALING.md, Level 2.")
+
     if VAD_MODEL_PATH.exists():
         _vad_session = ort.InferenceSession(str(VAD_MODEL_PATH))
         logger.info("VAD model loaded")
