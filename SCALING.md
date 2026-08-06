@@ -373,6 +373,44 @@ brief collisions queue at ~1s per place in line, which is invisible against a
 
 Raise it when a queue is measurably hurting real users — not in anticipation.
 
+One thing the ceiling does *not* fix, because it was never broken: a cold
+container does not block anybody. Modal holds one shared queue and whichever
+container is free takes the next request, so a burst is served by the warm
+container throughout while the new one boots alongside. The cold start costs
+money, not latency.
+
+### The settings, and why each is where it is
+
+```
+min_containers      0 (unset)   nothing runs when idle
+max_containers      2           at most two run when busy
+concurrency         1 (default) one request per container
+buffer_containers   0 (unset)   no spare kept warm ahead of demand
+```
+
+**`concurrency` stays at 1** because raising it does not add capacity, it divides
+the same GPU differently. Two requests sharing one T4 each take about twice as
+long, so four in flight across two containers finish later on average than the
+same four served two at a time:
+
+```
+concurrency 1, 2 containers   1.74  1.74  3.48  3.48  5.22    avg 3.1s
+concurrency 2, 2 containers   3.5   3.5   3.5   3.5   5.2      avg 3.8s
+```
+
+Concurrency earns its place when a request spends time idle — waiting on a
+database, another service. GPU inference has no idle to fill.
+
+**`min_containers` stays at 0** because it bills around the clock to remove a
+cold start that a live lecture only meets once, at the very start.
+
+**`buffer_containers` is the lever for later.** It keeps a spare warm ahead of
+demand, but only while there is traffic, so it costs nothing overnight — roughly
+double the per-lecture cost in exchange for a second container being ready the
+moment requests collide. Worth reaching for when the queue is measurably hurting
+people, and cheaper than `min_containers` for the same effect during hours that
+matter.
+
 ### The server side does not work this way
 
 The droplet has no autoscaler. Growth there is a resize: 2 vCPU carries about 67
