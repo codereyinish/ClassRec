@@ -156,6 +156,43 @@ thirds of the delay. The cost is accuracy, since Whisper gets less context.
 
 ---
 
+## Why the pipeline gate is where it is
+
+`_pipeline_semaphore` has two slots. A chunk must hold one to run the local
+models, and gives it back when it finishes:
+
+```python
+async with _pipeline_semaphore:      # take a slot
+    ...VAD, segmentation, ECAPA...   # ~0.3s
+                                     # give it back
+```
+
+Each chunk does two things in order: wait for Modal (1.7s), then compute
+locally (0.3s). Only the second needs a slot. Four chunks, two slots:
+
+```
+0.0s   A B C D all sent to Modal, all waiting          0 / 2 slots
+1.7s   A's reply arrives, takes a slot, computes       1 / 2
+1.8s   B's reply arrives, takes a slot                 2 / 2
+1.9s   C's reply arrives, waits at the async with      2 / 2
+2.0s   A finishes, releases, C proceeds                2 / 2
+2.4s   all four done
+```
+
+Waiting on Modal costs no slot, so all four reach it in parallel. Contention is
+brief because a slot is only held for 0.3s.
+
+The gate used to be taken before the Modal call and released after the local
+work, so a chunk held a slot for the full 2s — 1.7s of which was spent waiting
+on a remote GPU, using no CPU. The same four chunks took 8s instead of 2.4s,
+because they could not even reach Modal in parallel.
+
+The lesson generalises: **a lock should cover the resource it protects and
+nothing else.** This one protects CPU and memory, so it has no business
+spanning a network call.
+
+---
+
 ## Level 3: Multiple Servers + Load Balancer (horizontal scaling)
 
 **Problem:** One server has a RAM/CPU ceiling. Can't add more workers indefinitely.
