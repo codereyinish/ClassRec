@@ -1394,6 +1394,7 @@ async function startRecording(){
   }
   B.classList.remove('rail-open');
   secs=0;words=0;roT.textContent='00:00';roW.textContent='0';
+  lastServerError='';              // this attempt is not the last one's refusal
   setActivity('starting');roL.textContent='—';
   [roT,roW,roF].forEach(e=>e.classList.remove('dim'));roF.textContent='0';
   durTxt.textContent='00:00';
@@ -1417,6 +1418,19 @@ async function startRecording(){
   }
   if(!B.classList.contains('starting')){
     endLiveSession();      // cancelled while we waited: let the mic and socket go
+    return;
+  }
+  /* Refused while the microphone was opening. The server answers in a few
+     milliseconds and getUserMedia takes rather longer, so this is the ordinary
+     ordering, not the rare one -- and without this the lines below would paint
+     "Recording…" over the refusal and start a clock against a dead socket. */
+  if(!ws||ws.readyState!==1){
+    endLiveSession();      // the mic is up by now, so there is something to stop
+    setActivity('');roL.textContent='—';
+    // beginLiveSession finished behind the close and left the rail reading
+    // "Live · recording"; endLiveSession then says 'Idle'. Neither is true.
+    setConn('off','Disconnected');
+    if(lastServerError)setCap(lastServerError,'err');
     return;
   }
   B.classList.add('has-text');        // empty state gives way to the stream
@@ -2793,6 +2807,10 @@ let live=false;                 // true once audio is actually flowing to the se
    anything — which is what tells Save whether there is a row to name. */
 let liveSessionId=null;
 let enrolling=false;            // mirrors the server's enrolment state
+/* The last thing the server said before it hung up. Held because the reason and
+   the close arrive as two separate events -- the message explains it, the close
+   ends the session -- and the caption has to survive the teardown in between. */
+let lastServerError='';
 const KEYWORDS={               // same map live.js highlights with
   exam:['exam','midterm','final','quiz','test'],
   assignment:['homework','due','submit','assignment'],
@@ -2830,7 +2848,27 @@ async function openSocket(){
       resolve(s);
     };
     s.onerror=fail;
-    s.onclose=()=>{if(ws===s){ws=null;live=false;setConn('off','Disconnected');}};
+    /* A close is the end of the session, whenever it lands. The server hangs up
+       deliberately -- no token, no minutes left, too many recordings open, and
+       the minutes can run out fifteen minutes in -- so there is no moment at
+       which a close can be treated as a blip to ride out. Relabelling the rail
+       and leaving the microphone running made the page look like it was still
+       recording into a socket that was gone. */
+    s.onclose=()=>{
+      if(ws!==s)return;
+      ws=null;live=false;
+      /* 'starting' is deliberately not torn down here: the microphone is still
+         being opened on the other side of an await, and stopping a capture that
+         has not been set up yet would leave the finished one orphaned. That case
+         belongs to the check in startRecording, which runs once the mic is up. */
+      if(B.classList.contains('rec')||B.classList.contains('paused')){
+        endLiveSession();                   // same teardown as ending a session
+        setActivity('');roL.textContent='—';
+      }
+      setConn('off','Disconnected');        // after endLiveSession, which says 'Idle'
+      // last word, because setActivity writes the idle caption over everything
+      if(lastServerError)setCap(lastServerError,'err');
+    };
     s.onmessage=e=>onServer(JSON.parse(e.data));
     setTimeout(()=>{if(s.readyState!==1)fail();},2500);   // don't hang on a dead host
   });
@@ -2931,7 +2969,10 @@ function onServer(d){
        only has to name it. */
     liveSessionId=d.id;
   }else if(d.type==='error'){
-    showError(d.message||'Transcription error');
+    // kept as well as shown: a refusal is followed by a close, and the teardown
+    // in between would otherwise take the explanation with it
+    lastServerError=d.message||'Transcription error';
+    showError(lastServerError);
   }
 }
 function applyTags(chunk,tags){
