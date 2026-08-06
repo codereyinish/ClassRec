@@ -257,6 +257,99 @@ duplicate 570MB of models for a second GIL that is not the constraint.
 
 ---
 
+## How the containers scale, and what that costs
+
+The capacity table above says a hundred recordings needs about thirty-three T4
+containers. That reads like something to go and build. It is not — nobody adds
+containers. The rest of this section is how that number comes about on its own,
+and where the money goes.
+
+**Nothing in this repo starts a container.** `modal_whisper.py` declares one
+function with `gpu="T4"`, and Modal runs as many copies of it as there are
+requests in flight. Ten overlapping requests is ten containers, and when the
+requests stop the containers stop. The scaling is a consequence of the traffic,
+not a setting anyone turns up.
+
+**One request at a time, per container.** The function sets no concurrency, so
+the default holds: a container serves a single request and is unavailable until
+it answers. Two requests that overlap in time cannot share one — they need two.
+
+Which raises the obvious question: if a container takes one request at a time,
+how does it serve three recordings? Because those requests do not overlap. Each
+recording sends one chunk every five seconds and each request takes 1.74s:
+
+```
+5.0 / 1.74 = 2.9 requests fit end to end inside one recording's chunk interval
+```
+
+Three recordings land in each other's gaps. A fourth is where requests start
+arriving while the container is still busy, and Modal starts a second one for the
+overflow. So the container count tracks *simultaneous* requests, not users, and
+the 5-second chunk interval is what keeps those two numbers so far apart.
+
+**This is the normal technique, not a shortcut.** Scaling on requests in flight
+is what Lambda, Cloud Run and every serverless GPU platform do. The alternative
+— Kubernetes watching CPU and adding replicas past a threshold — reacts in
+minutes rather than seconds and reads the wrong signal for inference, where a
+single request occupies the whole GPU and CPU load says nothing about whether
+the device is free.
+
+**What it costs.** Billing is per container-second, from start to shutdown, and
+shutdown is `scaledown_window` after the last request — currently 300s. For a
+live lecture that idle tail never happens: chunks arrive every five seconds, so
+the container stays busy for the whole lecture and shuts down once after it. The
+useful shape is therefore
+
+```
+one recording-hour  ~  1/3 of a container-hour
+```
+
+times Modal's current T4 per-second rate, which should be read off their pricing
+page rather than trusted from a number written here.
+
+**Cold starts are what you pay to avoid.** A container that has just started
+loads Whisper before it can answer, so the first chunk after a quiet period is
+slow. `min_containers` removes that by keeping one alive permanently — bought at
+24 hours of billing a day, whether anyone records or not. Worth it once traffic
+is steady enough that the container would mostly be up anyway.
+
+### The four levers
+
+| lever | what it decides | today |
+|---|---|---|
+| `max_containers` | the ceiling — and therefore the worst case bill | unset, unbounded |
+| `min_containers` | how many stay warm, so no one waits for a cold start | unset, none warm |
+| `scaledown_window` | how long an idle container is kept before shutdown | 300s |
+| concurrency | requests one container will take at once | 1 (default) |
+
+`max_containers` is the one that matters first. Unset, a traffic spike scales
+until the credit card notices. Set, requests past the ceiling queue instead —
+latency rises and nothing breaks, which is the failure worth having.
+
+### The server side does not work this way
+
+The droplet has no autoscaler. Growth there is a resize: 2 vCPU carries about 67
+concurrent recordings, and 4 vCPU carries a hundred. That is a reboot, once,
+followed by raising `Semaphore` to match the new core count.
+
+Going wider instead of bigger — several droplets behind a load balancer — is a
+different problem from scaling the containers, because WebSockets are not
+stateless:
+
+- the load balancer has to support them; connection-level, not per request
+- a socket lives on the instance that accepted it for the whole lecture, so
+  adding an instance only helps recordings that have not started yet
+- an instance cannot be removed while sockets are open on it, so deploys need a
+  drain window measured in lecture lengths
+- anything per-user held in process — `_open_sockets` is the one here — has to
+  move to shared storage first
+
+None of which is worth doing while one machine covers a hundred simultaneous
+lectures.
+
+---
+
+
 ## Level 3: Multiple Servers + Load Balancer (horizontal scaling)
 
 **Problem:** One server has a RAM/CPU ceiling. Can't add more workers indefinitely.
