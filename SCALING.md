@@ -275,17 +275,35 @@ the default holds: a container serves a single request and is unavailable until
 it answers. Two requests that overlap in time cannot share one — they need two.
 
 Which raises the obvious question: if a container takes one request at a time,
-how does it serve three recordings? Because those requests do not overlap. Each
-recording sends one chunk every five seconds and each request takes 1.74s:
+how does it serve several recordings at once? Because those requests do not
+overlap. `CHUNK_DURATION` is 10, so a recording sends one request every ten
+seconds and each takes 1.74s. Recordings land in each other's gaps.
+
+Two different limits come out of that, and they give different numbers.
+
+**Throughput** — the point where a container cannot keep up at all:
 
 ```
-5.0 / 1.74 = 2.9 requests fit end to end inside one recording's chunk interval
+10s between chunks / 1.74s per request = 5.7  ->  about 5 recordings
 ```
 
-Three recordings land in each other's gaps. A fourth is where requests start
-arriving while the container is still busy, and Modal starts a second one for the
-overflow. So the container count tracks *simultaneous* requests, not users, and
-the 5-second chunk interval is what keeps those two numbers so far apart.
+**Latency** — the point where someone waits longer than the 5s floor the
+transcript is judged by. Requests that do arrive together queue, and the queue is
+what the floor is made of:
+
+```
+1st reply   1.74s
+2nd reply   3.48s    waited behind one
+3rd reply   5.22s    waited behind two - at the budget
+4th reply   6.96s    over
+```
+
+Three is the latency answer, not the throughput one: a container running three
+recordings is only about half busy. It is queue depth, not capacity, that the
+number protects. Past that Modal starts another container for the overflow, so
+the container count tracks *simultaneous requests*, not users — and the ten
+second gap between a recording's chunks is what keeps those two counts so far
+apart.
 
 **This is the normal technique, not a shortcut.** Scaling on requests in flight
 is what Lambda, Cloud Run and every serverless GPU platform do. The alternative
@@ -296,8 +314,9 @@ the device is free.
 
 **What it costs.** Billing is per container-second, from start to shutdown, and
 shutdown is `scaledown_window` after the last request — currently 300s. For a
-live lecture that idle tail never happens: chunks arrive every five seconds, so
-the container stays busy for the whole lecture and shuts down once after it. The
+live lecture that idle tail never happens: another chunk is always due within ten
+seconds, so the container stays up for the whole lecture and shuts down once
+after it. The
 useful shape is therefore
 
 ```
