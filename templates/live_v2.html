@@ -499,7 +499,7 @@ body.rec .meter-fill{background:var(--theme);animation:lvl 1.9s var(--e) infinit
 @keyframes lvl{0%{width:22%}30%{width:71%}55%{width:44%}80%{width:86%}100%{width:31%}}
 
 /* ── centre : continuous column, time in a margin gutter, no cards ── */
-.main{flex:1;min-width:0;display:flex;flex-direction:column;transition:padding-right .38s var(--e)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;transition:padding-right .38s var(--e)}
 body.ai-open .main{padding-right:var(--ai)}
 .wrap{width:100%;max-width:var(--measure);margin-inline:auto;padding-inline:28px}
 
@@ -592,6 +592,21 @@ canvas:active{cursor:grabbing}
 }
 
 .scroll{flex:1;overflow-y:auto;padding-bottom:80px}
+/* Reading further up no longer gets dragged to the bottom, so this is how you
+   find out the lecture has moved on without it — and how you get back. Sits over
+   the column rather than in it, so nothing reflows when it appears. */
+.jump{
+  position:absolute;left:50%;bottom:26px;z-index:40;
+  transform:translate(-50%,6px);opacity:0;pointer-events:none;
+  display:flex;align-items:center;gap:7px;
+  padding:8px 15px 8px 12px;border-radius:999px;
+  background:var(--primary);color:#fff;font-size:13px;font-weight:500;
+  box-shadow:0 14px 34px -12px rgba(40,31,62,.5);
+  transition:opacity .18s var(--e),transform .18s var(--e),background .14s var(--e);
+}
+.jump.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.jump:hover{background:var(--primary-hi)}
+.jump svg{width:15px;height:15px;display:block}
 
 /* Timed blocks — the navigable unit, exactly the structure live.js builds:
    .transcript-chunk > .timestamp (+ .tag) + .transcript-text
@@ -1151,6 +1166,13 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <div class="stream">
 
     </div></div></div>
+
+    <button class="jump" id="jump" type="button" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>
+      </svg>
+      Jump to latest
+    </button>
   </main>
 
   <aside class="ai">
@@ -2874,6 +2896,30 @@ async function openSocket(){
   });
 }
 
+/* ── jump to latest ──────────────────────────────────────────────────────────
+   Only ever offered, never forced: it appears when a transcript arrives below
+   the fold and leaves the moment you are back at the bottom, however you got
+   there. `hidden` as well as the class, so it is out of the tab order while it
+   is invisible rather than a focusable nothing. */
+const jumpBtn=document.getElementById('jump');
+function showJump(on){
+  jumpBtn.hidden=!on;
+  // the class drives the transition, and it cannot animate from `hidden`
+  if(on)requestAnimationFrame(()=>jumpBtn.classList.add('show'));
+  else jumpBtn.classList.remove('show');
+}
+jumpBtn.onclick=()=>{
+  const sc=document.querySelector('.scroll');
+  // smooth here and nowhere else: this one is asked for, so it reads as travel
+  // rather than the page moving under someone who did not ask
+  sc.scrollTo({top:sc.scrollHeight,behavior:'smooth'});
+  showJump(false);
+};
+document.querySelector('.scroll').addEventListener('scroll',()=>{
+  const sc=document.querySelector('.scroll');
+  if(sc.scrollHeight-sc.scrollTop-sc.clientHeight<60)showJump(false);
+},{passive:true});
+
 /* ── microphone → Int16 PCM, exactly as live.js does it ── */
 async function startCapture(){
   setConn('wait','Waiting for mic…');
@@ -2946,18 +2992,33 @@ function chunkFor(){
 }
 function onServer(d){
   if(d.type==='transcription'){
+    /* Where the reader is, measured before anything is added -- chunkFor may
+       append a whole new block, which moves the bottom. Following the lecture
+       means staying stuck to the bottom; reading something further up means
+       being left alone. Forcing the scroll every ten seconds did the second
+       thing to people doing the first. */
+    const sc=document.querySelector('.scroll');
+    const stuck=sc.scrollHeight-sc.scrollTop-sc.clientHeight<60;
     const c=chunkFor(), t=c.querySelector('.transcript-text');
     const html=(d.words&&d.words.length)
       ? d.words.map(w=>`<span class="word" data-start="${w.s}" data-end="${w.e}">${esc(w.w)}</span>`).join(' ')
       : esc(d.text||'');
-    t.innerHTML+=(t.innerHTML?' ':'')+html;
+    /* Appended rather than re-assigned. `innerHTML +=` re-parses the block and
+       builds every word span again, so the newest block was rebuilt from scratch
+       every ten seconds -- it flickers, it drops a selection someone was making
+       inside it, and it gets slower as the block fills. firstChild answers "is
+       there anything to separate from" without serialising the block to ask. */
+    t.insertAdjacentHTML('beforeend',(t.firstChild?' ':'')+html);
     // a sentence exists now, which is what Save waits for — has-text only means
     // the session started and the empty state stepped aside
     if(t.textContent.trim())B.classList.add('has-lines');
     if(d.tags&&d.tags.length){applyTags(c,d.tags);highlight(t,d.tags);}
     words+=(d.words?d.words.length:(d.text||'').split(/\s+/).filter(Boolean).length);
     roW.textContent=words.toLocaleString();
-    document.querySelector('.scroll').scrollTop=1e9;
+    // only for someone who was already at the bottom; the browser's own scroll
+    // anchoring holds everyone else's place, once this stops overriding it
+    if(stuck)sc.scrollTop=sc.scrollHeight;
+    else showJump(true);      // words arrived somewhere they cannot see
   }else if(d.type==='enroll_success'){
     enrolling=false;B.classList.add('locked');
     if(!isBusy())setActivity('');
