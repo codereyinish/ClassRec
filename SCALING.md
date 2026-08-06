@@ -238,6 +238,23 @@ Modal     linear with users, forever
 The server is a fixed cost that barely moves. Transcription is the variable cost
 and the real one.
 
+**Sizing the cores.** Compute demand is chunks per second times 0.28s, plus about
+0.15 of a core for the event loop at that packet rate:
+
+```
+100 recordings -> 10 chunks/sec -> 2.8 core-seconds per second
+                                +  0.15 for the loop
+                                =  ~3 cores minimum
+```
+
+Run four, not three. Three would sit at ~98% and queues grow at that
+utilisation, the same reason a container takes three recordings rather than five.
+Four is ~73% and comfortable.
+
+Still one worker. Four cores, `Semaphore(4)`, one process — the model work
+releases the GIL, so threads already use all four and a second worker would only
+duplicate 570MB of models for a second GIL that is not the constraint.
+
 ---
 
 ## Level 3: Multiple Servers + Load Balancer (horizontal scaling)
