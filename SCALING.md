@@ -168,24 +168,41 @@ async with _pipeline_semaphore:      # take a slot
 ```
 
 Each chunk does two things in order: wait for Modal (1.7s), then compute
-locally (0.3s). Only the second needs a slot. Four chunks, two slots:
+locally (0.3s). Only the second needs a slot.
+
+With ONE container, Modal serves one request at a time, so replies arrive 1.7s
+apart and the local work never overlaps — a second slot is never used:
 
 ```
-0.0s   A B C D all sent to Modal, all waiting          0 / 2 slots
-1.7s   A's reply arrives, takes a slot, computes       1 / 2
-1.8s   B's reply arrives, takes a slot                 2 / 2
-1.9s   C's reply arrives, waits at the async with      2 / 2
-2.0s   A finishes, releases, C proceeds                2 / 2
-2.4s   all four done
+0.0s   A B C D all sent, all waiting                   0 / 2 slots
+1.7s   A's reply, computes 0.3s                        1 / 2
+3.4s   B's reply, computes                             1 / 2
+5.1s   C's reply, computes                             1 / 2
+6.8s   D's reply, computes                             1 / 2
 ```
 
-Waiting on Modal costs no slot, so all four reach it in parallel. Contention is
-brief because a slot is only held for 0.3s.
+Contention only appears once several containers deliver replies close together.
+With four containers all four replies land near 1.7s, the first two take slots
+and the rest wait a fraction of a second. That is the case the two slots exist
+for, and it is why the number tracks cores rather than customers.
 
 The gate used to be taken before the Modal call and released after the local
 work, so a chunk held a slot for the full 2s — 1.7s of which was spent waiting
-on a remote GPU, using no CPU. The same four chunks took 8s instead of 2.4s,
-because they could not even reach Modal in parallel.
+on a remote GPU, using no CPU. Chunks could not even reach Modal in parallel,
+because reaching it required a slot.
+
+How much that cost depends on how many containers Modal is allowed to run:
+
+```
+                        old gate    new gate
+1 container              8.0s        7.1s     Modal serialises anyway
+4 containers             8.0s        2.4s     the wait actually overlaps
+```
+
+So moving the gate is only worth what container capacity lets it be worth. With
+max_containers unset, Modal scales out and the gain is real; capped at one, the
+old placement would barely have mattered. Worth knowing before reading a
+throughput claim from either change on its own.
 
 The lesson generalises: **a lock should cover the resource it protects and
 nothing else.** This one protects CPU and memory, so it has no business
