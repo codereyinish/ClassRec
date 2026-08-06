@@ -55,13 +55,22 @@ app = modal.App("classrec-whisper", image=image)
 
 # ======= TRANSCRIBE FUNCTION =======
 # Module-level variable — loaded once per container, reused across warm requests.
-# First request on a cold container triggers the load (~5s). Warm requests skip it.
+# The load is part of a cold start, which measured 42.9s end to end against 1.0s
+# warm. Most of that is booting the container and pulling a multi-GB CUDA image,
+# not the model itself.
 _model = None
 
 @app.function(
     gpu="T4",
     scaledown_window=300,  # keep warm 5 min after last request
     timeout=60,
+    # A cold container takes ~43s to answer, so one started to relieve a burst
+    # arrives long after the warm container has cleared it — then bills for the
+    # 300s scaledown window having done nothing. Requests past this ceiling queue
+    # instead, at 1.0s per place in line. Two lets a genuinely sustained queue
+    # (still there 43s later) buy a second container, which is the only case
+    # where the cold start earns its cost.
+    max_containers=2,
 )
 @modal.fastapi_endpoint(method="POST")
 async def transcribe(request: Request):

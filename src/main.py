@@ -185,8 +185,9 @@ async def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
     Whisper needs full audio context to be accurate. We transcribe everything,
     then main.py filters by speaker timestamps using the local ECAPA-TDNN pipeline.
 
-    Cold start: first request after idle spins up a T4 container (~3-5s).
-    Warm requests: ~1-2s round-trip for a 10s chunk.
+    Cold start: first request after idle spins up a T4 container. Measured at
+    42.9s for a 10s chunk — container boot and image pull, not just model load.
+    Warm requests: ~1-2s round-trip for the same chunk.
     """
     buf = io.BytesIO()
     sf.write(buf, samples, SAMPLE_RATE, format="WAV")     # ~1ms, fine on the loop

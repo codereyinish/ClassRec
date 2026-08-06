@@ -336,14 +336,42 @@ is steady enough that the container would mostly be up anyway.
 
 | lever | what it decides | today |
 |---|---|---|
-| `max_containers` | the ceiling — and therefore the worst case bill | unset, unbounded |
+| `max_containers` | the ceiling — and therefore the worst case bill | 2 |
 | `min_containers` | how many stay warm, so no one waits for a cold start | unset, none warm |
 | `scaledown_window` | how long an idle container is kept before shutdown | 300s |
 | concurrency | requests one container will take at once | 1 (default) |
 
-`max_containers` is the one that matters first. Unset, a traffic spike scales
-until the credit card notices. Set, requests past the ceiling queue instead —
-latency rises and nothing breaks, which is the failure worth having.
+### Why the ceiling is 2
+
+Measured, against a 10s chunk of real speech:
+
+```
+cold    42.92s     first request after a couple of hours idle
+warm     1.09s
+warm     1.01s
+```
+
+Forty three seconds, not the three to five the comments used to claim — that
+figure was model load alone and ignored booting the container and pulling a
+multi-GB CUDA image.
+
+That number decides the whole question. Modal starts a container as soon as a
+request queues, so three simultaneous requests start two new ones. Those answer
+43 seconds later, by which time the warm container has served all three in about
+five. The new containers do no work at all, then bill for the full scaledown
+window:
+
+```
+one pointless spin-up  =  43s boot + 300s idle  =  ~343 container-seconds for nothing
+```
+
+So a cold start never pays for a spike. It pays only for sustained load, where
+the queue is still there 43 seconds later and the new container has hours of work
+ahead of it. A ceiling of two allows exactly that case and refuses the other:
+brief collisions queue at ~1s per place in line, which is invisible against a
+5s floor, and cost nothing.
+
+Raise it when a queue is measurably hurting real users — not in anticipation.
 
 ### The server side does not work this way
 
