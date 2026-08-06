@@ -12,7 +12,7 @@ from validators import validate_audio_file
 from pathlib import Path
 import json
 import io
-import requests
+import httpx
 from logger import logger
 from sqlalchemy import update           # for the atomic usage increment
 from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
@@ -167,11 +167,16 @@ def pcm_to_float(pcm_bytes: bytes) -> np.ndarray:
 
 # ======= STEP 1: WHISPER VIA MODAL (faster-whisper large-v3 + stable-ts on T4 GPU) =======
 # Transcription runs remotely on Modal — no GPU or Whisper model on this server.
-# _modal_session is a requests.Session for connection reuse across chunks.
-_modal_session: requests.Session | None = None
+#
+# An async client, so the ~1.7s wait costs no thread. With a blocking client the
+# call had to be pushed to the executor purely to keep it off the event loop,
+# which meant one pool thread asleep per request in flight, and a dropped
+# connection left that thread stuck until Modal answered or the timeout fired.
+# An await can simply be cancelled.
+_modal_async: "httpx.AsyncClient | None" = None
 
 
-def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
+async def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
     """
     Send audio to the Modal Whisper endpoint and return word-level timestamps.
     Returns list of {"word": str, "start": float, "end": float}.
@@ -184,15 +189,14 @@ def transcribe_with_timestamps(samples: np.ndarray) -> list[dict]:
     Warm requests: ~1-2s round-trip for a 10s chunk.
     """
     buf = io.BytesIO()
-    sf.write(buf, samples, SAMPLE_RATE, format="WAV")
+    sf.write(buf, samples, SAMPLE_RATE, format="WAV")     # ~1ms, fine on the loop
     wav_bytes = buf.getvalue()
 
     logger.debug(f"[whisper] calling Modal ({len(samples)/SAMPLE_RATE:.1f}s audio)")
-    response = _modal_session.post(
+    response = await _modal_async.post(
         MODAL_WHISPER_URL,
-        data=wav_bytes,
+        content=wav_bytes,
         headers={"Content-Type": "audio/wav"},
-        timeout=90,  # generous: first warm-up can take ~20s
     )
     response.raise_for_status()
     words = response.json()
@@ -372,7 +376,7 @@ async def transcribe_chunk(
         # deliberately OUTSIDE the semaphore so chunks can wait on the GPU
         # concurrently instead of single file. This was the whole bottleneck.
         samples = pcm_to_float(pcm_bytes)
-        words = await loop.run_in_executor(None, transcribe_with_timestamps, samples)
+        words = await transcribe_with_timestamps(samples)      # awaited, no thread
         if not words:
             logger.debug("[chunk] no words from Whisper")
             return
@@ -713,15 +717,11 @@ async def transcribe_audio(
 ):
     contents, mime, file_size_mb, correct_ext = validated_data
     try:
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: _modal_session.post(
-                MODAL_WHISPER_URL,
-                data=contents,
-                headers={"Content-Type": mime},
-                timeout=120,
-            )
+        response = await _modal_async.post(
+            MODAL_WHISPER_URL,
+            content=contents,
+            headers={"Content-Type": mime},
+            timeout=120,
         )
         response.raise_for_status()
         words = response.json()
@@ -1350,11 +1350,21 @@ async def websocket_transcribe(websocket: WebSocket):
         _release_socket(ws_user_id)
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Release the Modal connections. Without this the pool is torn down by
+    garbage collection, which logs noisily and can leave sockets in TIME_WAIT."""
+    global _modal_async
+    if _modal_async is not None:
+        await _modal_async.aclose()
+        _modal_async = None
+
+
 # ======= STARTUP =======
 @app.on_event("startup")
 async def startup_event():
     global _mem_baseline_mb, _mem_after_models_mb
-    global _vad_session, _seg_session, _ecapa_model, _modal_session
+    global _vad_session, _seg_session, _ecapa_model, _modal_async
 
     tracemalloc.start()
     _mem_baseline_mb = _process.memory_info().rss / 1024 / 1024
@@ -1386,8 +1396,9 @@ async def startup_event():
     _ecapa_model.eval()
     logger.info("ECAPA-TDNN embedding model loaded")
 
-    # Whisper runs on Modal — just init an HTTP session for connection reuse
-    _modal_session = requests.Session()
+    # Whisper runs on Modal. One client for the process, reusing connections;
+    # the timeout is generous because a cold container takes a few seconds.
+    _modal_async = httpx.AsyncClient(timeout=httpx.Timeout(90.0))
     if MODAL_WHISPER_URL:
         logger.info(f"Modal Whisper endpoint configured: {MODAL_WHISPER_URL}")
     else:
