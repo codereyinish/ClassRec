@@ -210,6 +210,36 @@ spanning a network call.
 
 ---
 
+## What each resource costs as users grow
+
+Measured: 0.28s of local model work per chunk, 1.74s for the Modal round trip,
+one chunk per recording every 10 seconds.
+
+| concurrent recordings | server load | containers needed |
+|---|---|---|
+| 3   | compute 4%, ~1GB   | 1  |
+| 10  | compute 15%, ~1GB  | 4  |
+| 67  | compute 100%       | 22 |
+| 100 | compute 143% - needs 4 vCPU and Semaphore(4) | ~33 |
+
+Compute capacity is `permits / 0.28s`, so two permits serve about seven chunks a
+second, which is roughly 67 recordings. That is the first point where the droplet
+becomes the constraint rather than the containers.
+
+Memory stays near 1GB at every row. The models are loaded once, concurrent
+inference is capped by the semaphore, and a connection's buffers are about 1.3MB
+— so users add almost nothing.
+
+```
+droplet   $24 -> $48 once, at around 67 recordings
+Modal     linear with users, forever
+```
+
+The server is a fixed cost that barely moves. Transcription is the variable cost
+and the real one.
+
+---
+
 ## Level 3: Multiple Servers + Load Balancer (horizontal scaling)
 
 **Problem:** One server has a RAM/CPU ceiling. Can't add more workers indefinitely.
