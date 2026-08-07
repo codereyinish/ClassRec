@@ -56,10 +56,77 @@
      than g3 and well short of g4. Controls take g4, being things you click. */
   --rule:#E2DEE7;
 
+  /* --primary does two jobs — a fill under white labels, and indigo text on
+     --primary-soft — and the two want opposite lightness. Splitting off the ink
+     lets the fill stay where white clears AA while the text meets it too:
+     #5053E8 on --primary-soft is 4.92, against 4.01 for --primary itself. */
+  --primary-ink:#5053E8;
+
+  /* Text on a dark ground, for the statuses whose inks are tuned for white. */
+  --green-on-dark:#6EE7A0; --red-on-dark:#FF8A8A;
+  --amber-on-dark:#F0B860; --blush-on-dark:#E5A98F;
+  --tip-bg:var(--g8); --tip-fg:#fff;   /* the scrub time bubble, which inverts */
+
+  /* The waveform is drawn onto a canvas, which cannot read a class the way the
+     rest of the page can — so its three colours are tokens the drawing code
+     reads back, rather than constants that would stay light. */
+  --wave-played:#6365EB;
+  --wave-unplayed:rgba(118,120,237,.22);
+  --wave-head:#4A3FBF;
+
   --sans:'DM Sans',system-ui,sans-serif;
   --mono:'DM Mono',ui-monospace,monospace;
   --rail:288px; --ai:380px; --measure:820px; --gutter:78px;
   --e:cubic-bezier(.2,.7,.3,1);
+}
+
+/* ── dark ────────────────────────────────────────────────────────────────────
+   The same palette at the other end of the ramp, not a different one. Every grey
+   keeps the violet tint the light theme is built on, so the page reads as the
+   same app with the lights off rather than as a generic dark theme.
+
+   Measured rather than eyeballed, against --g0:
+     --g8 16.1   --g7 10.8   --g6 7.2   --g5 5.0   --theme 7.3   --primary-ink 8.2
+   so body text, sub-lines and placeholders all clear AA, and the borders sit at
+   1.3–1.6 — visible as structure without drawing themselves.
+
+   --primary is deliberately NOT lightened: it is the ground under white labels,
+   where lightening it drops white to 3.16. The ink token carries the light half. */
+:root[data-theme="dark"]{
+  --g0:#17141F; --g1:#1D1927; --g2:#262133; --g3:#2F2940;
+  --g4:#3D3651; --g5:#8A82A0; --g6:#A79FBB; --g7:#CBC4DA; --g8:#F3F0F9;
+
+  --theme:#9A9CF5; --primary:#6365EB; --primary-hi:#7477F0;
+  --primary-soft:#262450; --primary-ink:#A5A7F7;
+  --lock-deep:#8E86F5;
+
+  --block:#1F1B2A;
+  --rule:#2C2639;
+
+  /* The status inks are dark by design, for white grounds. On this one they land
+     at 2.9–3.6, so each has a light counterpart that clears 8:1. */
+  --green-ink:var(--green-on-dark);
+  --red-ink:var(--red-on-dark);
+  --amber-ink:var(--amber-on-dark);
+  --blush-ink:var(--blush-on-dark);
+  --corn-deep:#9DAEFF;
+
+  /* Dark text on a light chip, so it stays the inverse of the page. */
+  --tip-bg:#F3F0F9; --tip-fg:#17141F;
+
+  /* The playhead is the app's darkest indigo, which disappears here. */
+  --wave-played:#8486F0;
+  --wave-unplayed:rgba(154,156,245,.26);
+  --wave-head:#C9C6FF;
+
+  /* Declared in their own :root further down, for the new-session dialog and the
+     alert rows. Near-white by design, so without these they are lit patches on
+     an unlit page. Same job here: a step up from the ground, then two borders. */
+  --tint-1:#221E2E; --tint-2:#332C46; --tint-3:#453D5E;
+
+  /* --red and --green are left alone deliberately: as text on this ground they
+     measure 4.83 and 10.42, so they still carry. Only the inks, which are dark
+     by design, needed replacing. */
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -586,7 +653,7 @@ canvas:active{cursor:grabbing}
 .audio{position:relative}
 .wv-time{
   position:absolute;top:-11px;transform:translateX(-50%);
-  padding:3px 7px;border-radius:6px;background:var(--g8);color:#fff;
+  padding:3px 7px;border-radius:6px;background:var(--tip-bg);color:var(--tip-fg);
   font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;
   pointer-events:none;white-space:nowrap;z-index:2;
 }
@@ -838,12 +905,82 @@ body.ai-open .ai{transform:none}
 }
 .chip:hover{border-color:var(--g5);background:var(--g2)}
 .ai-foot{padding:15px 20px;border-top:1px solid var(--rule)}
-.composer{display:flex;align-items:center;gap:8px;padding:5px 5px 5px 14px;background:var(--g1);border:1px solid var(--g4);border-radius:999px}
+/* The composer holds three rows — what is being asked about, the question, and
+   the controls — so it is a box rather than the single line it used to be. The
+   radius drops from a pill to the page's own 13px for the same reason. */
+.composer{
+  display:grid;gap:8px;padding:10px 10px 8px;
+  background:var(--g1);border:1px solid var(--g4);border-radius:13px;
+  transition:border-color .14s var(--e);
+}
 .composer:focus-within{border-color:var(--primary)}
-.composer input{flex:1;border:0;background:none;font-family:inherit;font-size:14px;color:var(--g8);outline:none}
-.composer input::placeholder{color:var(--g5)}
-.send{width:32px;height:32px;border-radius:999px;background:var(--primary);color:#fff;display:grid;place-items:center;flex:0 0 auto}
+.composer textarea{
+  border:0;background:none;font-family:inherit;font-size:14px;line-height:1.55;
+  color:var(--g8);outline:none;resize:none;overflow:hidden;
+  min-height:22px;max-height:180px;padding:0 4px;
+}
+.composer textarea::placeholder{color:var(--g5)}
+
+/* The blocks this question is about. Indigo-soft, as the alert count and the
+   Ask hover already are, so "the app is holding this for you" reads the same
+   way everywhere. */
+.ctx-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ctx-chips:empty{display:none}
+/* A quiet reference, not a banner. The block's own words carry it, with a small
+   mark to say where they came from — the timestamp took a whole line in mono and
+   shouted the least useful part of it. */
+.ctx-chip{
+  display:inline-flex;align-items:center;gap:5px;max-width:100%;
+  padding:3px 4px 3px 7px;border-radius:7px;
+  background:var(--g2);color:var(--g7);
+  font-size:12px;font-weight:500;
+  border:1px solid transparent;transition:.14s var(--e);
+}
+.ctx-chip:hover{border-color:var(--g4);background:var(--g3)}
+.ctx-chip .ico{width:13px;height:13px;flex:0 0 auto;color:var(--g6)}
+.ctx-chip .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctx-chip .x{
+  display:grid;place-items:center;width:15px;height:15px;border-radius:4px;
+  color:var(--g6);flex:0 0 auto;
+}
+.ctx-chip .x svg{width:9px;height:9px}
+.ctx-chip .x:hover{color:var(--g8);background:var(--g4)}
+
+/* One control, two glyphs — the sun shows in dark and the moon in light, so the
+   icon is what you are switching TO rather than a badge of where you are. */
+.themebtn{
+  width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+  color:var(--g6);transition:.14s var(--e);
+}
+.themebtn:hover{background:var(--g2);color:var(--g8)}
+.themebtn svg{width:18px;height:18px}
+.themebtn .moon{display:block}
+.themebtn .sun{display:none}
+:root[data-theme="dark"] .themebtn .moon{display:none}
+:root[data-theme="dark"] .themebtn .sun{display:block}
+.ctx-chip .go{cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-width:0}
+.ctx-chip .go:hover .lbl{text-decoration:underline}
+
+.composer-foot{display:flex;align-items:center;gap:6px}
+.cbtn{
+  width:28px;height:28px;border-radius:8px;display:grid;place-items:center;
+  color:var(--g6);transition:.14s var(--e);
+}
+.cbtn:hover:not(:disabled){background:var(--g2);color:var(--g8)}
+.cbtn:disabled{opacity:.38;cursor:default}
+.cbtn svg{width:17px;height:17px}
+.send{
+  width:32px;height:32px;border-radius:999px;background:var(--primary);color:#fff;
+  display:grid;place-items:center;flex:0 0 auto;margin-left:auto;
+  transition:.14s var(--e);
+}
 .send:hover{background:var(--primary-hi)}
+.send:disabled{background:var(--g4);color:var(--g6);cursor:default}
+.send svg{width:16px;height:16px}
+
+/* The block a chip points at, for a moment after the chip is clicked — long
+   enough to find it, gone before it becomes decoration. */
+.chunk.located{background:var(--primary-soft);border-color:var(--primary)}
 .alt{margin-top:9px}
 .alt button{font-size:12.5px;font-weight:500;color:var(--g6)}
 .alt button:hover{color:var(--blush-ink)}
@@ -973,6 +1110,19 @@ body.ai-open .ai{transform:none}
 body.ai-open .aiwrap{opacity:0;pointer-events:none}
 </style>
 </head>
+<script>
+/* Before the first paint, deliberately: applying this after the page renders
+   shows a white flash on the way into a dark page. A saved choice wins over the
+   system's, because someone who chose is telling you something the OS is not. */
+(function(){
+  try{
+    var saved=localStorage.getItem('classrecTheme');
+    var dark=saved?saved==='dark'
+                  :matchMedia('(prefers-color-scheme: dark)').matches;
+    if(dark)document.documentElement.dataset.theme='dark';
+  }catch(e){}
+})();
+</script>
 <body class="rail-open">
 
 <div class="top">
@@ -984,6 +1134,15 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
     </span>ClassRec
   </div>
   <div class="top-r">
+    <button class="themebtn" id="themeBtn" type="button" aria-label="Switch theme" title="Switch theme">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+      </svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 2.6v2.2M12 19.2v2.2M4.2 12H2M22 12h-2.2M6.3 6.3L4.8 4.8M19.2 19.2l-1.5-1.5M17.7 6.3l1.5-1.5M4.8 19.2l1.5-1.5"/>
+      </svg>
+    </button>
     <button class="btn" id="newSess">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>
@@ -1181,8 +1340,6 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <button class="ai-x" id="aiX">✕</button>
     </div>
     <div class="ai-body">
-      <!-- filled by Ask on a block; empty until then, and hidden while empty -->
-      <div class="quote"></div>
       <div class="chips">
         <button class="chip">Explain this in simpler terms</button>
         <button class="chip">Give me a worked example</button>
@@ -1190,7 +1347,24 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       </div>
     </div>
     <div class="ai-foot">
-      <div class="composer"><input placeholder="Ask anything…"><button class="send">→</button></div>
+      <!-- A box rather than a line: what is being asked about sits above the
+           question, and both belong to the same field. -->
+      <div class="composer">
+        <div class="ctx-chips" id="ctxChips"></div>
+        <textarea id="askInput" rows="1" placeholder="Ask anything…"></textarea>
+        <div class="composer-foot">
+          <button class="cbtn" id="ctxAdd" type="button" title="Add the block you are reading" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+          <button class="send" id="askSend" type="button" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
       <div class="alt"><button>⚑ Flag without asking</button></div>
     </div>
   </aside>
@@ -1586,6 +1760,29 @@ document.getElementById('save').onclick=()=>{
     setActivity('');roL.textContent='—';
   }
 };
+/* ── theme ───────────────────────────────────────────────────────────────────
+   The choice is remembered, so it survives the reload; until someone makes one
+   the system decides, and changing the system setting still moves the page. */
+const themeBtn=document.getElementById('themeBtn');
+themeBtn.onclick=()=>{
+  const dark=document.documentElement.dataset.theme!=='dark';
+  if(dark)document.documentElement.dataset.theme='dark';
+  else delete document.documentElement.dataset.theme;
+  try{localStorage.setItem('classrecTheme',dark?'dark':'light');}catch(e){}
+  // the waveform is painted onto a canvas, so it does not re-read the CSS on
+  // its own the way everything else does
+  if(typeof readWaveColors==='function'){
+    readWaveColors();
+    if(decodedBuffer)drawWaveform(audioEl.currentTime);
+  }
+};
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',e=>{
+  let saved=null; try{saved=localStorage.getItem('classrecTheme');}catch(_){}
+  if(saved)return;                       // a choice was made; the system does not override it
+  if(e.matches)document.documentElement.dataset.theme='dark';
+  else delete document.documentElement.dataset.theme;
+});
+
 const openAI=()=>B.classList.add('ai-open');
 document.getElementById('aibtn').onclick=openAI;
 // the shortcut the pill advertises
@@ -1596,7 +1793,6 @@ document.addEventListener('keydown',e=>{
 /* Per-block actions. Copy takes the spoken text only — not the timestamp or the tag
    chips, which are ours rather than the lecturer's. Ask pins the block as the panel's
    context, which is what the floating button does for a selection. */
-const aiQuote=document.querySelector('.quote');
 const blockText=c=>c.querySelector('.transcript-text').textContent.replace(/\s+/g,' ').trim();
 /* Delegated, because blocks arrive during the lecture. This used to bind over a
    fixed list of blocks that existed at load — which was true of the mock and is
@@ -1614,12 +1810,90 @@ document.querySelector('.stream').addEventListener('click',async e=>{
       copy.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';},1400);
     return;
   }
-  const stampEl=c.querySelector('.timestamp');
-  const stamp=stampEl&&stampEl.firstChild?stampEl.firstChild.textContent.trim():'';
-  const t=blockText(c);
-  aiQuote.innerHTML='<em>'+stamp+'</em>“'+(t.length>180?t.slice(0,180).trim()+'…':t)+'”';
+  attachContext(c);
   openAI();
 });
+
+/* ── what the question is about ───────────────────────────────────────────────
+   A chip per block, carrying the block itself rather than a copy of its text, so
+   clicking one can take you back to where it was said. Attached by the Ask icon
+   and by + ; selecting words fills the question instead, since a selection is
+   what you want to ask about rather than another thing to carry. */
+const ctxChips=document.getElementById('ctxChips');
+const askInput=document.getElementById('askInput');
+const attached=[];                         // the blocks, in the order they were added
+
+function blockStamp(c){
+  const el=c.querySelector('.timestamp');
+  return el&&el.firstChild?el.firstChild.textContent.trim():'';
+}
+function renderChips(){
+  ctxChips.innerHTML='';
+  attached.forEach((c,i)=>{
+    const words=blockText(c).split(/\s+/).slice(0,5).join(' ');
+    const chip=document.createElement('span');
+    chip.className='ctx-chip';
+    chip.title=blockStamp(c);          // the time is available, without taking the room
+    /* Quotation marks, drawn in the same hand as the rest of the page's icons —
+       it names what the chip is (a passage) without a word for it. */
+    chip.innerHTML=`<span class="go">`
+                 + `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+                 + `stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">`
+                 + `<path d="M9 7H5.5A1.5 1.5 0 0 0 4 8.5V12h5V7zM9 12c0 3-1.6 4.6-4 5"/>`
+                 + `<path d="M20 7h-3.5A1.5 1.5 0 0 0 15 8.5V12h5V7zM20 12c0 3-1.6 4.6-4 5"/></svg>`
+                 + `<span class="lbl">${esc(words)}…</span></span>`
+                 + `<button class="x" type="button" aria-label="Remove">`
+                 + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" `
+                 + `stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+    chip.querySelector('.go').onclick=()=>locate(c);
+    chip.querySelector('.x').onclick=()=>{attached.splice(i,1);renderChips();};
+    ctxChips.appendChild(chip);
+  });
+}
+function attachContext(c){
+  if(!attached.includes(c))attached.push(c);
+  renderChips();
+}
+/* Take me back to what I attached. The tint leaves on its own, because a block
+   that stays highlighted stops meaning "this is the one you asked about". */
+function locate(c){
+  c.scrollIntoView({behavior:'smooth',block:'center'});
+  c.classList.add('located');
+  setTimeout(()=>c.classList.remove('located'),1600);
+}
+
+/* The field grows with what is in it rather than scrolling inside a fixed line —
+   a question about a lecture is usually a sentence, not a search box. */
+const growAsk=()=>{askInput.style.height='auto';
+                   askInput.style.height=Math.min(askInput.scrollHeight,180)+'px';};
+askInput.addEventListener('input',growAsk);
+
+/* Selecting words in the transcript puts them in the question. Only a selection
+   inside the stream counts — selecting the title, or text in the rail, is not
+   someone asking about the lecture. The panel is filled but not opened: pulling
+   it over the page every time you highlight something to copy would be worse
+   than useless. */
+let lastSelBlock=null;
+const ctxAdd=document.getElementById('ctxAdd');
+document.addEventListener('selectionchange',()=>{
+  const sel=getSelection();
+  if(!sel||sel.isCollapsed)return;
+  const node=sel.anchorNode;
+  const el=node&&(node.nodeType===1?node:node.parentElement);
+  const block=el&&el.closest('.stream .chunk');
+  if(!block)return;
+  const text=sel.toString().replace(/\s+/g,' ').trim();
+  if(!text)return;
+  lastSelBlock=block;
+  ctxAdd.disabled=false;
+  askInput.value=text;
+  growAsk();
+});
+
+/* + carries the block the selection is in, which is the one being read. Without
+   a selection there is nothing to point at, so it stays disabled rather than
+   guessing. */
+ctxAdd.onclick=()=>{if(lastSelBlock)attachContext(lastSelBlock);};
 document.getElementById('aiX').onclick=()=>B.classList.remove('ai-open');
 
 /* ── input device picker ──────────────────────────────────────── */
@@ -1712,13 +1986,23 @@ const alertConfig=()=>({
   tags:ALERTS.filter(a=>a.on).map(a=>a.v).concat(alertName?['name']:[]),
   name:alertName?alertNameInput.value.trim().slice(0,50):'',
 });
+/* The menu is open during a lecture, so what it says has to be what the server
+   is tagging against. It used to be read once, in the opening message, and never
+   again: turning Exam on halfway through changed the tick in the menu and nothing
+   else for the rest of the recording.
+   Deliberately not a second `context` message, which would re-run everything that
+   one carries -- the token check, the socket claim, and opening a lecture row. */
+const pushAlerts=()=>{
+  if(ws&&ws.readyState===1)
+    ws.send(JSON.stringify({type:'alerts',tagConfig:alertConfig()}));
+};
 function renderAlerts(){
   alertRows.innerHTML='';
   ALERTS.forEach(a=>{
     const b=document.createElement('button');
     b.type='button';b.className='alert-row'+(a.on?' on':'');
     b.innerHTML=`${icoSvg(a.v,a.c)}<span>${a.l}</span><span class="cbox">✓</span>`;
-    b.onclick=e=>{e.stopPropagation();a.on=!a.on;renderAlerts();};
+    b.onclick=e=>{e.stopPropagation();a.on=!a.on;renderAlerts();pushAlerts();};
     alertRows.appendChild(b);
   });
   alertNameRow.classList.toggle('on',alertName);
@@ -1735,9 +2019,12 @@ document.addEventListener('click',()=>alertMenu.classList.remove('open'));
    field is disabled, so there is no typing into a keyword alert that is off. */
 alertNameRow.onclick=e=>{
   if(!e.target.closest('.cbox'))return;
-  alertName=!alertName;renderAlerts();
+  alertName=!alertName;renderAlerts();pushAlerts();
   if(alertName)alertNameInput.focus();
 };
+/* On change rather than input: the name is only worth sending once it has been
+   typed, not once per keystroke. */
+alertNameInput.onchange=pushAlerts;
 
 /* ── class + session identity ─────────────────────────────────────
    The title isn't typed from scratch: it's the class plus the day. Editing it by
@@ -1757,8 +2044,8 @@ alertNameRow.onclick=e=>{
      load()        GET    /classes            -> [{id, name}]
      add(name)     POST   /classes            {name} -> {id, name}
      remove(name)  DELETE /classes/{id}
-   and a session should then carry course_id alongside the existing class_id
-   (the voice) that `save_session` already writes.                                */
+   and a session should then carry course_id alongside voice_id, which already
+   records the voice that filtered it.                                          */
 /* Every call to our server goes through here so the token is attached in one
    place rather than at each call site. getToken() is asked each time rather than
    cached: Clerk's tokens last about a minute, and the SDK hands back the current
@@ -2071,7 +2358,7 @@ const VOICES=[
   {n:'Dr. Osei — lecture hall',d:'0:18',sel:false},
 ];
 /* Real voices when the app is up, the samples above when it is not. id is what
-   `use_saved_voice` and POST /sessions both call class_id. */
+   `use_saved_voice` and POST /sessions both call voice_id. */
 async function loadVoices(){
   try{
     const rows=await Store.voices.list();
@@ -2146,7 +2433,7 @@ function renderVoices(editIdx){
       VOICES.forEach(o=>o.sel=false); v.sel=true;
       [...vpList.children].forEach((el,idx)=>el.classList.toggle('selected',idx===i));
       syncSelection();
-      useSavedVoice(v);                       // {type:'use_saved_voice', class_id}
+      useSavedVoice(v);                       // {type:'use_saved_voice', voice_id}
       B.classList.add('locked');
       if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
       vpStatus.textContent='';};
@@ -2316,9 +2603,17 @@ const anchorX = (W) => (B.classList.contains('rec') ? W - LIVE_INSET : W / 2);
    rather than hiding. */
 const barScale = (amp) => Math.pow(Math.min(1, amp), 0.55);
 
-const COLOR_PLAYED   = '#6365EB';
-const COLOR_UNPLAYED = 'rgba(118,120,237,0.22)';
-const COLOR_PLAYHEAD = '#4A3FBF';   // --lock-deep: the app's dark indigo
+/* Read from the stylesheet rather than written here, so switching theme moves
+   the waveform with everything else. Cached because this is per-frame drawing;
+   readWaveColors() runs again when the theme changes. */
+let COLOR_PLAYED, COLOR_UNPLAYED, COLOR_PLAYHEAD;
+function readWaveColors(){
+  const s=getComputedStyle(document.documentElement);
+  COLOR_PLAYED   = s.getPropertyValue('--wave-played').trim();
+  COLOR_UNPLAYED = s.getPropertyValue('--wave-unplayed').trim();
+  COLOR_PLAYHEAD = s.getPropertyValue('--wave-head').trim();
+}
+readWaveColors();
 
 // ===== STATE =====
 let waveformBars  = null;
@@ -2807,7 +3102,7 @@ document.addEventListener('click', (e) => {
      ws  ws://<api>/ws/transcribe
      →   {type:'context', prompt, tagConfig:{tags,name}}
      →   {type:'enroll_start'} … PCM … {type:'enroll_end'}
-     →   {type:'use_saved_voice', class_id}
+     →   {type:'use_saved_voice', voice_id}
      →   binary Int16 PCM, mono, 16 kHz
      ←   {type:'transcription', text, tags[], words:[{w,s,e}]}
      ←   {type:'enroll_success'} | {type:'enroll_failed'} | {type:'error'}
@@ -3042,6 +3337,12 @@ function onServer(d){
     if(!isBusy())setActivity('');
   }else if(d.type==='enroll_failed'){
     enrolling=false;showError(d.message||'Not enough audio — hold for longer');
+  }else if(d.type==='usage'){
+    /* The account's own total, sent when a chunk is billed rather than asked for
+       on a timer — the socket is already open and the server has just written
+       the number, so this costs nothing and cannot be stale by more than a
+       chunk. */
+    showUsage(d.live_seconds);
   }else if(d.type==='session'){
     /* The row the server opened for this recording. Everything transcribed from
        here lands in it as it arrives, so the lecture is already stored and Save
@@ -3059,7 +3360,12 @@ function applyTags(chunk,tags){
   tags.forEach(tag=>{
     if(ts.innerHTML.includes('tag-'+tag))return;
     const ico=ICO[tag]?`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICO[tag]}</svg>`:'';
-    ts.insertAdjacentHTML('beforeend',` <span class="tag tag-${tag}">${ico}${tag}</span>`);
+    /* Every other tag is its own label -- exam is "exam". The keyword alert is
+       not: `name` is the slot, and the word being watched for is what the chip
+       is telling you was said, so the chip carries that instead. Escaped because
+       unlike the fixed keys this half is typed by the person reading it. */
+    const label=tag==='name'?esc(alertConfig().name||tag):tag;
+    ts.insertAdjacentHTML('beforeend',` <span class="tag tag-${tag}">${ico}${label}</span>`);
   });
   chunk.classList.add('tagged');
   const first=tags[0];
@@ -3147,8 +3453,16 @@ function stopHifiRecorder(){
 }
 
 function buildWavUrl(){
-  // The good copy when there is one, the 16 kHz PCM when there is not.
-  const blob = hifiChunks.length
+  /* The good copy once the lecture is over, the 16 kHz PCM while it is running.
+     MediaRecorder is asked for a chunk a second so there is something to scrub,
+     but those chunks are pieces of a file that has not been finished: its
+     duration is whatever a demuxer can infer from an incomplete container. That
+     is why playback stopped short of the audio that existed, and why the clock
+     could read past the length it was shown against.
+     The PCM header is written for exactly the bytes in hand, so the length is
+     true every time it is rebuilt. */
+  const recording = B.classList.contains('rec') || B.classList.contains('paused');
+  const blob = (!recording && hifiChunks.length)
     ? new Blob(hifiChunks,{type:hifiType||'audio/webm'})
     : (pcmBlob ? new Blob([makeWavHeader(pcmBlob.size),pcmBlob],{type:'audio/wav'}) : null);
   if(!blob)return false;
@@ -3201,7 +3515,7 @@ function endLiveSession(){
 /* ── the two messages the current page also sends ── */
 function useSavedVoice(v){                       // voice-picker.js → live.js does this
   if(!v||!v.id||!ws||ws.readyState!==1)return;
-  ws.send(JSON.stringify({type:'use_saved_voice',class_id:v.id}));
+  ws.send(JSON.stringify({type:'use_saved_voice',voice_id:v.id}));
 }
 function voiceLockOff(){                         // sent when Lock Mode is switched off
   if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'voice_lock_off'}));
@@ -3232,7 +3546,7 @@ async function saveSession(){
     try{
       const res=await Store.sessions.rename(liveSessionId,{
         title:titleEl.textContent.trim()||'Untitled',
-        class_id:(sel&&sel.id)||null,
+        voice_id:(sel&&sel.id)||null,
       });
       if(res&&res.ok){setConn('on','Saved · session '+liveSessionId);return true;}
       if(res&&res.status===401){setConn('off','Not saved — sign in to keep lectures');return false;}
@@ -3250,7 +3564,7 @@ async function saveSession(){
   const body={
     title:titleEl.textContent.trim()||'Untitled',
     transcript:text,
-    class_id:(sel&&sel.id)||null,                // the Voice used, as the server names it
+    voice_id:(sel&&sel.id)||null,                // the Voice used, as the server names it
   };
   if(wordEls.length)body.words=wordEls.map(w=>({w:w.textContent,s:+w.dataset.start,e:+w.dataset.end}));
   try{
@@ -3282,7 +3596,44 @@ async function saveSession(){
 async function refreshForUser(){
   await loadVoices();
   await seedTitles();
+  await loadUsage();
 }
+
+/* ── what the account has been charged ───────────────────────────────────────
+   The panel used to read a copy the page kept for itself, so it showed a number
+   the account had never agreed to and clearing the browser looked like free
+   minutes. It reads the account now.
+
+   Fetched exactly twice — when the page opens, and when the panel is opened, in
+   case another device recorded. There is no timer: while a recording runs the
+   socket sends the total each time a chunk is billed, which is the only moment
+   it can change, and a paused recording bills nothing and so sends nothing. */
+let USAGE_ALLOWANCE={live:20*60,upload:30*60};
+function showUsage(liveSeconds,uploadSeconds){
+  const set=(id,used,limit)=>{
+    const t=document.getElementById(id+'-usage-text');
+    const b=document.getElementById(id+'-usage-bar');
+    if(!t||used==null)return;
+    t.textContent=(used/60).toFixed(1)+' / '+Math.round(limit/60)+' min';
+    if(b)b.style.width=Math.min(used/limit*100,100)+'%';
+  };
+  set('live',liveSeconds,USAGE_ALLOWANCE.live);
+  set('upload',uploadSeconds,USAGE_ALLOWANCE.upload);
+}
+async function loadUsage(){
+  try{
+    const res=await api('/me');
+    if(!res||!res.ok)return;                  // signed out: the panel is not shown anyway
+    const m=await res.json();
+    USAGE_ALLOWANCE={live:m.live_allowance,upload:m.upload_allowance};
+    showUsage(m.live_seconds,m.upload_seconds);
+  }catch{}
+}
+/* The panel is built by auth.js, so this listens for the click rather than
+   owning the markup. */
+document.addEventListener('click',e=>{
+  if(e.target.closest('#user-avatar'))setTimeout(loadUsage,0);
+});
 
 /* ── enrolment : hold 10s → name it → saved ──────────────────────────────────
    The sample is kept as it streams, wrapped as a WAV on release, and posted to

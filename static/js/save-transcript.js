@@ -10,7 +10,7 @@
 //   window.SaveTranscript.markDirty()       // when new transcript text arrives
 //   window.SaveTranscript.onNewRecording()  // when a new recording is about to start
 //
-// Uses window.selectedVoiceId (set by voice-picker.js) as the session's class_id.
+// Uses window.selectedVoiceId (set by voice-picker.js) as the session's voice_id.
 
 const SaveTranscript = (() => {
     let dirty = false;           // is there transcript text not yet saved?
@@ -92,7 +92,7 @@ const SaveTranscript = (() => {
                 body: JSON.stringify({
                     title,
                     transcript,
-                    class_id: window.selectedVoiceId || null,
+                    voice_id: window.selectedVoiceId || null,
                     words: currentWords(),
                     flags: window.DoubtPanel?.getFlags() || [],
                 }),

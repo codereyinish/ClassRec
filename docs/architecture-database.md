@@ -250,12 +250,16 @@ embedding and two copies of the enrolment audio.
 - Enrolling the same speaker once rather than once per course.
 - The naming, so `Class` in the code means what the UI has always meant by it.
 
-**The open question, which the schema cannot answer on its own.** `sessions`
-points at a class today. After the split, does a lecture belong to the *course* it
-was recorded for, or to the *voice* that was locked while it recorded? They agree
-until a course's voice is changed, and then they disagree about every lecture
-already recorded. Carrying both on the session keeps each answer true — the course
-it belongs to, and the voice that actually filtered it — at the cost of a column.
+**A course has one voice, and a session names both.** A voice can teach several
+courses — that is the point of enrolling a speaker once — but a course points at a
+single voice, which is also how recording works: the pipeline locks onto one
+embedding at a time.
+
+That one-voice limit is a guess about how courses are taught, and it is cheap to
+be wrong about, because the session records the voice that actually filtered it
+rather than looking it up through the course. Change a course's voice and every
+lecture already recorded still says what it was recorded with. Letting a course
+carry several voices later becomes a change to courses, not a repair of history.
 
 **Sequencing.** This supersedes `feature/class-voice-name` rather than building on
 it: `voice_name` has no meaning once a voice has a row of its own. So that branch
