@@ -1215,6 +1215,18 @@ async def websocket_transcribe(websocket: WebSocket):
                     msg = ContextMessage(**raw)
 
                     if msg.type == "context":
+                        # Once only. This branch does everything that admits a
+                        # recording — verifies the token, charges a socket against
+                        # the per-user cap, and opens the lecture's row — none of
+                        # which is safe to repeat. A second one would hold two of
+                        # the five slots, and point the rest of the lecture at a
+                        # new row while leaving the first holding chunks that
+                        # nothing will ever collapse. Changing the alerts
+                        # mid-lecture is what the `alerts` message is for.
+                        if ws_session_id is not None:
+                            logger.info("[ws] ignoring a repeated context message")
+                            continue
+
                         lecture_prompt = msg.prompt
                         selected_tags  = msg.tagConfig.tags
                         custom_name    = msg.tagConfig.name
@@ -1271,6 +1283,16 @@ async def websocket_transcribe(websocket: WebSocket):
                         # name that lecture rather than create another one.
                         await websocket.send_json({
                             "type": "session", "id": ws_session_id})
+
+                    elif msg.type == "alerts":
+                        # The menu stays open during a lecture, so what it says has
+                        # to be what is tagged against. Chunks already in flight
+                        # keep the old set, which is the set they were transcribed
+                        # under; everything after this uses the new one.
+                        selected_tags = msg.tagConfig.tags
+                        custom_name   = msg.tagConfig.name
+                        logger.info(f"[ws] alerts now {selected_tags}"
+                                    + (f" name={custom_name!r}" if custom_name else ""))
 
                     elif msg.type == "enroll_start":
                         enrolling = True

@@ -1712,13 +1712,23 @@ const alertConfig=()=>({
   tags:ALERTS.filter(a=>a.on).map(a=>a.v).concat(alertName?['name']:[]),
   name:alertName?alertNameInput.value.trim().slice(0,50):'',
 });
+/* The menu is open during a lecture, so what it says has to be what the server
+   is tagging against. It used to be read once, in the opening message, and never
+   again: turning Exam on halfway through changed the tick in the menu and nothing
+   else for the rest of the recording.
+   Deliberately not a second `context` message, which would re-run everything that
+   one carries -- the token check, the socket claim, and opening a lecture row. */
+const pushAlerts=()=>{
+  if(ws&&ws.readyState===1)
+    ws.send(JSON.stringify({type:'alerts',tagConfig:alertConfig()}));
+};
 function renderAlerts(){
   alertRows.innerHTML='';
   ALERTS.forEach(a=>{
     const b=document.createElement('button');
     b.type='button';b.className='alert-row'+(a.on?' on':'');
     b.innerHTML=`${icoSvg(a.v,a.c)}<span>${a.l}</span><span class="cbox">✓</span>`;
-    b.onclick=e=>{e.stopPropagation();a.on=!a.on;renderAlerts();};
+    b.onclick=e=>{e.stopPropagation();a.on=!a.on;renderAlerts();pushAlerts();};
     alertRows.appendChild(b);
   });
   alertNameRow.classList.toggle('on',alertName);
@@ -1735,9 +1745,12 @@ document.addEventListener('click',()=>alertMenu.classList.remove('open'));
    field is disabled, so there is no typing into a keyword alert that is off. */
 alertNameRow.onclick=e=>{
   if(!e.target.closest('.cbox'))return;
-  alertName=!alertName;renderAlerts();
+  alertName=!alertName;renderAlerts();pushAlerts();
   if(alertName)alertNameInput.focus();
 };
+/* On change rather than input: the name is only worth sending once it has been
+   typed, not once per keystroke. */
+alertNameInput.onchange=pushAlerts;
 
 /* ── class + session identity ─────────────────────────────────────
    The title isn't typed from scratch: it's the class plus the day. Editing it by
