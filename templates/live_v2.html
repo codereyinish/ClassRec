@@ -3337,6 +3337,12 @@ function onServer(d){
     if(!isBusy())setActivity('');
   }else if(d.type==='enroll_failed'){
     enrolling=false;showError(d.message||'Not enough audio — hold for longer');
+  }else if(d.type==='usage'){
+    /* The account's own total, sent when a chunk is billed rather than asked for
+       on a timer — the socket is already open and the server has just written
+       the number, so this costs nothing and cannot be stale by more than a
+       chunk. */
+    showUsage(d.live_seconds);
   }else if(d.type==='session'){
     /* The row the server opened for this recording. Everything transcribed from
        here lands in it as it arrives, so the lecture is already stored and Save
@@ -3590,7 +3596,44 @@ async function saveSession(){
 async function refreshForUser(){
   await loadVoices();
   await seedTitles();
+  await loadUsage();
 }
+
+/* ── what the account has been charged ───────────────────────────────────────
+   The panel used to read a copy the page kept for itself, so it showed a number
+   the account had never agreed to and clearing the browser looked like free
+   minutes. It reads the account now.
+
+   Fetched exactly twice — when the page opens, and when the panel is opened, in
+   case another device recorded. There is no timer: while a recording runs the
+   socket sends the total each time a chunk is billed, which is the only moment
+   it can change, and a paused recording bills nothing and so sends nothing. */
+let USAGE_ALLOWANCE={live:20*60,upload:30*60};
+function showUsage(liveSeconds,uploadSeconds){
+  const set=(id,used,limit)=>{
+    const t=document.getElementById(id+'-usage-text');
+    const b=document.getElementById(id+'-usage-bar');
+    if(!t||used==null)return;
+    t.textContent=(used/60).toFixed(1)+' / '+Math.round(limit/60)+' min';
+    if(b)b.style.width=Math.min(used/limit*100,100)+'%';
+  };
+  set('live',liveSeconds,USAGE_ALLOWANCE.live);
+  set('upload',uploadSeconds,USAGE_ALLOWANCE.upload);
+}
+async function loadUsage(){
+  try{
+    const res=await api('/me');
+    if(!res||!res.ok)return;                  // signed out: the panel is not shown anyway
+    const m=await res.json();
+    USAGE_ALLOWANCE={live:m.live_allowance,upload:m.upload_allowance};
+    showUsage(m.live_seconds,m.upload_seconds);
+  }catch{}
+}
+/* The panel is built by auth.js, so this listens for the click rather than
+   owning the markup. */
+document.addEventListener('click',e=>{
+  if(e.target.closest('#user-avatar'))setTimeout(loadUsage,0);
+});
 
 /* ── enrolment : hold 10s → name it → saved ──────────────────────────────────
    The sample is kept as it streams, wrapped as a WAV on release, and posted to

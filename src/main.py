@@ -113,15 +113,17 @@ SIMILARITY_THRESHOLD = 0.20
 # is a courtesy to the UI — clearing localStorage resets those, and nothing about
 # them reaches this file.
 FREE_LIVE_SECONDS  = 20 * 60      # a signed-in account, free plan
-
-FLUSH_EVERY = 30                  # seconds of audio between database writes
+# Declared so the panel is told an allowance by the server rather than by the
+# page. Nothing enforces it yet: users.upload_seconds is never incremented, so
+# uploads are unmetered — the number below is the intent, not a ceiling in force.
+FREE_UPLOAD_SECONDS = 30 * 60
 
 # How many recordings one account may have open at once. Not a quota — the quota
-# is shared and already correct across tabs. This bounds the SLACK in it: each
-# socket may be up to FLUSH_EVERY seconds stale before it sees the shared total,
-# so the worst-case overshoot is FLUSH_EVERY x this number. Five keeps that
-# under three minutes, and leaves room for a phone, a laptop, and a reconnect
-# racing a socket that has not finished closing.
+# is shared and already correct across tabs. This bounds the SLACK in it: a socket
+# learns the shared total when a chunk of its own is billed, so it can be up to
+# CHUNK_DURATION seconds behind, and the worst-case overshoot is CHUNK_DURATION x
+# this number — under a minute at five. It also leaves room for a phone, a laptop,
+# and a reconnect racing a socket that has not finished closing.
 MAX_SOCKETS_PER_USER = 5
 
 # Recording requires an account. An anonymous allowance cannot be a real limit:
@@ -366,6 +368,8 @@ async def transcribe_chunk(
     chunk_offset: float,
     session_id: int | None = None,
     chunk_idx: int = 0,
+    user_id: int | None = None,
+    usage_state: dict | None = None,
 ):
     """
     Full per-chunk pipeline:
@@ -384,6 +388,26 @@ async def transcribe_chunk(
         # concurrently instead of single file. This was the whole bottleneck.
         samples = pcm_to_float(pcm_bytes)
         words = await transcribe_with_timestamps(samples)      # awaited, no thread
+
+        # Billed here, and only here: Modal answered, so the thing the account
+        # pays for was delivered. A call that times out or errors raises above
+        # this line and costs nothing, which is the whole point — audio arriving
+        # is not a transcript, and the meter used to run on the audio.
+        #
+        # An empty answer still counts. Silence, or speech the speaker filter
+        # removes, is Modal having run and replied; what it said is the measure,
+        # not what survived the pipeline afterwards.
+        if usage_state is not None and user_id is not None:
+            fresh = _add_live_seconds(user_id, CHUNK_DURATION)
+            usage_state["this_ws"] += CHUNK_DURATION
+            usage_state["total"] = (float(fresh) if fresh is not None
+                                    else usage_state["total"] + CHUNK_DURATION)
+            try:
+                await websocket.send_json({
+                    "type": "usage", "live_seconds": usage_state["total"]})
+            except Exception:
+                pass          # the page is gone; the account is still correct
+
         if not words:
             logger.debug("[chunk] no words from Whisper")
             return
@@ -697,6 +721,25 @@ def get_session_route(session_id: int, db: Session = Depends(get_db),
             for f in s.flags
         ],
         "created_at": str(s.created_at),
+    }
+
+
+@app.get("/me")
+def me_route(user = Depends(current_user)):
+    """Plan and usage, as the account has them.
+
+    The page kept its own copy in localStorage, which meant the panel showed a
+    number that had nothing to do with what the account had been charged — and
+    clearing it looked like free minutes. Read once on load and again when the
+    panel is opened; while a recording runs the socket sends the total as it
+    changes, so there is nothing here to poll.
+    """
+    return {
+        "plan": user.plan,
+        "live_seconds": int(user.live_seconds),
+        "upload_seconds": int(user.upload_seconds),
+        "live_allowance": FREE_LIVE_SECONDS,
+        "upload_allowance": FREE_UPLOAD_SECONDS,
     }
 
 
@@ -1186,9 +1229,10 @@ async def websocket_transcribe(websocket: WebSocket):
     # collapsed into a finished lecture when the connection ends.
     ws_session_id: int | None = None
     seconds_allowed  = FREE_LIVE_SECONDS
-    account_total    = 0.0        # the shared total, as last read from the database
-    seconds_this_ws  = 0.0        # audio this connection has taken
-    seconds_unflushed = 0.0       # of that, what has not been added yet
+    # What the account has been billed, shared with the chunk tasks that do the
+    # billing — mutable for the same reason session_state is: transcribe_chunk
+    # runs as its own task and has to be able to report back.
+    usage_state = {"total": 0.0, "this_ws": 0.0}
     enrollment_buffer = bytearray()
     chunk_count       = 0
 
@@ -1249,11 +1293,11 @@ async def websocket_transcribe(websocket: WebSocket):
                         with SessionLocal() as db:
                             u = get_or_create_user(db, clerk_id)
                             ws_user_id    = u.id
-                            account_total = float(u.live_seconds)
+                            usage_state["total"] = float(u.live_seconds)
                         logger.info(f"[ws] {clerk_id} -> user {ws_user_id}, "
-                                    f"{account_total:.0f}/{seconds_allowed}s used")
+                                    f"{usage_state['total']:.0f}/{seconds_allowed}s used")
 
-                        if account_total >= seconds_allowed:
+                        if usage_state["total"] >= seconds_allowed:
                             await websocket.send_json({
                                 "type": "error",
                                 "message": "You have used your free recording minutes."})
@@ -1396,28 +1440,16 @@ async def websocket_transcribe(websocket: WebSocket):
                     await websocket.close()
                     break
 
-                # Metered here, where the audio actually arrives, rather than from
-                # a clock or from anything the page reports. The format is fixed —
-                # 16 kHz, 16-bit mono — so bytes convert straight to seconds, and
-                # this is the same audio Modal will be asked to transcribe.
-                seconds_this_ws   += len(packet) / BYTES_PER_SECOND
-                seconds_unflushed += len(packet) / BYTES_PER_SECOND
+                # Nothing is metered here any more. Audio arriving is not a
+                # transcript delivered: a chunk that Modal never answers costs the
+                # account nothing, which it used to be charged for. The meter runs
+                # in transcribe_chunk, the moment Modal does answer.
 
-                # Added every FLUSH_EVERY seconds rather than on every packet —
-                # packets arrive four times a second. The write returns the shared
-                # total, which is how this connection finds out about recordings
-                # happening on the user's other devices.
-                if seconds_unflushed >= FLUSH_EVERY:
-                    fresh = _add_live_seconds(ws_user_id, seconds_unflushed)
-                    if fresh is not None:
-                        account_total = float(fresh)
-                    seconds_unflushed = 0.0
-
-                # Between writes the ceiling is judged on the last known shared
-                # total plus what this connection has taken since.
-                if account_total + seconds_unflushed >= seconds_allowed:
+                # The ceiling is judged on what has actually been billed, which
+                # usage_state carries back from those chunks.
+                if usage_state["total"] >= seconds_allowed:
                     logger.info(f"[ws] user {ws_user_id} hit the limit at "
-                                f"{account_total + seconds_unflushed:.0f}s")
+                                f"{usage_state['total']:.0f}s")
                     await websocket.send_json({
                         "type": "error",
                         "message": "You have used your free recording minutes."})
@@ -1442,6 +1474,8 @@ async def websocket_transcribe(websocket: WebSocket):
                         chunk_offset,
                         ws_session_id,
                         chunk_count - 1,     # the index this chunk was given above
+                        ws_user_id,
+                        usage_state,
                     ))
 
     except WebSocketDisconnect:
@@ -1449,13 +1483,13 @@ async def websocket_transcribe(websocket: WebSocket):
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
-        # However the connection ended — closed, dropped, errored — what was used
-        # is written down. In the finally block precisely because the ways a
-        # socket ends without warning are the ways usage would otherwise vanish.
-        if ws_user_id is not None and seconds_unflushed > 0:
-            fresh = _add_live_seconds(ws_user_id, seconds_unflushed)
-            logger.info(f"[ws] user {ws_user_id} used {seconds_this_ws:.0f}s here, "
-                        f"account now {fresh}/{seconds_allowed}s")
+        # Nothing is owed at the end any more. Each chunk was billed the moment
+        # Modal answered for it, so a connection that dies without warning leaves
+        # no unwritten remainder to lose — the last chunk it was charged for is
+        # already in the account.
+        if ws_user_id is not None:
+            logger.info(f"[ws] user {ws_user_id} was billed {usage_state['this_ws']:.0f}s here, "
+                        f"account now {usage_state['total']:.0f}/{seconds_allowed}s")
 
         # The recording is over, whatever ended it — stopped, closed, crashed,
         # dropped. The chunks written along the way become the lecture here, and
