@@ -104,6 +104,23 @@ SQLite specifics to remember:
 
 ## Decision 4 — a lecture is buffered as chunk rows, then collapsed into one · **Accepted, not yet built**
 
+**What it achieves**
+
+- **A lecture survives the browser.** Anything already transcribed is on disk, so
+  a crashed tab, a closed laptop or a dead battery costs at most the audio that
+  had not yet reached the ten-second mark. Today the same event costs the whole
+  lecture, and a lecture cannot be recorded twice.
+- **Server memory does not grow with the lecture.** About 4 KB per recording
+  while it runs, whether it is five minutes or three hours — instead of 2.15 MB
+  that climbs for an hour and multiplies by everyone recording at once.
+- **Nothing already written is written again.** Each ten seconds costs one insert
+  of its own 4 KB. The alternative of appending into the existing column rewrote
+  the whole lecture on every flush: 13.2 MB of writes for a 0.44 MB result.
+- **A finished lecture is still one row.** The chunks are joined back into
+  `sessions.transcript` and `sessions.words_json` and deleted, so everything that
+  reads a lecture — My Lectures, the detail route, playback — is untouched, and
+  existing lectures need no migration.
+
 While a lecture is being recorded, the transcript exists in exactly one place:
 the browser. The server transcribes each 10-second chunk, sends the words to the
 page, and forgets them. Nothing reaches the database until someone presses Save.
@@ -165,6 +182,11 @@ words cost the same either way. It is that `sessions.transcript` and
 `sessions.words_json` remain the one place a finished lecture lives, so My
 Lectures, the detail route and playback are unchanged, and existing lectures need
 no migration. The chunks table stays private to the recording path.
+
+**What is still lost, and when.** A chunk is written the moment it comes back
+transcribed, so the gap is only the audio the server has received but not yet
+formed into a chunk — bounded by `CHUNK_DURATION`, ten seconds. That is the whole
+exposure for a crash, a killed tab or a dropped connection.
 
 **Consequences to design around:**
 - Reads come from the session row. Chunks are read only during the collapse, and
