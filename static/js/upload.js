@@ -107,7 +107,10 @@
 
     async function handleUpload() {
         if(!selectedAudioFile){
-         alert('Please select a file first!');
+         // The page has a place to say things; a browser dialog is not it — it
+         // arrives in the operating system's type, blocks everything behind it,
+         // and looks like it came from somewhere else.
+         add_ErrorMessage_to_ResultDiv('Choose an audio file first.');
          return;
         }
 

@@ -78,13 +78,18 @@ body{
 :root[data-theme="dark"] .dz-file{background:var(--g1)}
 
 /* ── the action ── */
+/* Sized to its words, not to the column. A button as wide as the drop panel read
+   as a second panel rather than the one thing to press. */
 .up-go{
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  width:100%;margin-top:16px;padding:13px;border:0;border-radius:11px;
+  display:inline-flex;align-items:center;gap:8px;
+  margin:16px auto 0;padding:11px 22px;border:0;border-radius:10px;
   background:var(--primary);color:#fff;
-  font-family:inherit;font-size:14.5px;font-weight:500;cursor:pointer;
+  font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;
   transition:background .14s var(--e),opacity .14s var(--e);
 }
+/* the wrap is what centres it, since the button no longer fills the row */
+.up-wrap{display:flex;flex-direction:column}
+.up-wrap .dropzone,.up-wrap #result{width:100%}
 .up-go:hover:not(:disabled){background:var(--primary-hi)}
 .up-go:disabled{opacity:.55;cursor:default}
 .up-go svg{width:17px;height:17px}
