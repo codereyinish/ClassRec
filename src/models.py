@@ -137,6 +137,13 @@ class Session(Base):
         order_by="Flag.t_start",
     )
 
+    # The recording buffer, ordered so the collapse can simply concatenate. Same
+    # cascade as flags: evicting a Session must not leave its chunks behind.
+    chunks: Mapped[list["Chunk"]] = relationship(
+        back_populates="lecture", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="Chunk.idx",
+    )
+
 
 class Flag(Base):
     """A moment the student didn't follow.
@@ -169,3 +176,41 @@ class Flag(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
     lecture: Mapped["Session"] = relationship(back_populates="flags")
+
+
+class Chunk(Base):
+    """Ten seconds of a lecture, written the moment it comes back transcribed.
+
+    A lecture used to exist only in the browser until someone pressed save, so a
+    crashed tab cost the whole thing — and a lecture cannot be recorded twice.
+    Each chunk is now stored as it arrives, which bounds that loss at the audio
+    not yet formed into a chunk: `CHUNK_DURATION`, ten seconds.
+
+    Rows, rather than appending into `Session.words_json`, because that column
+    holds a single JSON array and a database replaces a value rather than
+    extending it — so every append would read, rebuild and rewrite the entire
+    lecture. An insert costs only the size of what is being added.
+
+    These rows do not outlive the recording. When the connection ends they are
+    joined back into the Session and deleted, so a finished lecture is one row
+    and everything that reads a lecture is unchanged. See
+    docs/architecture-database.md, Decision 4.
+    """
+
+    __tablename__ = "chunks"
+
+    id:         Mapped[int]               = mapped_column(primary_key=True)
+    session_id: Mapped[int]               = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), index=True
+    )
+    # Position in the lecture, not a timestamp — chunks are written by separate
+    # tasks and can finish out of order, so this is what puts them back in order.
+    idx:        Mapped[int]               = mapped_column(Integer)
+    text:       Mapped[str]               = mapped_column(Text)
+    # This chunk's words as {w,s,e}, with times already absolute against the whole
+    # lecture: transcribe_chunk folds chunk_offset in before the words are sent.
+    # So the collapse is concatenation, with no arithmetic to redo.
+    words_json: Mapped[str | None]        = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    lecture: Mapped["Session"] = relationship(back_populates="chunks")

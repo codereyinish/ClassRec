@@ -22,6 +22,9 @@ USER ──owns many──> CLASS ──has many──> SESSION (a lecture)
 - **sessions** — `id, class_id (FK), user_id, title, transcript, summary,
   words_json, audio_path, created_at`
   One lecture, linked to its class so it knows which embedding filtered it.
+- **chunks** — `id, session_id (FK), idx, text, words_json, created_at`
+  Where a lecture accumulates while it is still being recorded; emptied into the
+  session row once the recording ends. See Decision 4.
 
 Rules:
 - Sessions are capped at **7 per user** (rolling — keep newest 7, evict oldest).
@@ -96,6 +99,104 @@ SQLite specifics to remember:
 - `ALTER TABLE ... ADD COLUMN` works; `DROP COLUMN` only since SQLite 3.35 (2021).
 - Deleting/NULLing data frees space as reusable "free pages" but does **not**
   shrink the file — run `VACUUM` to actually reclaim disk.
+
+---
+
+## Decision 4 — a lecture is buffered as chunk rows, then collapsed into one · **Accepted, not yet built**
+
+**What it achieves**
+
+- **A lecture survives the browser.** Anything already transcribed is on disk, so
+  a crashed tab, a closed laptop or a dead battery costs at most the audio that
+  had not yet reached the ten-second mark. Today the same event costs the whole
+  lecture, and a lecture cannot be recorded twice.
+- **Server memory does not grow with the lecture.** About 4 KB per recording
+  while it runs, whether it is five minutes or three hours — instead of 2.15 MB
+  that climbs for an hour and multiplies by everyone recording at once.
+- **Nothing already written is written again.** Each ten seconds costs one insert
+  of its own 4 KB. The alternative of appending into the existing column rewrote
+  the whole lecture on every flush: 13.2 MB of writes for a 0.44 MB result.
+- **A finished lecture is still one row.** The chunks are joined back into
+  `sessions.transcript` and `sessions.words_json` and deleted, so everything that
+  reads a lecture — My Lectures, the detail route, playback — is untouched, and
+  existing lectures need no migration.
+
+While a lecture is being recorded, the transcript exists in exactly one place:
+the browser. The server transcribes each 10-second chunk, sends the words to the
+page, and forgets them. Nothing reaches the database until someone presses Save.
+So a closed tab, a crashed browser or a dead battery costs the whole lecture —
+and a lecture cannot be re-recorded.
+
+**The browser cannot fix this itself.** `beforeunload` warns before a deliberate
+close, which is worth having, but it never fires for a crash or an OS-killed tab.
+Anything a page sends while unloading is also capped at 64 KB, which at measured
+rates covers about eight minutes of word timings. Whatever guarantees the
+transcript has to live on the server, because the server is what is still running
+when the browser is not.
+
+**Measured, from a real lecture at 194 words/minute:**
+
+| | per recording-hour |
+|---|---|
+| transcript text | 55 KB |
+| word timings as JSON | 415 KB |
+| the same words held as Python dicts | 2.15 MB |
+
+**Rejected — keep the whole lecture in server memory, write once at the end.**
+Simplest, and 2.15 MB per recording is affordable on its own. But it is held for
+the entire lecture and scales with both length and concurrency: 67 simultaneous
+hour-long lectures is 144 MB standing.
+
+**Rejected — append each chunk into `sessions.words_json` as it arrives.** That
+column holds a JSON array, which is a single value, and a database replaces a
+value rather than extending it. Adding one chunk means reading the column,
+parsing it, appending, re-serialising and writing it all back — so the whole
+array is in memory at the moment of writing anyway, and the column is rewritten
+from scratch every time. Measured over 60 flushes: **4.02 MB peak** (worse than
+simply holding the list) and **13.2 MB written** for a lecture whose final size is
+0.44 MB.
+
+**Accepted — a `chunks` table as a write-ahead buffer.**
+
+```
+chunks: id, session_id -> sessions.id (CASCADE), idx, text, words_json, created_at
+        index on (session_id, idx)
+```
+
+The session row is created when recording starts, so chunks have something to
+belong to. Each arriving chunk is one INSERT — the cost of the new 4 KB, never
+touching the rows already there. When the connection ends, for any reason, the
+chunks are read back in `idx` order, joined, written into `sessions.transcript`
+and `sessions.words_json`, and deleted.
+
+Joining needs no arithmetic: the pipeline already adds `chunk_offset` to every
+timestamp before sending it, so the timings are absolute across the lecture and
+concatenation in `idx` order is the whole operation.
+
+Measured, for a 360-chunk hour: **0.35 ms per insert**, and **91 ms** for the
+collapse at a momentary 4 MB — against 2.15 MB held for the full hour by the
+rejected alternative.
+
+**Why collapse rather than keep the chunks.** Storage is not the reason; the
+words cost the same either way. It is that `sessions.transcript` and
+`sessions.words_json` remain the one place a finished lecture lives, so My
+Lectures, the detail route and playback are unchanged, and existing lectures need
+no migration. The chunks table stays private to the recording path.
+
+**What is still lost, and when.** A chunk is written the moment it comes back
+transcribed, so the gap is only the audio the server has received but not yet
+formed into a chunk — bounded by `CHUNK_DURATION`, ten seconds. That is the whole
+exposure for a crash, a killed tab or a dropped connection.
+
+**Consequences to design around:**
+- Reads come from the session row. Chunks are read only during the collapse, and
+  as a fallback when a session has chunks but no transcript — which is precisely
+  a lecture the server never got to finish, and the case the buffer exists for.
+- A row now exists from the moment recording starts, so an abandoned recording
+  has to be cleaned up: a session that ends with no chunks is deleted.
+- Save stops creating anything. The lecture is already stored, so Save only names
+  it — which also removes the duplicate rows that came from a button that
+  inserted on every press.
 
 ---
 

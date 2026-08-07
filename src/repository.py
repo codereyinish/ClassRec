@@ -14,11 +14,11 @@ Naming note — there are TWO "Session"s:
 import json
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session as DBSession
 
 from logger import logger
-from models import Class, Flag, Session
+from models import Chunk, Class, Flag, Session
 
 MAX_SESSIONS_PER_USER = 7
 
@@ -142,6 +142,18 @@ def save_session(db: DBSession, *, class_id: int, user_id: str, title: str,
 
     db.commit(); db.refresh(obj)
 
+    evicted = _evict_over_cap(db, user_id)
+
+    logger.info(f"[repo] saved session id={obj.id} (evicted {evicted} over cap)")
+    return obj
+
+
+def _evict_over_cap(db: DBSession, user_id: str) -> int:
+    """Hold the user to MAX_SESSIONS_PER_USER, newest kept.
+
+    Lifted out of save_session unchanged so the recording path can apply the same
+    cap when a lecture is finished, rather than keeping a second copy of it.
+    """
     # 7-per-user cap: order newest-first, then .offset(7) skips the keepers ->
     # whatever's left is the old sessions to evict.
     stmt = (
@@ -159,8 +171,89 @@ def save_session(db: DBSession, *, class_id: int, user_id: str, title: str,
         db.commit()
         for cid in orphan_candidates:           # a hidden Voice now at 0 Lectures -> delete it
             _gc_voice_if_orphaned(db, cid)
+    return len(to_evict)
 
-    logger.info(f"[repo] saved session id={obj.id} (evicted {len(to_evict)} over cap)")
+
+# ---- the recording buffer: a lecture as it is being recorded -----------------
+
+def start_session(db: DBSession, *, user_id: int, class_id: int | None,
+                  title: str) -> Session:
+    """Open the row a recording will fill, before any of it exists.
+
+    Created at the start rather than at save because the chunks arriving over the
+    next hour need something to belong to. Transcript and words stay empty until
+    the recording ends and collapse_session fills them in.
+
+    The cap is deliberately NOT applied here: a recording that is abandoned in its
+    first seconds must not evict a real lecture on its way past.
+    """
+    obj = Session(class_id=class_id, user_id=user_id, title=title)
+    db.add(obj); db.commit(); db.refresh(obj)
+    logger.info(f"[repo] opened session id={obj.id} for user {user_id}")
+    return obj
+
+
+def add_chunk(db: DBSession, *, session_id: int, idx: int, text: str,
+              words: list | None = None) -> None:
+    """Store one transcribed chunk. The write is the size of the chunk, and
+    nothing already written is touched."""
+    db.add(Chunk(
+        session_id=session_id, idx=idx, text=text,
+        words_json=json.dumps(words) if words is not None else None,
+    ))
+    db.commit()
+
+
+def assemble_chunks(db: DBSession, session_id: int) -> tuple[str, list]:
+    """The buffer, in order, as a transcript and one word list.
+
+    Concatenation is the whole operation: transcribe_chunk folds chunk_offset
+    into every timestamp before the words leave the server, so they are already
+    absolute against the lecture.
+    """
+    rows = db.execute(
+        select(Chunk).where(Chunk.session_id == session_id).order_by(Chunk.idx)
+    ).scalars().all()
+    transcript = "\n\n".join(r.text for r in rows if r.text)
+    words = [w for r in rows if r.words_json for w in json.loads(r.words_json)]
+    return transcript, words
+
+
+def collapse_session(db: DBSession, session_id: int) -> Session | None:
+    """Fold the buffer into the lecture and drop it.
+
+    Runs when a recording ends, however it ended. Afterwards the lecture is one
+    row in the shape everything else already reads, and the chunks are gone.
+
+    A session with no chunks was never a lecture — a connection that opened and
+    closed, or one refused before any audio arrived — so it is deleted rather
+    than left as an empty row in someone's list. Returns None in that case.
+    """
+    obj = db.get(Session, session_id)
+    if obj is None:
+        return None
+
+    transcript, words = assemble_chunks(db, session_id)
+    if not transcript:
+        db.delete(obj); db.commit()
+        logger.info(f"[repo] session id={session_id} had no transcript, removed")
+        return None
+
+    obj.transcript = transcript
+    obj.words_json = json.dumps(words) if words else None
+    db.execute(delete(Chunk).where(Chunk.session_id == session_id))
+
+    # Bump this Voice's usage counter, as save_session does — here rather than at
+    # start_session, so an abandoned recording does not count as having used it.
+    if obj.class_id is not None:
+        voice = db.get(Class, obj.class_id)
+        if voice is not None:
+            voice.use_count += 1
+
+    db.commit(); db.refresh(obj)
+    evicted = _evict_over_cap(db, obj.user_id)
+    logger.info(f"[repo] collapsed session id={session_id}: {len(transcript)} chars, "
+                f"{len(words)} words (evicted {evicted} over cap)")
     return obj
 
 
