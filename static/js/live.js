@@ -530,7 +530,7 @@
                if (window.selectedVoiceId) {
                    websocket.send(JSON.stringify({
                        type: "use_saved_voice",
-                       class_id: window.selectedVoiceId
+                       voice_id: window.selectedVoiceId
                    }));
                    Logger.debug("Requested saved voice lock", window.selectedVoiceId);
                }

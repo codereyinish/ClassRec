@@ -18,17 +18,17 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session as DBSession
 
 from logger import logger
-from models import Chunk, Class, Flag, Session
+from models import Chunk, Flag, Session, Voice
 
 MAX_SESSIONS_PER_USER = 7
 
 
 # ======= CLASSES =======
 
-def create_class(db: DBSession, *, name: str, embedding: bytes,
+def create_voice(db: DBSession, *, name: str, embedding: bytes,
                  user_id: str | None = None, threshold: float = 0.4,
-                 audio_path: str | None = None) -> Class:
-    obj = Class(name=name, embedding=embedding, user_id=user_id,
+                 audio_path: str | None = None) -> Voice:
+    obj = Voice(name=name, embedding=embedding, user_id=user_id,
                 threshold=threshold, audio_path=audio_path)
     db.add(obj)        # stage the new row in the session
     db.commit()        # write it to the DB (one transaction)
@@ -37,67 +37,67 @@ def create_class(db: DBSession, *, name: str, embedding: bytes,
     return obj
 
 
-def rename_class(db: DBSession, class_id: int, new_name: str) -> Class | None:
-    """Rename a Voice. Returns the updated Class, or None if not found."""
-    obj = db.get(Class, class_id)
+def rename_voice(db: DBSession, voice_id: int, new_name: str) -> Voice | None:
+    """Rename a Voice. Returns the updated Voice, or None if not found."""
+    obj = db.get(Voice, voice_id)
     if obj is None:
         return None
     obj.name = new_name
     db.commit()
     db.refresh(obj)
-    logger.info(f"[repo] renamed class id={class_id} -> {new_name!r}")
+    logger.info(f"[repo] renamed voice id={voice_id} -> {new_name!r}")
     return obj
 
 
-def get_class(db: DBSession, class_id: int) -> Class | None:
-    return db.get(Class, class_id)          # fetch by primary key (or None)
+def get_voice(db: DBSession, voice_id: int) -> Voice | None:
+    return db.get(Voice, voice_id)          # fetch by primary key (or None)
 
 
-def list_classes(db: DBSession, user_id: str | None = None) -> list[Class]:
-    stmt = select(Class)                                  # SELECT * FROM classes
+def list_voices(db: DBSession, user_id: str | None = None) -> list[Voice]:
+    stmt = select(Voice)                                  # SELECT * FROM voices
     if user_id is not None:
-        stmt = stmt.where(Class.user_id == user_id)       # ... WHERE user_id = ?
-    stmt = stmt.order_by(Class.created_at.desc())         # ... ORDER BY created_at DESC
-    return list(db.execute(stmt).scalars().all())         # run it -> list of Class objects
+        stmt = stmt.where(Voice.user_id == user_id)       # ... WHERE user_id = ?
+    stmt = stmt.order_by(Voice.created_at.desc())         # ... ORDER BY created_at DESC
+    return list(db.execute(stmt).scalars().all())         # run it -> list of Voice objects
 
 
-def top_voices(db: DBSession, user_id: str | None = None, limit: int = 4) -> list[Class]:
+def top_voices(db: DBSession, user_id: str | None = None, limit: int = 4) -> list[Voice]:
     """The Voice picker: only NON-hidden voices, most-used first, capped at `limit`."""
-    stmt = select(Class).where(Class.hidden == False)     # noqa: E712  (SQL needs ==, not `is`)
+    stmt = select(Voice).where(Voice.hidden == False)     # noqa: E712  (SQL needs ==, not `is`)
     if user_id is not None:
-        stmt = stmt.where(Class.user_id == user_id)
-    stmt = stmt.order_by(Class.use_count.desc(), Class.created_at.desc()).limit(limit)
+        stmt = stmt.where(Voice.user_id == user_id)
+    stmt = stmt.order_by(Voice.use_count.desc(), Voice.created_at.desc()).limit(limit)
     return list(db.execute(stmt).scalars().all())
 
 
-def _count_sessions(db: DBSession, class_id: int) -> int:
+def _count_sessions(db: DBSession, voice_id: int) -> int:
     """How many Lectures still reference this Voice."""
     return db.execute(
-        select(func.count()).select_from(Session).where(Session.class_id == class_id)
+        select(func.count()).select_from(Session).where(Session.voice_id == voice_id)
     ).scalar_one()
 
 
-def _gc_voice_if_orphaned(db: DBSession, class_id: int | None) -> None:
+def _gc_voice_if_orphaned(db: DBSession, voice_id: int | None) -> None:
     """Reference-count cleanup: a HIDDEN voice with zero Lectures left is truly deleted."""
-    if class_id is None:
+    if voice_id is None:
         return
-    voice = db.get(Class, class_id)
-    if voice is not None and voice.hidden and _count_sessions(db, class_id) == 0:
+    voice = db.get(Voice, voice_id)
+    if voice is not None and voice.hidden and _count_sessions(db, voice_id) == 0:
         _delete_audio_file(voice.audio_path)    # remove the enrollment clip too
         db.delete(voice)
         db.commit()
-        logger.info(f"[repo] garbage-collected orphaned hidden voice id={class_id}")
+        logger.info(f"[repo] garbage-collected orphaned hidden voice id={voice_id}")
 
 
-def hide_class(db: DBSession, class_id: int) -> None:
+def hide_voice(db: DBSession, voice_id: int) -> None:
     """The 🗑️ in the picker. Mark hidden; if it already has no Lectures, delete it outright."""
-    voice = db.get(Class, class_id)
+    voice = db.get(Voice, voice_id)
     if voice is None:
         return
     voice.hidden = True
     db.commit()
-    _gc_voice_if_orphaned(db, class_id)     # no Lectures? -> remove entirely now
-    logger.info(f"[repo] hid voice id={class_id}")
+    _gc_voice_if_orphaned(db, voice_id)     # no Lectures? -> remove entirely now
+    logger.info(f"[repo] hid voice id={voice_id}")
 
 
 # ======= SESSIONS =======
@@ -115,12 +115,12 @@ def _delete_audio_file(path: str | None) -> None:
         logger.error(f"[repo] could not delete audio file {path}: {e}")
 
 
-def save_session(db: DBSession, *, class_id: int, user_id: str, title: str,
+def save_session(db: DBSession, *, voice_id: int, user_id: str, title: str,
                  transcript: str, words: list | None = None,
                  audio_path: str | None = None,
                  flags: list[dict] | None = None) -> Session:
     obj = Session(
-        class_id=class_id, user_id=user_id, title=title, transcript=transcript,
+        voice_id=voice_id, user_id=user_id, title=title, transcript=transcript,
         words_json=json.dumps(words) if words is not None else None,
         audio_path=audio_path,
     )
@@ -133,10 +133,10 @@ def save_session(db: DBSession, *, class_id: int, user_id: str, title: str,
         ))
     db.add(obj)
 
-    # Bump this Voice's usage counter (powers "top 4 most used"). class_id may be
+    # Bump this Voice's usage counter (powers "top 4 most used"). voice_id may be
     # None for an unlocked recording, so guard it.
-    if class_id is not None:
-        voice = db.get(Class, class_id)
+    if voice_id is not None:
+        voice = db.get(Voice, voice_id)
         if voice is not None:
             voice.use_count += 1
 
@@ -163,7 +163,7 @@ def _evict_over_cap(db: DBSession, user_id: str) -> int:
         .offset(MAX_SESSIONS_PER_USER)
     )
     to_evict = db.execute(stmt).scalars().all()
-    orphan_candidates = {old.class_id for old in to_evict}   # Voices that just lost a Lecture
+    orphan_candidates = {old.voice_id for old in to_evict}   # Voices that just lost a Lecture
     for old in to_evict:
         _delete_audio_file(old.audio_path)      # file FIRST (need the path)
         db.delete(old)                          # then the row
@@ -176,7 +176,7 @@ def _evict_over_cap(db: DBSession, user_id: str) -> int:
 
 # ---- the recording buffer: a lecture as it is being recorded -----------------
 
-def start_session(db: DBSession, *, user_id: int, class_id: int | None,
+def start_session(db: DBSession, *, user_id: int, voice_id: int | None,
                   title: str) -> Session:
     """Open the row a recording will fill, before any of it exists.
 
@@ -187,7 +187,7 @@ def start_session(db: DBSession, *, user_id: int, class_id: int | None,
     The cap is deliberately NOT applied here: a recording that is abandoned in its
     first seconds must not evict a real lecture on its way past.
     """
-    obj = Session(class_id=class_id, user_id=user_id, title=title)
+    obj = Session(voice_id=voice_id, user_id=user_id, title=title)
     db.add(obj); db.commit(); db.refresh(obj)
     logger.info(f"[repo] opened session id={obj.id} for user {user_id}")
     return obj
@@ -245,8 +245,8 @@ def collapse_session(db: DBSession, session_id: int) -> Session | None:
 
     # Bump this Voice's usage counter, as save_session does — here rather than at
     # start_session, so an abandoned recording does not count as having used it.
-    if obj.class_id is not None:
-        voice = db.get(Class, obj.class_id)
+    if obj.voice_id is not None:
+        voice = db.get(Voice, obj.voice_id)
         if voice is not None:
             voice.use_count += 1
 
@@ -273,9 +273,9 @@ def delete_session(db: DBSession, session_id: int) -> None:
     obj = db.get(Session, session_id)
     if obj is None:
         return
-    class_id = obj.class_id                      # remember before deleting
+    voice_id = obj.voice_id                      # remember before deleting
     _delete_audio_file(obj.audio_path)          # file first
     db.delete(obj)                              # then row
     db.commit()
-    _gc_voice_if_orphaned(db, class_id)         # hidden Voice now at 0 Lectures -> delete it
+    _gc_voice_if_orphaned(db, voice_id)         # hidden Voice now at 0 Lectures -> delete it
     logger.info(f"[repo] deleted session id={session_id}")

@@ -5,9 +5,12 @@ ClassRec — ORM models (the tables, as Python classes)
 This REPLACES the hand-written CREATE TABLE SQL. Each class = one table;
 each attribute = one column. SQLAlchemy reads these to generate the SQL.
 
-Two tables, same as before:
-    Class    — a class + its ONE professor voice embedding
-    Session  — one lecture transcript, linked to its class
+The tables:
+    Voice    — one enrolled speaker: embedding, threshold, enrolment clip
+    Session  — one lecture transcript, linked to the voice that filtered it
+    Chunk    — that lecture as it arrives, until the recording ends
+    Flag     — a moment in a lecture the student wants to come back to
+    User     — the account everything above belongs to
 """
 
 from __future__ import annotations
@@ -69,8 +72,17 @@ class User(Base):
     created_at:    Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class Class(Base):
-    __tablename__ = "classes"                       # -> CREATE TABLE classes
+class Voice(Base):
+    """One enrolled speaker: the fingerprint, how strict a match has to be, and
+    the clip it was made from.
+
+    Called Class until now, which is what the row was doing two jobs as — the
+    speaker and the course they teach — while the UI and the API had always said
+    Voice. The course is a separate thing and is not stored here; see
+    docs/architecture-database.md, Decision 5.
+    """
+
+    __tablename__ = "voices"                        # -> CREATE TABLE voices
 
     # id INTEGER PRIMARY KEY (auto)
     id:         Mapped[int]               = mapped_column(primary_key=True)
@@ -99,9 +111,9 @@ class Class(Base):
 
     # One Voice has many Lectures. passive_deletes=True -> let the DB's ON DELETE
     # SET NULL handle it (deleting a Voice does NOT delete its Lectures; they just
-    # lose their class link). No delete-orphan cascade anymore.
+    # lose their voice link). No delete-orphan cascade anymore.
     sessions: Mapped[list["Session"]] = relationship(
-        back_populates="course", passive_deletes=True
+        back_populates="voice", passive_deletes=True
     )
 
 
@@ -109,11 +121,16 @@ class Session(Base):
     __tablename__ = "sessions"                      # -> CREATE TABLE sessions
 
     id:         Mapped[int]               = mapped_column(primary_key=True)
-    # class_id FK -> classes.id. Nullable (a Lecture MAY have no Voice), but if it
+    # voice_id FK -> voices.id. Nullable (a Lecture MAY have no Voice), but if it
     # has one the link is permanent. ON DELETE RESTRICT: the DB blocks deleting a
     # Voice while any Lecture still references it (so the link is never lost).
-    class_id:   Mapped[int | None]        = mapped_column(
-        ForeignKey("classes.id", ondelete="RESTRICT")
+    #
+    # Called class_id until now while pointing at a row that was already a voice,
+    # so the rename makes the existing rows correct rather than moving anything.
+    # It records what actually filtered this lecture, which is why changing a
+    # course's voice later cannot rewrite what its old lectures were recorded with.
+    voice_id:   Mapped[int | None]        = mapped_column(
+        ForeignKey("voices.id", ondelete="RESTRICT")
     )
     user_id:    Mapped[int | None]        = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
@@ -125,9 +142,8 @@ class Session(Base):
     audio_path: Mapped[str | None]        = mapped_column(String)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
-    # The other side of the relationship: each Session points back to its Class.
-    # Named "course" (not "class") because `class` is a reserved word in Python.
-    course: Mapped["Class"] = relationship(back_populates="sessions")
+    # The other side of the relationship: each Session points back to its Voice.
+    voice: Mapped["Voice"] = relationship(back_populates="sessions")
 
     # A Lecture owns its Flags. delete-orphan + passive_deletes lets the DB's
     # ON DELETE CASCADE do the work — important because the 7-lecture cap in

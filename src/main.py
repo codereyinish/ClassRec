@@ -146,7 +146,7 @@ class ContextMessage(BaseModel):
     type: str
     prompt: str = Field(default="", max_length=300)
     tagConfig: TagConfig = Field(default_factory=TagConfig)
-    class_id: int | None = None      # for "use_saved_voice": which saved Voice to load
+    voice_id: int | None = None      # for "use_saved_voice": which saved Voice to load
     # What the page is calling this lecture. The row is opened before any of the
     # transcript exists, so the name has to arrive with the opening message —
     # renaming later is a separate edit.
@@ -494,7 +494,7 @@ def health():
     }
 
 
-# ======= VOICES (professor voice profiles = the Class table) =======
+# ======= VOICES (professor voice profiles = the Voice table) =======
 
 def _embedding_bytes_from_audio(raw: bytes, filename: str) -> tuple[bytes, float] | None:
     """
@@ -523,7 +523,7 @@ def _embedding_bytes_from_audio(raw: bytes, filename: str) -> tuple[bytes, float
 
 def _unique_voice_name(db: Session, base: str, user_id: str | None) -> str:
     """Auto-suffix name collisions: pol_science, pol_science_2, pol_science_3, ..."""
-    existing = {c.name for c in repo.list_classes(db, user_id=user_id)}
+    existing = {c.name for c in repo.list_voices(db, user_id=user_id)}
     if base not in existing:
         return base
     n = 2
@@ -550,7 +550,7 @@ async def create_voice_route(
         raise HTTPException(status_code=422, detail="No usable speech found in the audio.")
     embedding_bytes, threshold = result
     unique_name = _unique_voice_name(db, name, user_id=user.id)
-    voice = repo.create_class(db, name=unique_name, embedding=embedding_bytes,
+    voice = repo.create_voice(db, name=unique_name, embedding=embedding_bytes,
                               threshold=threshold, user_id=user.id)
 
     # store the clip for playback: data/voice_audio/<id>.<ext>
@@ -595,7 +595,7 @@ class VoiceRename(BaseModel):
 def _own_voice_or_404(db: Session, voice_id: int, user):
     """The voice, if it is this user's. 404 otherwise — not 403, which would
     confirm the row exists to someone who has no business knowing."""
-    voice = repo.get_class(db, voice_id)
+    voice = repo.get_voice(db, voice_id)
     if voice is None or voice.user_id != user.id:
         raise HTTPException(status_code=404, detail="Voice not found")
     return voice
@@ -606,7 +606,7 @@ def rename_voice_route(voice_id: int, payload: VoiceRename, db: Session = Depend
                        user = Depends(current_user)):
     """Rename a Voice (double-click-to-edit)."""
     _own_voice_or_404(db, voice_id, user)
-    voice = repo.rename_class(db, voice_id, payload.name.strip())
+    voice = repo.rename_voice(db, voice_id, payload.name.strip())
     if voice is None:
         raise HTTPException(status_code=404, detail="Voice not found")
     return {"id": voice.id, "name": voice.name}
@@ -617,7 +617,7 @@ def hide_voice_route(voice_id: int, db: Session = Depends(get_db),
                      user = Depends(current_user)):
     """The 🗑️ in the picker: hide (or delete if it has no lectures)."""
     _own_voice_or_404(db, voice_id, user)
-    repo.hide_class(db, voice_id)
+    repo.hide_voice(db, voice_id)
     return {"ok": True}
 
 
@@ -640,7 +640,7 @@ class SessionIn(BaseModel):
     """Request BODY for saving a transcript (long text/lists don't fit in a URL)."""
     title:      str
     transcript: str
-    class_id:   int | None = None      # which Voice was used (None = unlocked recording)
+    voice_id:   int | None = None      # which Voice was used (None = unlocked recording)
     words:      list | None = None
     audio_path: str | None = None
     flags:      list[FlagIn] | None = None
@@ -651,11 +651,11 @@ def create_session_route(payload: SessionIn, db: Session = Depends(get_db),
                          user = Depends(current_user)):   # saving is what requires signing in
     """Save a finished transcript. Called by both live + upload when user hits 'save'."""
     s = repo.save_session(
-        db, class_id=payload.class_id, user_id=user.id, title=payload.title,
+        db, voice_id=payload.voice_id, user_id=user.id, title=payload.title,
         transcript=payload.transcript, words=payload.words, audio_path=payload.audio_path,
         flags=[f.model_dump() for f in payload.flags] if payload.flags else None,
     )
-    return {"id": s.id, "title": s.title, "class_id": s.class_id, "flags": len(s.flags)}
+    return {"id": s.id, "title": s.title, "voice_id": s.voice_id, "flags": len(s.flags)}
 
 
 @app.get("/sessions")
@@ -665,7 +665,7 @@ def list_sessions_route(db: Session = Depends(get_db),
     if user is None:
         return []           # signed out: nothing of your own, and nothing of anyone else's
     return [
-        {"id": s.id, "title": s.title, "class_id": s.class_id,
+        {"id": s.id, "title": s.title, "voice_id": s.voice_id,
          "preview": (s.transcript or "")[:200], "created_at": str(s.created_at)}
         for s in repo.list_sessions(db, user_id=user.id)
     ]
@@ -688,7 +688,7 @@ def get_session_route(session_id: int, db: Session = Depends(get_db),
         transcript, words = repo.assemble_chunks(db, session_id)
 
     return {
-        "id": s.id, "title": s.title, "class_id": s.class_id,
+        "id": s.id, "title": s.title, "voice_id": s.voice_id,
         "transcript": transcript, "summary": s.summary,
         "words": words,
         "flags": [
@@ -704,7 +704,7 @@ class SessionPatch(BaseModel):
     """What can be changed about a lecture after it exists. Only the name: the
     transcript is written by the recording that produced it, not by the page."""
     title:    str | None = None
-    class_id: int | None = None
+    voice_id: int | None = None
 
 
 @app.patch("/sessions/{session_id}")
@@ -721,10 +721,10 @@ def rename_session_route(session_id: int, payload: SessionPatch,
         raise HTTPException(status_code=404, detail="Session not found")
     if payload.title is not None:
         s.title = payload.title.strip() or s.title
-    if payload.class_id is not None:
-        s.class_id = payload.class_id
+    if payload.voice_id is not None:
+        s.voice_id = payload.voice_id
     db.commit(); db.refresh(s)
-    return {"id": s.id, "title": s.title, "class_id": s.class_id}
+    return {"id": s.id, "title": s.title, "voice_id": s.voice_id}
 
 
 class AskIn(BaseModel):
@@ -1264,7 +1264,7 @@ async def websocket_transcribe(websocket: WebSocket):
                         # is not allowed to record leaves nothing behind.
                         with SessionLocal() as db:
                             ws_session_id = repo.start_session(
-                                db, user_id=ws_user_id, class_id=None,
+                                db, user_id=ws_user_id, voice_id=None,
                                 title=msg.title or "Untitled",
                             ).id
                         # The page is told which row it is filling, so Save can
@@ -1308,13 +1308,13 @@ async def websocket_transcribe(websocket: WebSocket):
                         # Load a previously-saved Voice's embedding from the DB and
                         # lock onto it — same effect as enroll_end, no live audio needed.
                         with SessionLocal() as db:
-                            voice = repo.get_class(db, msg.class_id) if msg.class_id else None
+                            voice = repo.get_voice(db, msg.voice_id) if msg.voice_id else None
                             # Someone else's voice is not yours to lock onto — the
                             # id is just a number in a message, and guessing it
                             # would otherwise work.
                             if voice is not None and voice.user_id != ws_user_id:
                                 logger.info(f"[ws] user {ws_user_id} asked for voice "
-                                            f"{msg.class_id}, which is not theirs")
+                                            f"{msg.voice_id}, which is not theirs")
                                 voice = None
                         if voice is not None and voice.embedding:
                             professor_embedding  = np.frombuffer(voice.embedding, dtype="float32")
@@ -1332,10 +1332,10 @@ async def websocket_transcribe(websocket: WebSocket):
                                 with SessionLocal() as db:
                                     row = repo.get_session(db, ws_session_id)
                                     if row is not None:
-                                        row.class_id = msg.class_id
+                                        row.voice_id = msg.voice_id
                                         db.commit()
                             await websocket.send_json({"type": "enroll_success"})
-                            logger.info(f"Saved voice locked (id={msg.class_id}, "
+                            logger.info(f"Saved voice locked (id={msg.voice_id}, "
                                         f"threshold={similarity_threshold:.3f})")
                         else:
                             await websocket.send_json({

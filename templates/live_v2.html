@@ -1757,8 +1757,8 @@ alertNameRow.onclick=e=>{
      load()        GET    /classes            -> [{id, name}]
      add(name)     POST   /classes            {name} -> {id, name}
      remove(name)  DELETE /classes/{id}
-   and a session should then carry course_id alongside the existing class_id
-   (the voice) that `save_session` already writes.                                */
+   and a session should then carry course_id alongside voice_id, which already
+   records the voice that filtered it.                                          */
 /* Every call to our server goes through here so the token is attached in one
    place rather than at each call site. getToken() is asked each time rather than
    cached: Clerk's tokens last about a minute, and the SDK hands back the current
@@ -2071,7 +2071,7 @@ const VOICES=[
   {n:'Dr. Osei — lecture hall',d:'0:18',sel:false},
 ];
 /* Real voices when the app is up, the samples above when it is not. id is what
-   `use_saved_voice` and POST /sessions both call class_id. */
+   `use_saved_voice` and POST /sessions both call voice_id. */
 async function loadVoices(){
   try{
     const rows=await Store.voices.list();
@@ -2146,7 +2146,7 @@ function renderVoices(editIdx){
       VOICES.forEach(o=>o.sel=false); v.sel=true;
       [...vpList.children].forEach((el,idx)=>el.classList.toggle('selected',idx===i));
       syncSelection();
-      useSavedVoice(v);                       // {type:'use_saved_voice', class_id}
+      useSavedVoice(v);                       // {type:'use_saved_voice', voice_id}
       B.classList.add('locked');
       if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
       vpStatus.textContent='';};
@@ -2807,7 +2807,7 @@ document.addEventListener('click', (e) => {
      ws  ws://<api>/ws/transcribe
      →   {type:'context', prompt, tagConfig:{tags,name}}
      →   {type:'enroll_start'} … PCM … {type:'enroll_end'}
-     →   {type:'use_saved_voice', class_id}
+     →   {type:'use_saved_voice', voice_id}
      →   binary Int16 PCM, mono, 16 kHz
      ←   {type:'transcription', text, tags[], words:[{w,s,e}]}
      ←   {type:'enroll_success'} | {type:'enroll_failed'} | {type:'error'}
@@ -3201,7 +3201,7 @@ function endLiveSession(){
 /* ── the two messages the current page also sends ── */
 function useSavedVoice(v){                       // voice-picker.js → live.js does this
   if(!v||!v.id||!ws||ws.readyState!==1)return;
-  ws.send(JSON.stringify({type:'use_saved_voice',class_id:v.id}));
+  ws.send(JSON.stringify({type:'use_saved_voice',voice_id:v.id}));
 }
 function voiceLockOff(){                         // sent when Lock Mode is switched off
   if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'voice_lock_off'}));
@@ -3232,7 +3232,7 @@ async function saveSession(){
     try{
       const res=await Store.sessions.rename(liveSessionId,{
         title:titleEl.textContent.trim()||'Untitled',
-        class_id:(sel&&sel.id)||null,
+        voice_id:(sel&&sel.id)||null,
       });
       if(res&&res.ok){setConn('on','Saved · session '+liveSessionId);return true;}
       if(res&&res.status===401){setConn('off','Not saved — sign in to keep lectures');return false;}
@@ -3250,7 +3250,7 @@ async function saveSession(){
   const body={
     title:titleEl.textContent.trim()||'Untitled',
     transcript:text,
-    class_id:(sel&&sel.id)||null,                // the Voice used, as the server names it
+    voice_id:(sel&&sel.id)||null,                // the Voice used, as the server names it
   };
   if(wordEls.length)body.words=wordEls.map(w=>({w:w.textContent,s:+w.dataset.start,e:+w.dataset.end}));
   try{
