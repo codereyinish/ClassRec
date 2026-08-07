@@ -3072,7 +3072,12 @@ function applyTags(chunk,tags){
   tags.forEach(tag=>{
     if(ts.innerHTML.includes('tag-'+tag))return;
     const ico=ICO[tag]?`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICO[tag]}</svg>`:'';
-    ts.insertAdjacentHTML('beforeend',` <span class="tag tag-${tag}">${ico}${tag}</span>`);
+    /* Every other tag is its own label -- exam is "exam". The keyword alert is
+       not: `name` is the slot, and the word being watched for is what the chip
+       is telling you was said, so the chip carries that instead. Escaped because
+       unlike the fixed keys this half is typed by the person reading it. */
+    const label=tag==='name'?esc(alertConfig().name||tag):tag;
+    ts.insertAdjacentHTML('beforeend',` <span class="tag tag-${tag}">${ico}${label}</span>`);
   });
   chunk.classList.add('tagged');
   const first=tags[0];
