@@ -926,19 +926,25 @@ body.ai-open .ai{transform:none}
    way everywhere. */
 .ctx-chips{display:flex;flex-wrap:wrap;gap:6px}
 .ctx-chips:empty{display:none}
+/* A quiet reference, not a banner. The block's own words carry it, with a small
+   mark to say where they came from — the timestamp took a whole line in mono and
+   shouted the least useful part of it. */
 .ctx-chip{
-  display:inline-flex;align-items:center;gap:6px;max-width:100%;
-  padding:4px 6px 4px 9px;border-radius:8px;
-  background:var(--primary-soft);color:var(--primary-ink);
-  font-size:11.5px;font-weight:600;letter-spacing:.02em;
+  display:inline-flex;align-items:center;gap:5px;max-width:100%;
+  padding:3px 4px 3px 7px;border-radius:7px;
+  background:var(--g2);color:var(--g7);
+  font-size:12px;font-weight:500;
+  border:1px solid transparent;transition:.14s var(--e);
 }
-.ctx-chip .t{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.ctx-chip .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.ctx-chip:hover{border-color:var(--g4);background:var(--g3)}
+.ctx-chip .ico{width:13px;height:13px;flex:0 0 auto;color:var(--g6)}
+.ctx-chip .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ctx-chip .x{
-  display:grid;place-items:center;width:16px;height:16px;border-radius:5px;
-  color:var(--primary);opacity:.65;flex:0 0 auto;
+  display:grid;place-items:center;width:15px;height:15px;border-radius:4px;
+  color:var(--g6);flex:0 0 auto;
 }
-.ctx-chip .x:hover{opacity:1;background:var(--g2)}
+.ctx-chip .x svg{width:9px;height:9px}
+.ctx-chip .x:hover{color:var(--g8);background:var(--g4)}
 
 /* One control, two glyphs — the sun shows in dark and the moon in light, so the
    icon is what you are switching TO rather than a badge of where you are. */
@@ -1824,13 +1830,20 @@ function blockStamp(c){
 function renderChips(){
   ctxChips.innerHTML='';
   attached.forEach((c,i)=>{
-    const words=blockText(c).split(/\s+/).slice(0,4).join(' ');
+    const words=blockText(c).split(/\s+/).slice(0,5).join(' ');
     const chip=document.createElement('span');
     chip.className='ctx-chip';
-    chip.innerHTML=`<span class="go"><span class="t">${esc(blockStamp(c))}</span>`
+    chip.title=blockStamp(c);          // the time is available, without taking the room
+    /* Quotation marks, drawn in the same hand as the rest of the page's icons —
+       it names what the chip is (a passage) without a word for it. */
+    chip.innerHTML=`<span class="go">`
+                 + `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+                 + `stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">`
+                 + `<path d="M9 7H5.5A1.5 1.5 0 0 0 4 8.5V12h5V7zM9 12c0 3-1.6 4.6-4 5"/>`
+                 + `<path d="M20 7h-3.5A1.5 1.5 0 0 0 15 8.5V12h5V7zM20 12c0 3-1.6 4.6-4 5"/></svg>`
                  + `<span class="lbl">${esc(words)}…</span></span>`
                  + `<button class="x" type="button" aria-label="Remove">`
-                 + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" `
+                 + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" `
                  + `stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
     chip.querySelector('.go').onclick=()=>locate(c);
     chip.querySelector('.x').onclick=()=>{attached.splice(i,1);renderChips();};
@@ -3434,8 +3447,16 @@ function stopHifiRecorder(){
 }
 
 function buildWavUrl(){
-  // The good copy when there is one, the 16 kHz PCM when there is not.
-  const blob = hifiChunks.length
+  /* The good copy once the lecture is over, the 16 kHz PCM while it is running.
+     MediaRecorder is asked for a chunk a second so there is something to scrub,
+     but those chunks are pieces of a file that has not been finished: its
+     duration is whatever a demuxer can infer from an incomplete container. That
+     is why playback stopped short of the audio that existed, and why the clock
+     could read past the length it was shown against.
+     The PCM header is written for exactly the bytes in hand, so the length is
+     true every time it is rebuilt. */
+  const recording = B.classList.contains('rec') || B.classList.contains('paused');
+  const blob = (!recording && hifiChunks.length)
     ? new Blob(hifiChunks,{type:hifiType||'audio/webm'})
     : (pcmBlob ? new Blob([makeWavHeader(pcmBlob.size),pcmBlob],{type:'audio/wav'}) : null);
   if(!blob)return false;
