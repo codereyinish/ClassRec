@@ -815,9 +815,28 @@ def delete_session_route(session_id: int, db: Session = Depends(get_db),
 @app.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile,
-    validated_data: Tuple[bytes, str, float, str] = Depends(validate_audio_file)
+    validated_data: Tuple[bytes, str, float, str] = Depends(validate_audio_file),
+    user = Depends(current_user),          # an allowance needs somebody to spend it
 ):
+    """Transcribe an uploaded file, against the account's upload allowance.
+
+    Metered on the same rule as a live chunk: the account is charged when Modal
+    answers, not when text comes back, and not for bytes that were merely
+    uploaded. A call that fails costs nothing.
+
+    The ceiling is checked BEFORE the call, unlike the live path where the check
+    can wait for the next chunk — one upload is one GPU call of unbounded length,
+    so letting it through and billing afterwards would hand out the whole
+    allowance again on every attempt.
+    """
     contents, mime, file_size_mb, correct_ext = validated_data
+
+    used = int(user.upload_seconds)
+    if used >= FREE_UPLOAD_SECONDS:
+        raise HTTPException(
+            status_code=403,
+            detail="You have used your free upload minutes.")
+
     try:
         response = await _modal_async.post(
             MODAL_WHISPER_URL,
@@ -827,15 +846,25 @@ async def transcribe_audio(
         )
         response.raise_for_status()
         words = response.json()
-        transcript = " ".join(w["word"] for w in words).strip()
-
-        return {
-            "filename": file.filename,
-            "transcription": transcript,
-            "file_size_mb": round(file_size_mb, 2)
-        }
     except Exception as e:
+        # Nothing is charged: Modal did not answer, so nothing was delivered.
         raise HTTPException(status_code=500, detail=f"Transcription Failed: {str(e)}")
+
+    # Modal answered. Billed for the audio it worked through, which the last word
+    # marks the end of — an answer with no words at all is silence, and bills
+    # nothing because there is no span to bill for.
+    seconds = float(words[-1]["end"]) if words else 0.0
+    fresh = _add_upload_seconds(user.id, seconds)
+    logger.info(f"[upload] user {user.id} billed {seconds:.0f}s, "
+                f"account now {fresh}/{FREE_UPLOAD_SECONDS}s")
+
+    transcript = " ".join(w["word"] for w in words).strip()
+    return {
+        "filename": file.filename,
+        "transcription": transcript,
+        "file_size_mb": round(file_size_mb, 2),
+        "upload_seconds": fresh,
+    }
 
 
 # ======= VAD =======
@@ -1203,6 +1232,26 @@ def _add_live_seconds(user_id: int | None, delta: float) -> int | None:
     except Exception as e:
         # Losing a usage write must not take the recording down with it.
         logger.error(f"[ws] could not persist usage for user {user_id}: {e}")
+        return None
+
+
+def _add_upload_seconds(user_id: int | None, delta: float) -> int | None:
+    """The upload counterpart of _add_live_seconds, and additive for the same
+    reason: two files transcribing at once must both land."""
+    if user_id is None or delta <= 0:
+        return None
+    try:
+        with SessionLocal() as db:
+            db.execute(
+                update(User)
+                .where(User.id == user_id)
+                .values(upload_seconds=User.upload_seconds + int(delta))
+            )
+            db.commit()
+            u = db.get(User, user_id)
+            return int(u.upload_seconds) if u else None
+    except Exception as e:
+        logger.error(f"[upload] could not persist usage for user {user_id}: {e}")
         return None
 
 

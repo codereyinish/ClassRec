@@ -35,8 +35,17 @@
     }
 
     async function transcribeAudio(formData){
+            // Uploading spends the account's allowance, so the route needs to know
+            // whose it is. Asked for each time rather than cached: a Clerk token
+            // lasts about a minute and the SDK hands back the current one.
+            let token = '';
+            try{
+                token = (window.Clerk && window.Clerk.session)
+                    ? await window.Clerk.session.getToken() : '';
+            }catch{}
             const response = await fetch('/transcribe', {
                 method: 'POST',
+                headers: token ? { 'Authorization': 'Bearer ' + token } : {},
                 body: formData
             });
             const data = await response.json();
