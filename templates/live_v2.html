@@ -838,12 +838,63 @@ body.ai-open .ai{transform:none}
 }
 .chip:hover{border-color:var(--g5);background:var(--g2)}
 .ai-foot{padding:15px 20px;border-top:1px solid var(--rule)}
-.composer{display:flex;align-items:center;gap:8px;padding:5px 5px 5px 14px;background:var(--g1);border:1px solid var(--g4);border-radius:999px}
+/* The composer holds three rows — what is being asked about, the question, and
+   the controls — so it is a box rather than the single line it used to be. The
+   radius drops from a pill to the page's own 13px for the same reason. */
+.composer{
+  display:grid;gap:8px;padding:10px 10px 8px;
+  background:var(--g1);border:1px solid var(--g4);border-radius:13px;
+  transition:border-color .14s var(--e);
+}
 .composer:focus-within{border-color:var(--primary)}
-.composer input{flex:1;border:0;background:none;font-family:inherit;font-size:14px;color:var(--g8);outline:none}
-.composer input::placeholder{color:var(--g5)}
-.send{width:32px;height:32px;border-radius:999px;background:var(--primary);color:#fff;display:grid;place-items:center;flex:0 0 auto}
+.composer textarea{
+  border:0;background:none;font-family:inherit;font-size:14px;line-height:1.55;
+  color:var(--g8);outline:none;resize:none;overflow:hidden;
+  min-height:22px;max-height:180px;padding:0 4px;
+}
+.composer textarea::placeholder{color:var(--g5)}
+
+/* The blocks this question is about. Indigo-soft, as the alert count and the
+   Ask hover already are, so "the app is holding this for you" reads the same
+   way everywhere. */
+.ctx-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ctx-chips:empty{display:none}
+.ctx-chip{
+  display:inline-flex;align-items:center;gap:6px;max-width:100%;
+  padding:4px 6px 4px 9px;border-radius:8px;
+  background:var(--primary-soft);color:var(--primary);
+  font-size:11.5px;font-weight:600;letter-spacing:.02em;
+}
+.ctx-chip .t{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.ctx-chip .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.ctx-chip .x{
+  display:grid;place-items:center;width:16px;height:16px;border-radius:5px;
+  color:var(--primary);opacity:.65;flex:0 0 auto;
+}
+.ctx-chip .x:hover{opacity:1;background:rgba(99,101,235,.16)}
+.ctx-chip .go{cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-width:0}
+.ctx-chip .go:hover .lbl{text-decoration:underline}
+
+.composer-foot{display:flex;align-items:center;gap:6px}
+.cbtn{
+  width:28px;height:28px;border-radius:8px;display:grid;place-items:center;
+  color:var(--g6);transition:.14s var(--e);
+}
+.cbtn:hover:not(:disabled){background:var(--g2);color:var(--g8)}
+.cbtn:disabled{opacity:.38;cursor:default}
+.cbtn svg{width:17px;height:17px}
+.send{
+  width:32px;height:32px;border-radius:999px;background:var(--primary);color:#fff;
+  display:grid;place-items:center;flex:0 0 auto;margin-left:auto;
+  transition:.14s var(--e);
+}
 .send:hover{background:var(--primary-hi)}
+.send:disabled{background:var(--g4);color:var(--g6);cursor:default}
+.send svg{width:16px;height:16px}
+
+/* The block a chip points at, for a moment after the chip is clicked — long
+   enough to find it, gone before it becomes decoration. */
+.chunk.located{background:var(--primary-soft);border-color:var(--primary)}
 .alt{margin-top:9px}
 .alt button{font-size:12.5px;font-weight:500;color:var(--g6)}
 .alt button:hover{color:var(--blush-ink)}
@@ -1181,8 +1232,6 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <button class="ai-x" id="aiX">✕</button>
     </div>
     <div class="ai-body">
-      <!-- filled by Ask on a block; empty until then, and hidden while empty -->
-      <div class="quote"></div>
       <div class="chips">
         <button class="chip">Explain this in simpler terms</button>
         <button class="chip">Give me a worked example</button>
@@ -1190,7 +1239,24 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       </div>
     </div>
     <div class="ai-foot">
-      <div class="composer"><input placeholder="Ask anything…"><button class="send">→</button></div>
+      <!-- A box rather than a line: what is being asked about sits above the
+           question, and both belong to the same field. -->
+      <div class="composer">
+        <div class="ctx-chips" id="ctxChips"></div>
+        <textarea id="askInput" rows="1" placeholder="Ask anything…"></textarea>
+        <div class="composer-foot">
+          <button class="cbtn" id="ctxAdd" type="button" title="Add the block you are reading" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+          <button class="send" id="askSend" type="button" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
       <div class="alt"><button>⚑ Flag without asking</button></div>
     </div>
   </aside>
@@ -1596,7 +1662,6 @@ document.addEventListener('keydown',e=>{
 /* Per-block actions. Copy takes the spoken text only — not the timestamp or the tag
    chips, which are ours rather than the lecturer's. Ask pins the block as the panel's
    context, which is what the floating button does for a selection. */
-const aiQuote=document.querySelector('.quote');
 const blockText=c=>c.querySelector('.transcript-text').textContent.replace(/\s+/g,' ').trim();
 /* Delegated, because blocks arrive during the lecture. This used to bind over a
    fixed list of blocks that existed at load — which was true of the mock and is
@@ -1614,12 +1679,83 @@ document.querySelector('.stream').addEventListener('click',async e=>{
       copy.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';},1400);
     return;
   }
-  const stampEl=c.querySelector('.timestamp');
-  const stamp=stampEl&&stampEl.firstChild?stampEl.firstChild.textContent.trim():'';
-  const t=blockText(c);
-  aiQuote.innerHTML='<em>'+stamp+'</em>“'+(t.length>180?t.slice(0,180).trim()+'…':t)+'”';
+  attachContext(c);
   openAI();
 });
+
+/* ── what the question is about ───────────────────────────────────────────────
+   A chip per block, carrying the block itself rather than a copy of its text, so
+   clicking one can take you back to where it was said. Attached by the Ask icon
+   and by + ; selecting words fills the question instead, since a selection is
+   what you want to ask about rather than another thing to carry. */
+const ctxChips=document.getElementById('ctxChips');
+const askInput=document.getElementById('askInput');
+const attached=[];                         // the blocks, in the order they were added
+
+function blockStamp(c){
+  const el=c.querySelector('.timestamp');
+  return el&&el.firstChild?el.firstChild.textContent.trim():'';
+}
+function renderChips(){
+  ctxChips.innerHTML='';
+  attached.forEach((c,i)=>{
+    const words=blockText(c).split(/\s+/).slice(0,4).join(' ');
+    const chip=document.createElement('span');
+    chip.className='ctx-chip';
+    chip.innerHTML=`<span class="go"><span class="t">${esc(blockStamp(c))}</span>`
+                 + `<span class="lbl">${esc(words)}…</span></span>`
+                 + `<button class="x" type="button" aria-label="Remove">`
+                 + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" `
+                 + `stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+    chip.querySelector('.go').onclick=()=>locate(c);
+    chip.querySelector('.x').onclick=()=>{attached.splice(i,1);renderChips();};
+    ctxChips.appendChild(chip);
+  });
+}
+function attachContext(c){
+  if(!attached.includes(c))attached.push(c);
+  renderChips();
+}
+/* Take me back to what I attached. The tint leaves on its own, because a block
+   that stays highlighted stops meaning "this is the one you asked about". */
+function locate(c){
+  c.scrollIntoView({behavior:'smooth',block:'center'});
+  c.classList.add('located');
+  setTimeout(()=>c.classList.remove('located'),1600);
+}
+
+/* The field grows with what is in it rather than scrolling inside a fixed line —
+   a question about a lecture is usually a sentence, not a search box. */
+const growAsk=()=>{askInput.style.height='auto';
+                   askInput.style.height=Math.min(askInput.scrollHeight,180)+'px';};
+askInput.addEventListener('input',growAsk);
+
+/* Selecting words in the transcript puts them in the question. Only a selection
+   inside the stream counts — selecting the title, or text in the rail, is not
+   someone asking about the lecture. The panel is filled but not opened: pulling
+   it over the page every time you highlight something to copy would be worse
+   than useless. */
+let lastSelBlock=null;
+const ctxAdd=document.getElementById('ctxAdd');
+document.addEventListener('selectionchange',()=>{
+  const sel=getSelection();
+  if(!sel||sel.isCollapsed)return;
+  const node=sel.anchorNode;
+  const el=node&&(node.nodeType===1?node:node.parentElement);
+  const block=el&&el.closest('.stream .chunk');
+  if(!block)return;
+  const text=sel.toString().replace(/\s+/g,' ').trim();
+  if(!text)return;
+  lastSelBlock=block;
+  ctxAdd.disabled=false;
+  askInput.value=text;
+  growAsk();
+});
+
+/* + carries the block the selection is in, which is the one being read. Without
+   a selection there is nothing to point at, so it stays disabled rather than
+   guessing. */
+ctxAdd.onclick=()=>{if(lastSelBlock)attachContext(lastSelBlock);};
 document.getElementById('aiX').onclick=()=>B.classList.remove('ai-open');
 
 /* ── input device picker ──────────────────────────────────────── */
