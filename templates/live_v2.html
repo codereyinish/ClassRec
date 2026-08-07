@@ -2984,7 +2984,25 @@ function chunkFor(){
   if(!liveChunk||(txt.length>MAX_CHARS&&/[.!?]$/.test(txt.trim()))){
     liveChunk=document.createElement('div');
     liveChunk.className='chunk in';
-    liveChunk.innerHTML=`<div class="timestamp">${new Date().toLocaleTimeString()}</div>
+    /* Copy and Ask, on every block. The port brought the styling and the click
+       handler across but not this markup, because in the mock it was written by
+       hand into each sample block -- and blocks here are built at runtime, so
+       there was nothing to copy it from. Same SVGs as the mock; the copy icon
+       has to match the one the handler restores after its tick, or the button
+       changes shape a second after it is used. */
+    liveChunk.innerHTML=`<div class="chunk-act">
+                           <button class="copy" type="button" aria-label="Copy this block">
+                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                               <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>
+                             </svg>
+                           </button>
+                           <button class="ask" type="button" aria-label="Ask about this block">
+                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                               <path d="M12 4l1.7 4.8L18.5 10.5l-4.8 1.7L12 17l-1.7-4.8L5.5 10.5l4.8-1.7L12 4z"/>
+                             </svg>
+                           </button>
+                         </div>
+                         <div class="timestamp">${new Date().toLocaleTimeString()}</div>
                          <div class="transcript-text"></div>`;
     document.querySelector('.stream').appendChild(liveChunk);
   }
