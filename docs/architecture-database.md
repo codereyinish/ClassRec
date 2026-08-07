@@ -19,6 +19,8 @@ USER ──owns many──> CLASS ──has many──> SESSION (a lecture)
 
 - **classes** — `id, user_id, name, embedding (BLOB), threshold, created_at`
   One class = one professor voice fingerprint. Enroll once, reuse forever.
+  Despite the name this row describes a *voice*; the course it belongs to is not
+  stored on the server at all. Decision 5 separates the two.
 - **sessions** — `id, class_id (FK), user_id, title, transcript, summary,
   words_json, audio_path, created_at`
   One lecture, linked to its class so it knows which embedding filtered it.
@@ -102,7 +104,7 @@ SQLite specifics to remember:
 
 ---
 
-## Decision 4 — a lecture is buffered as chunk rows, then collapsed into one · **Accepted, not yet built**
+## Decision 4 — a lecture is buffered as chunk rows, then collapsed into one · **Accepted**
 
 **What it achieves**
 
@@ -197,6 +199,67 @@ exposure for a crash, a killed tab or a dropped connection.
 - Save stops creating anything. The lecture is already stored, so Save only names
   it — which also removes the duplicate rows that came from a button that
   inserted on every press.
+
+---
+
+## Decision 5 — a voice and a course become separate rows · **Accepted, not yet built**
+
+Three things are tangled together today, and each one looks like a small oddity
+until they are put side by side.
+
+**The `classes` table is not classes.** It holds `embedding`, `threshold` and
+`audio_path` — it describes an enrolled speaker. The UI has always called these
+Voices; only the model calls them classes.
+
+**Courses are not stored at all.** The "Course name" picker reads and writes
+`localStorage` under `classrecCourses`. The comment above it says `GET /classes`,
+but no such route exists. So a course disappears when someone clears their
+browser, and never follows them to a second device.
+
+**`classes.voice_name` was a patch over the first problem.** It added a second
+name to the one row rather than separating the two things the row was describing.
+The column is in the development database and not in the models, because the work
+that added it (`feature/class-voice-name`) was never merged — which is why every
+`alembic revision --autogenerate` since has offered to drop it, and three
+migrations carry a comment declining.
+
+**The shape they want to be:**
+
+```
+voices                                  classes
+  id                                      id
+  user_id                                 user_id
+  name        "Prof. Zamaigas"            name       "bio_101"
+  embedding                               voice_id -> voices.id
+  threshold                               created_at
+  audio_path
+  use_count
+  hidden
+  created_at
+```
+
+A course points at the voice that teaches it. One professor across two courses is
+then one voice and two courses, instead of two rows holding two copies of the same
+embedding and two copies of the enrolment audio.
+
+**What it fixes:**
+- A voice named `Zamaigas_audio` — a filename standing where a course name belongs,
+  which is the problem `voice_name` was reaching for.
+- Courses surviving a cleared browser, and being the account's rather than the
+  device's.
+- Enrolling the same speaker once rather than once per course.
+- The naming, so `Class` in the code means what the UI has always meant by it.
+
+**The open question, which the schema cannot answer on its own.** `sessions`
+points at a class today. After the split, does a lecture belong to the *course* it
+was recorded for, or to the *voice* that was locked while it recorded? They agree
+until a course's voice is changed, and then they disagree about every lecture
+already recorded. Carrying both on the session keeps each answer true — the course
+it belongs to, and the voice that actually filtered it — at the cost of a column.
+
+**Sequencing.** This supersedes `feature/class-voice-name` rather than building on
+it: `voice_name` has no meaning once a voice has a row of its own. So that branch
+should not be merged first, and the drift is best left alone until this lands.
 
 ---
 
