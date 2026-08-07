@@ -1804,6 +1804,10 @@ const Store={
       return api('/sessions',{method:'POST',
         headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     },
+    rename(id,body){                                                            // PATCH  /sessions/{id}
+      return api('/sessions/'+id,{method:'PATCH',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    },
   },
 };
 let curClass='';
@@ -2784,6 +2788,10 @@ const SR=16000, FRAME=4096;
 
 let ws=null, audioCtx=null, micStream=null, node=null, srcNode=null;
 let live=false;                 // true once audio is actually flowing to the server
+/* The lecture this recording is filling, as the server named it. Null until the
+   server answers the opening message, and again for a page that has not recorded
+   anything — which is what tells Save whether there is a row to name. */
+let liveSessionId=null;
 let enrolling=false;            // mirrors the server's enrolment state
 const KEYWORDS={               // same map live.js highlights with
   exam:['exam','midterm','final','quiz','test'],
@@ -2814,8 +2822,11 @@ async function openSocket(){
       /* The token rides in the opening message: a browser cannot put a header on
          a WebSocket handshake, and a query string would put it in every access
          log between here and the server. */
+      /* The title goes with the opening message because the server opens the
+         lecture's row on receiving it — before there is any transcript to name. */
       s.send(JSON.stringify({type:'context',prompt:lectureContext,
-                             tagConfig:alertConfig(),token:wsToken}));
+                             tagConfig:alertConfig(),token:wsToken,
+                             title:(titleEl.textContent||'').trim()}));
       resolve(s);
     };
     s.onerror=fail;
@@ -2914,6 +2925,11 @@ function onServer(d){
     if(!isBusy())setActivity('');
   }else if(d.type==='enroll_failed'){
     enrolling=false;showError(d.message||'Not enough audio — hold for longer');
+  }else if(d.type==='session'){
+    /* The row the server opened for this recording. Everything transcribed from
+       here lands in it as it arrives, so the lecture is already stored and Save
+       only has to name it. */
+    liveSessionId=d.id;
   }else if(d.type==='error'){
     showError(d.message||'Transcription error');
   }
@@ -3029,6 +3045,7 @@ async function beginLiveSession(){
     await openSocket();
     await startCapture();
     live=true;
+    liveSessionId=null;              // this recording's row, not the last one's
     document.querySelector('.stream').innerHTML='';   // real words replace the samples
     B.classList.remove('has-lines');                  // a new session has none yet
     liveChunk=null;words=0;roW.textContent='0';roF.textContent='0';
@@ -3086,6 +3103,26 @@ async function playVoice(id){                    // GET /voices/{id}/audio
 
 /* ── saving : POST /sessions with the body save-transcript.js sends ── */
 async function saveSession(){
+  /* A recorded lecture is already in the database — the server wrote it there a
+     chunk at a time as it arrived, which is what makes a closed tab survivable.
+     So Save names that row rather than sending the transcript again, and pressing
+     it twice renames one lecture instead of creating a second. */
+  if(liveSessionId!==null){
+    const sel=VOICES.find(v=>v.sel);
+    try{
+      const res=await Store.sessions.rename(liveSessionId,{
+        title:titleEl.textContent.trim()||'Untitled',
+        class_id:(sel&&sel.id)||null,
+      });
+      if(res&&res.ok){setConn('on','Saved · session '+liveSessionId);return true;}
+      if(res&&res.status===401){setConn('off','Not saved — sign in to keep lectures');return false;}
+    }catch{}
+    setConn('off','Saved, but could not be renamed');
+    return false;
+  }
+
+  /* Nothing was recorded through this page — an upload, or a transcript that
+     arrived some other way. There is no row yet, so one is created. */
   const sel=VOICES.find(v=>v.sel);
   const text=[...document.querySelectorAll('.transcript-text')]
     .map(t=>t.textContent.replace(/\s+/g,' ').trim()).filter(Boolean).join('\n\n');

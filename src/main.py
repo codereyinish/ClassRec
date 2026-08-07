@@ -147,6 +147,10 @@ class ContextMessage(BaseModel):
     prompt: str = Field(default="", max_length=300)
     tagConfig: TagConfig = Field(default_factory=TagConfig)
     class_id: int | None = None      # for "use_saved_voice": which saved Voice to load
+    # What the page is calling this lecture. The row is opened before any of the
+    # transcript exists, so the name has to arrive with the opening message —
+    # renaming later is a separate edit.
+    title:      str = Field(default="", max_length=200)
     # The browser cannot put a header on a WebSocket handshake, so the token
     # arrives in the opening message instead. Deliberately not the query string:
     # URLs end up in access logs, proxies and error reports.
@@ -360,6 +364,8 @@ async def transcribe_chunk(
     similarity_threshold: float,
     session_state: dict,
     chunk_offset: float,
+    session_id: int | None = None,
+    chunk_idx: int = 0,
 ):
     """
     Full per-chunk pipeline:
@@ -403,6 +409,22 @@ async def transcribe_chunk(
 
             # Step 8: Send to browser — must happen on the async loop, not in the thread
             if result is not None:
+                # Written down before it is sent, because the reason this row
+                # exists is the browser not being there to receive it. A send that
+                # fails must not be what decides whether the lecture was kept.
+                if session_id is not None:
+                    try:
+                        with SessionLocal() as db:
+                            repo.add_chunk(
+                                db, session_id=session_id, idx=chunk_idx,
+                                text=result.get("text", ""),
+                                words=result.get("words"),
+                            )
+                    except Exception as e:
+                        # Losing a chunk must not take the recording down with it,
+                        # the same rule the usage write follows.
+                        logger.error(f"[ws] could not store chunk {chunk_idx} "
+                                     f"of session {session_id}: {e}")
                 try:
                     await websocket.send_json(result)
                 except Exception:
@@ -656,10 +678,19 @@ def get_session_route(session_id: int, db: Session = Depends(get_db),
     s = repo.get_session(db, session_id)
     if s is None or s.user_id != user.id:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Normally the lecture is right here in the row. It is not only while the
+    # recording is still running, or if the server died before it could fold the
+    # chunks in — and those are exactly the lectures worth not losing, so they
+    # are assembled on the way out instead.
+    transcript, words = s.transcript, json.loads(s.words_json) if s.words_json else []
+    if not transcript:
+        transcript, words = repo.assemble_chunks(db, session_id)
+
     return {
         "id": s.id, "title": s.title, "class_id": s.class_id,
-        "transcript": s.transcript, "summary": s.summary,
-        "words": json.loads(s.words_json) if s.words_json else [],
+        "transcript": transcript, "summary": s.summary,
+        "words": words,
         "flags": [
             {"id": f.id, "t_start": f.t_start, "t_end": f.t_end, "quote": f.quote,
              "question": f.question, "answer": f.answer, "resolved": f.resolved}
@@ -667,6 +698,33 @@ def get_session_route(session_id: int, db: Session = Depends(get_db),
         ],
         "created_at": str(s.created_at),
     }
+
+
+class SessionPatch(BaseModel):
+    """What can be changed about a lecture after it exists. Only the name: the
+    transcript is written by the recording that produced it, not by the page."""
+    title:    str | None = None
+    class_id: int | None = None
+
+
+@app.patch("/sessions/{session_id}")
+def rename_session_route(session_id: int, payload: SessionPatch,
+                         db: Session = Depends(get_db),
+                         user = Depends(current_user)):
+    """Name a lecture. The row already exists — it was opened when recording
+    started and filled as the lecture went — so saving is a rename, and pressing
+    it twice changes the same row twice instead of leaving two lectures."""
+    s = repo.get_session(db, session_id)
+    # Same check as the other by-id routes: a lecture that is not yours is not
+    # found, so guessing a number edits nothing.
+    if s is None or s.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if payload.title is not None:
+        s.title = payload.title.strip() or s.title
+    if payload.class_id is not None:
+        s.class_id = payload.class_id
+    db.commit(); db.refresh(s)
+    return {"id": s.id, "title": s.title, "class_id": s.class_id}
 
 
 class AskIn(BaseModel):
@@ -1124,6 +1182,9 @@ async def websocket_transcribe(websocket: WebSocket):
     # by the opening message; until then the connection is anonymous and its
     # smaller ceiling applies.
     ws_user_id: int | None = None
+    # The row this recording is filling. Opened with the first context message,
+    # collapsed into a finished lecture when the connection ends.
+    ws_session_id: int | None = None
     seconds_allowed  = FREE_LIVE_SECONDS
     account_total    = 0.0        # the shared total, as last read from the database
     seconds_this_ws  = 0.0        # audio this connection has taken
@@ -1197,6 +1258,20 @@ async def websocket_transcribe(websocket: WebSocket):
                             ws_user_id = None      # nothing claimed, nothing to release
                             break
 
+                        # The lecture gets its row now, so the chunks arriving over
+                        # the next hour have something to belong to. Opened only
+                        # once every refusal above has passed, so a connection that
+                        # is not allowed to record leaves nothing behind.
+                        with SessionLocal() as db:
+                            ws_session_id = repo.start_session(
+                                db, user_id=ws_user_id, class_id=None,
+                                title=msg.title or "Untitled",
+                            ).id
+                        # The page is told which row it is filling, so Save can
+                        # name that lecture rather than create another one.
+                        await websocket.send_json({
+                            "type": "session", "id": ws_session_id})
+
                     elif msg.type == "enroll_start":
                         enrolling = True
                         enrollment_buffer.clear()
@@ -1250,6 +1325,15 @@ async def websocket_transcribe(websocket: WebSocket):
                                 'vad_h': np.zeros((2, 1, 64), dtype=np.float32),
                                 'vad_c': np.zeros((2, 1, 64), dtype=np.float32),
                             }
+                            # The row was opened before a voice was chosen, so the
+                            # link is made here — it is what collapse_session
+                            # counts as a use of this Voice.
+                            if ws_session_id is not None:
+                                with SessionLocal() as db:
+                                    row = repo.get_session(db, ws_session_id)
+                                    if row is not None:
+                                        row.class_id = msg.class_id
+                                        db.commit()
                             await websocket.send_json({"type": "enroll_success"})
                             logger.info(f"Saved voice locked (id={msg.class_id}, "
                                         f"threshold={similarity_threshold:.3f})")
@@ -1334,6 +1418,8 @@ async def websocket_transcribe(websocket: WebSocket):
                         similarity_threshold,
                         session_state,
                         chunk_offset,
+                        ws_session_id,
+                        chunk_count - 1,     # the index this chunk was given above
                     ))
 
     except WebSocketDisconnect:
@@ -1348,6 +1434,19 @@ async def websocket_transcribe(websocket: WebSocket):
             fresh = _add_live_seconds(ws_user_id, seconds_unflushed)
             logger.info(f"[ws] user {ws_user_id} used {seconds_this_ws:.0f}s here, "
                         f"account now {fresh}/{seconds_allowed}s")
+
+        # The recording is over, whatever ended it — stopped, closed, crashed,
+        # dropped. The chunks written along the way become the lecture here, and
+        # a recording that produced nothing takes its empty row with it.
+        if ws_session_id is not None:
+            try:
+                with SessionLocal() as db:
+                    repo.collapse_session(db, ws_session_id)
+            except Exception as e:
+                # The chunks survive a failure here, and the read path assembles
+                # from them, so the lecture is still readable.
+                logger.error(f"[ws] could not collapse session {ws_session_id}: {e}")
+
         _release_socket(ws_user_id)
 
 
