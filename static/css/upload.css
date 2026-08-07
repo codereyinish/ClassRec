@@ -1,173 +1,144 @@
-    .page-title {
-        text-align: center;
-        margin-bottom: 32px;
-    }
+/* ── Upload, in the app's own palette ────────────────────────────────────────
+   base.html carries the earlier theme: near-black, amber, DM Serif Display for
+   headings and DM Mono for body text. This page belongs to the same app as
+   /live-v2, so it uses that palette and that type — DM Sans for everything, and
+   DM Mono kept for the numbers it was made for.
 
-    .page-title h1 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 32px;
-    font-weight: 400;
-    letter-spacing: -0.02em;
-    color: var(--text);
-    }
+   The tokens are redeclared rather than imported because base.html defines its
+   own on :root; these come later in the document and win. Only what this page
+   uses is redeclared, so nothing else that extends base is disturbed.          */
 
-    .page-title h1 em {
-        font-style: italic;
-        color: var(--accent);
-    }
-    .page-title p {
-    color: #a8a8b8;
-    }
+:root{
+  --g0:#FFFFFF; --g1:#FBFAFB; --g2:#F4F2F6; --g3:#EAE7EE;
+  --g4:#D9D5E0; --g5:#B4AEC0; --g6:#8B8399; --g7:#5A5269; --g8:#281F3E;
+  --theme:#7678ED; --primary:#6365EB; --primary-hi:#5053E8;
+  --primary-soft:#EFEFFD; --primary-ink:#5053E8;
+  --rule:#E2DEE7; --block:#F8F7FB;
+  --red:#EF4444; --red-ink:#DC0D0D; --green-ink:#14803B;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --mono:'DM Mono',ui-monospace,monospace;
+  --e:cubic-bezier(.2,.7,.3,1);
+}
+:root[data-theme="dark"]{
+  --g0:#17141F; --g1:#1D1927; --g2:#262133; --g3:#2F2940;
+  --g4:#3D3651; --g5:#8A82A0; --g6:#A79FBB; --g7:#CBC4DA; --g8:#F3F0F9;
+  --theme:#9A9CF5; --primary:#6365EB; --primary-hi:#7477F0;
+  --primary-soft:#262450; --primary-ink:#A5A7F7;
+  --rule:#2C2639; --block:#1F1B2A;
+  --red-ink:#FF8A8A; --green-ink:#6EE7A0;
+}
 
-    .container {
-        max-width: 680px;
-        margin: 0 auto;
-    }
+body{
+  background:var(--g0);
+  color:var(--g8);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+}
 
-    /* Upload card */
-    .upload-card {
-        background: var(--bg-surface);
-        border: 1px solid var(--border);
-        border-radius: 16px;
-        padding: 40px 36px;
-    }
+/* ── the page's own header ── */
+.up-head{text-align:center;margin:52px auto 30px;padding:0 24px}
+.up-head h1{
+  font-family:var(--sans);        /* not the serif base.html reaches for */
+  font-size:29px;font-weight:700;letter-spacing:-.025em;color:var(--g8);
+  margin-bottom:7px;
+}
+.up-head p{font-size:14.5px;color:var(--g6);line-height:1.6}
 
-    .upload-box {
-        border: 2px dashed rgba(232,160,32,0.3);
-        border-radius: 12px;
-        padding: 44px 40px;
-        text-align: center;
-        background: var(--accent-dim);
-        transition: border-color 0.2s, background 0.2s;
-        cursor: pointer;
-    }
-    .upload-box:hover {
-        border-color: var(--accent);
-        background: rgba(232,160,32,0.08);
-    }
+.up-wrap{max-width:620px;margin:0 auto;padding:0 24px 80px}
 
-    .upload-icon {
-        font-size: 40px;
-        margin-bottom: 14px;
-        opacity: 0.6;
-    }
+/* ── the drop target ──
+   One surface, and the whole of it is the label for the input — a dashed box
+   inside a card gave two edges for one action. It lifts on hover and again while
+   a file is over it, so the page answers before anything is dropped. */
+.dropzone{
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  padding:46px 32px;border-radius:16px;cursor:pointer;
+  background:var(--block);border:1px solid var(--g4);
+  transition:border-color .16s var(--e),background .16s var(--e),transform .16s var(--e);
+}
+.dropzone:hover{border-color:var(--g5);background:var(--g2)}
+.dropzone.over{
+  border-color:var(--primary);background:var(--primary-soft);
+  transform:translateY(-2px);
+}
+.dz-ico{width:30px;height:30px;color:var(--g5);margin-bottom:5px;transition:color .16s var(--e)}
+.dropzone:hover .dz-ico,.dropzone.over .dz-ico{color:var(--theme)}
+.dz-line{font-size:15px;color:var(--g7)}
+.dz-line b{font-weight:500;color:var(--primary-ink)}
+.dz-sub{font-size:12.5px;color:var(--g5)}
+.dropzone input[type=file]{display:none}
+/* The chosen file, in the app's mono — a filename is the one string here that
+   wants a fixed width, since it is read character by character. */
+.dz-file{
+  margin-top:11px;padding:5px 11px;border-radius:8px;
+  background:var(--g0);border:1px solid var(--g4);
+  font-family:var(--mono);font-size:12px;color:var(--g7);
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+:root[data-theme="dark"] .dz-file{background:var(--g1)}
 
-    .upload-label {
-        font-size: 14px;
-        color: var(--text-muted);
-        margin-bottom: 16px;
-        letter-spacing: 0.03em;
-    }
-    .upload-label strong { color: var(--text); }
+/* ── the action ── */
+.up-go{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  width:100%;margin-top:16px;padding:13px;border:0;border-radius:11px;
+  background:var(--primary);color:#fff;
+  font-family:inherit;font-size:14.5px;font-weight:500;cursor:pointer;
+  transition:background .14s var(--e),opacity .14s var(--e);
+}
+.up-go:hover:not(:disabled){background:var(--primary-hi)}
+.up-go:disabled{opacity:.55;cursor:default}
+.up-go svg{width:17px;height:17px}
 
-    input[type="file"] {
-        display: block;
-        margin: 0 auto;
-        font-size: 12px;
-        font-family: 'DM Mono', monospace;
-        color: var(--text-muted);
-        cursor: pointer;
-    }
-    input[type="file"]::file-selector-button {
-        background: var(--bg-elevated);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 6px 14px;
-        font-family: 'DM Mono', monospace;
-        font-size: 12px;
-        color: var(--text);
-        cursor: pointer;
-        margin-right: 10px;
-        transition: border-color 0.2s;
-    }
-    input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
+/* ── what came back ── */
+#result{margin-top:22px}
+#result:empty{display:none}
+.up-panel{
+  padding:18px 20px;border-radius:13px;
+  background:var(--block);border:1px solid var(--rule);
+}
+.up-status{
+  display:flex;align-items:center;gap:8px;
+  font-size:13.5px;font-weight:500;margin-bottom:14px;
+}
+.up-status svg{width:16px;height:16px;flex:0 0 auto}
+.up-status.ok{color:var(--green-ink)}
+.up-status.err{color:var(--red-ink)}
+.up-status.busy{color:var(--g6)}
+/* File and size read as one quiet line of facts, with the number in mono. */
+.up-meta{
+  display:flex;flex-wrap:wrap;gap:5px 14px;margin-bottom:14px;
+  font-size:12.5px;color:var(--g6);
+}
+.up-meta .n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--g7)}
+.up-text{
+  position:relative;padding:15px 16px;border-radius:10px;
+  background:var(--g0);border:1px solid var(--g4);
+  font-size:14.5px;line-height:1.65;color:var(--g8);
+  max-height:340px;overflow-y:auto;white-space:pre-wrap;
+}
+:root[data-theme="dark"] .up-text{background:var(--g1)}
+.up-copy{
+  position:absolute;top:9px;right:9px;
+  display:grid;place-items:center;width:28px;height:28px;border-radius:8px;
+  border:1px solid var(--g4);background:var(--g0);color:var(--g6);
+  cursor:pointer;transition:.14s var(--e);
+}
+.up-copy:hover{color:var(--g8);background:var(--g2)}
+.up-copy.done{color:var(--primary-ink);border-color:var(--primary)}
+.up-copy svg{width:14px;height:14px}
+:root[data-theme="dark"] .up-copy{background:var(--g1)}
 
-    .upload-btn-wrap { margin-top: 28px; text-align: center; }
+/* A spinner rather than an hourglass character: it is the same mark the rest of
+   the app spins, and it says "still going" without a face. */
+.up-spin{
+  width:14px;height:14px;border-radius:999px;flex:0 0 auto;
+  border:2px solid var(--g4);border-top-color:var(--theme);
+  animation:upspin .7s linear infinite;
+}
+@keyframes upspin{to{transform:rotate(360deg)}}
 
-    #uploadBtn {
-        background: var(--accent);
-        color: #0d0d11;
-        padding: 12px 40px;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 13px;
-        font-family: 'DM Mono', monospace;
-        font-weight: 500;
-        letter-spacing: 0.04em;
-        transition: all 0.2s;
-    }
-    #uploadBtn:hover { background: #f0aa28; box-shadow: 0 0 24px var(--accent-glow); }
-    #uploadBtn:disabled {
-        background: var(--bg-elevated);
-        color: var(--text-muted);
-        cursor: not-allowed;
-        box-shadow: none;
-    }
-
-    /* Result */
-    #result {
-        margin-top: 20px;
-        padding: 24px;
-        background: var(--bg-surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        display: none;
-        line-height: 1.6;
-        font-size: 13px;
-        color: var(--text);
-    }
-
-    .loading {
-        color: var(--accent);
-        font-weight: 500;
-        letter-spacing: 0.03em;
-    }
-
-    .result-meta {
-        font-size: 12px;
-        color: var(--text-muted);
-        margin-bottom: 16px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid var(--border);
-        letter-spacing: 0.03em;
-    }
-    .result-meta span { color: var(--text); }
-
-    .transcription-container {
-        position: relative;
-        background: var(--bg-elevated);
-        border: 1px solid var(--border);
-        border-left: 3px solid var(--accent);
-        padding: 16px 16px 52px 16px;
-        border-radius: 8px;
-        margin-top: 10px;
-    }
-
-    #transcriptionText {
-        font-size: 14px;
-        color: var(--text);
-        line-height: 1.75;
-        display: block;
-    }
-
-    .copy-btn {
-        position: absolute;
-        bottom: 12px;
-        right: 12px;
-        background: var(--bg-surface);
-        border: 1px solid var(--border);
-        color: var(--text-muted);
-        padding: 6px 16px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 12px;
-        font-family: 'DM Mono', monospace;
-        letter-spacing: 0.04em;
-        transition: all 0.2s;
-    }
-    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .copy-btn.dimmed { opacity: 0.35; }
-
-    .error-text { color: var(--red); font-size: 13px; }
-    .success-label { color: var(--green); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px; font-weight: 500; }
+@media (max-width:560px){
+  .up-head{margin-top:34px}
+  .up-head h1{font-size:24px}
+  .dropzone{padding:36px 20px}
+}

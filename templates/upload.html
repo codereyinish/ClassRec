@@ -1,29 +1,56 @@
 {% extends "base.html" %}
 
 {% block head %}
-<title>Upload Audio - Lecture Transcription</title>
-<link rel="stylesheet" href="/static/css/upload.css">
+<title>Upload — ClassRec</title>
+<!-- base.html loads DM Serif Display and DM Mono, and sets DM Mono as the body
+     font. This page is in the app's own type: DM Sans throughout, and DM Mono
+     kept for the numbers it was made for. -->
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/upload.css?v={{ asset_version }}">
+<script>
+/* The choice made on the live page, honoured here — before the first paint, so a
+   dark page does not open white. Same key, same rule: a saved choice wins over
+   the system's, because someone who chose is saying something the OS is not. */
+(function(){
+  try{
+    var saved=localStorage.getItem('classrecTheme');
+    var dark=saved?saved==='dark'
+                  :matchMedia('(prefers-color-scheme: dark)').matches;
+    if(dark)document.documentElement.dataset.theme='dark';
+  }catch(e){}
+})();
+</script>
 {% endblock %}
 
 {% block content %}
-    <div class="page-title">
-        <h1>Upload <em>Audio</em></h1>
-        <p>Transcribe your lecture recording with AI</p>
+    <div class="up-head">
+        <h1>Upload a lecture</h1>
+        <p>A recording you already have, transcribed and added to your lectures.</p>
     </div>
 
-    <div class="container">
-        <div class="upload-card">
-            <div class="upload-box">
-                <div class="upload-icon">📁</div>
-                <p class="upload-label">Drop your audio file here or <strong>browse</strong></p>
-                <input type="file" id="audioFile" accept="audio/*">
-            </div>
-            <div class="upload-btn-wrap">
-                <button id="uploadBtn">Transcribe Audio →</button>
-            </div>
-        </div>
+    <div class="up-wrap">
+        <!-- The whole panel is the target, not a dashed rectangle inside a card:
+             one thing to drop onto reads as one thing to drop onto. -->
+        <label class="dropzone" id="dropzone" for="audioFile">
+            <svg class="dz-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 16V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/>
+                <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/>
+            </svg>
+            <span class="dz-line">Drop an audio file, or <b>choose one</b></span>
+            <span class="dz-sub">MP3, WAV, M4A and the rest</span>
+            <input type="file" id="audioFile" accept="audio/*">
+            <span class="dz-file" id="fileName" hidden></span>
+        </label>
+
+        <button id="uploadBtn" class="up-go">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h13"/><path d="M12.5 6.5L19 12l-6.5 5.5"/>
+            </svg>
+            Transcribe
+        </button>
+
         <div id="result"></div>
     </div>
 
-   <script src="/static/js/upload.js"></script>
+   <script src="/static/js/upload.js?v={{ asset_version }}"></script>
 {% endblock %}
