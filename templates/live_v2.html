@@ -56,10 +56,77 @@
      than g3 and well short of g4. Controls take g4, being things you click. */
   --rule:#E2DEE7;
 
+  /* --primary does two jobs — a fill under white labels, and indigo text on
+     --primary-soft — and the two want opposite lightness. Splitting off the ink
+     lets the fill stay where white clears AA while the text meets it too:
+     #5053E8 on --primary-soft is 4.92, against 4.01 for --primary itself. */
+  --primary-ink:#5053E8;
+
+  /* Text on a dark ground, for the statuses whose inks are tuned for white. */
+  --green-on-dark:#6EE7A0; --red-on-dark:#FF8A8A;
+  --amber-on-dark:#F0B860; --blush-on-dark:#E5A98F;
+  --tip-bg:var(--g8); --tip-fg:#fff;   /* the scrub time bubble, which inverts */
+
+  /* The waveform is drawn onto a canvas, which cannot read a class the way the
+     rest of the page can — so its three colours are tokens the drawing code
+     reads back, rather than constants that would stay light. */
+  --wave-played:#6365EB;
+  --wave-unplayed:rgba(118,120,237,.22);
+  --wave-head:#4A3FBF;
+
   --sans:'DM Sans',system-ui,sans-serif;
   --mono:'DM Mono',ui-monospace,monospace;
   --rail:288px; --ai:380px; --measure:820px; --gutter:78px;
   --e:cubic-bezier(.2,.7,.3,1);
+}
+
+/* ── dark ────────────────────────────────────────────────────────────────────
+   The same palette at the other end of the ramp, not a different one. Every grey
+   keeps the violet tint the light theme is built on, so the page reads as the
+   same app with the lights off rather than as a generic dark theme.
+
+   Measured rather than eyeballed, against --g0:
+     --g8 16.1   --g7 10.8   --g6 7.2   --g5 5.0   --theme 7.3   --primary-ink 8.2
+   so body text, sub-lines and placeholders all clear AA, and the borders sit at
+   1.3–1.6 — visible as structure without drawing themselves.
+
+   --primary is deliberately NOT lightened: it is the ground under white labels,
+   where lightening it drops white to 3.16. The ink token carries the light half. */
+:root[data-theme="dark"]{
+  --g0:#17141F; --g1:#1D1927; --g2:#262133; --g3:#2F2940;
+  --g4:#3D3651; --g5:#8A82A0; --g6:#A79FBB; --g7:#CBC4DA; --g8:#F3F0F9;
+
+  --theme:#9A9CF5; --primary:#6365EB; --primary-hi:#7477F0;
+  --primary-soft:#262450; --primary-ink:#A5A7F7;
+  --lock-deep:#8E86F5;
+
+  --block:#1F1B2A;
+  --rule:#2C2639;
+
+  /* The status inks are dark by design, for white grounds. On this one they land
+     at 2.9–3.6, so each has a light counterpart that clears 8:1. */
+  --green-ink:var(--green-on-dark);
+  --red-ink:var(--red-on-dark);
+  --amber-ink:var(--amber-on-dark);
+  --blush-ink:var(--blush-on-dark);
+  --corn-deep:#9DAEFF;
+
+  /* Dark text on a light chip, so it stays the inverse of the page. */
+  --tip-bg:#F3F0F9; --tip-fg:#17141F;
+
+  /* The playhead is the app's darkest indigo, which disappears here. */
+  --wave-played:#8486F0;
+  --wave-unplayed:rgba(154,156,245,.26);
+  --wave-head:#C9C6FF;
+
+  /* Declared in their own :root further down, for the new-session dialog and the
+     alert rows. Near-white by design, so without these they are lit patches on
+     an unlit page. Same job here: a step up from the ground, then two borders. */
+  --tint-1:#221E2E; --tint-2:#332C46; --tint-3:#453D5E;
+
+  /* --red and --green are left alone deliberately: as text on this ground they
+     measure 4.83 and 10.42, so they still carry. Only the inks, which are dark
+     by design, needed replacing. */
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -586,7 +653,7 @@ canvas:active{cursor:grabbing}
 .audio{position:relative}
 .wv-time{
   position:absolute;top:-11px;transform:translateX(-50%);
-  padding:3px 7px;border-radius:6px;background:var(--g8);color:#fff;
+  padding:3px 7px;border-radius:6px;background:var(--tip-bg);color:var(--tip-fg);
   font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;
   pointer-events:none;white-space:nowrap;z-index:2;
 }
@@ -862,7 +929,7 @@ body.ai-open .ai{transform:none}
 .ctx-chip{
   display:inline-flex;align-items:center;gap:6px;max-width:100%;
   padding:4px 6px 4px 9px;border-radius:8px;
-  background:var(--primary-soft);color:var(--primary);
+  background:var(--primary-soft);color:var(--primary-ink);
   font-size:11.5px;font-weight:600;letter-spacing:.02em;
 }
 .ctx-chip .t{font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -871,7 +938,20 @@ body.ai-open .ai{transform:none}
   display:grid;place-items:center;width:16px;height:16px;border-radius:5px;
   color:var(--primary);opacity:.65;flex:0 0 auto;
 }
-.ctx-chip .x:hover{opacity:1;background:rgba(99,101,235,.16)}
+.ctx-chip .x:hover{opacity:1;background:var(--g2)}
+
+/* One control, two glyphs — the sun shows in dark and the moon in light, so the
+   icon is what you are switching TO rather than a badge of where you are. */
+.themebtn{
+  width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+  color:var(--g6);transition:.14s var(--e);
+}
+.themebtn:hover{background:var(--g2);color:var(--g8)}
+.themebtn svg{width:18px;height:18px}
+.themebtn .moon{display:block}
+.themebtn .sun{display:none}
+:root[data-theme="dark"] .themebtn .moon{display:none}
+:root[data-theme="dark"] .themebtn .sun{display:block}
 .ctx-chip .go{cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-width:0}
 .ctx-chip .go:hover .lbl{text-decoration:underline}
 
@@ -1024,6 +1104,19 @@ body.ai-open .ai{transform:none}
 body.ai-open .aiwrap{opacity:0;pointer-events:none}
 </style>
 </head>
+<script>
+/* Before the first paint, deliberately: applying this after the page renders
+   shows a white flash on the way into a dark page. A saved choice wins over the
+   system's, because someone who chose is telling you something the OS is not. */
+(function(){
+  try{
+    var saved=localStorage.getItem('classrecTheme');
+    var dark=saved?saved==='dark'
+                  :matchMedia('(prefers-color-scheme: dark)').matches;
+    if(dark)document.documentElement.dataset.theme='dark';
+  }catch(e){}
+})();
+</script>
 <body class="rail-open">
 
 <div class="top">
@@ -1035,6 +1128,15 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
     </span>ClassRec
   </div>
   <div class="top-r">
+    <button class="themebtn" id="themeBtn" type="button" aria-label="Switch theme" title="Switch theme">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+      </svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 2.6v2.2M12 19.2v2.2M4.2 12H2M22 12h-2.2M6.3 6.3L4.8 4.8M19.2 19.2l-1.5-1.5M17.7 6.3l1.5-1.5M4.8 19.2l1.5-1.5"/>
+      </svg>
+    </button>
     <button class="btn" id="newSess">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>
@@ -1652,6 +1754,29 @@ document.getElementById('save').onclick=()=>{
     setActivity('');roL.textContent='—';
   }
 };
+/* ── theme ───────────────────────────────────────────────────────────────────
+   The choice is remembered, so it survives the reload; until someone makes one
+   the system decides, and changing the system setting still moves the page. */
+const themeBtn=document.getElementById('themeBtn');
+themeBtn.onclick=()=>{
+  const dark=document.documentElement.dataset.theme!=='dark';
+  if(dark)document.documentElement.dataset.theme='dark';
+  else delete document.documentElement.dataset.theme;
+  try{localStorage.setItem('classrecTheme',dark?'dark':'light');}catch(e){}
+  // the waveform is painted onto a canvas, so it does not re-read the CSS on
+  // its own the way everything else does
+  if(typeof readWaveColors==='function'){
+    readWaveColors();
+    if(decodedBuffer)drawWaveform(audioEl.currentTime);
+  }
+};
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',e=>{
+  let saved=null; try{saved=localStorage.getItem('classrecTheme');}catch(_){}
+  if(saved)return;                       // a choice was made; the system does not override it
+  if(e.matches)document.documentElement.dataset.theme='dark';
+  else delete document.documentElement.dataset.theme;
+});
+
 const openAI=()=>B.classList.add('ai-open');
 document.getElementById('aibtn').onclick=openAI;
 // the shortcut the pill advertises
@@ -2465,9 +2590,17 @@ const anchorX = (W) => (B.classList.contains('rec') ? W - LIVE_INSET : W / 2);
    rather than hiding. */
 const barScale = (amp) => Math.pow(Math.min(1, amp), 0.55);
 
-const COLOR_PLAYED   = '#6365EB';
-const COLOR_UNPLAYED = 'rgba(118,120,237,0.22)';
-const COLOR_PLAYHEAD = '#4A3FBF';   // --lock-deep: the app's dark indigo
+/* Read from the stylesheet rather than written here, so switching theme moves
+   the waveform with everything else. Cached because this is per-frame drawing;
+   readWaveColors() runs again when the theme changes. */
+let COLOR_PLAYED, COLOR_UNPLAYED, COLOR_PLAYHEAD;
+function readWaveColors(){
+  const s=getComputedStyle(document.documentElement);
+  COLOR_PLAYED   = s.getPropertyValue('--wave-played').trim();
+  COLOR_UNPLAYED = s.getPropertyValue('--wave-unplayed').trim();
+  COLOR_PLAYHEAD = s.getPropertyValue('--wave-head').trim();
+}
+readWaveColors();
 
 // ===== STATE =====
 let waveformBars  = null;
