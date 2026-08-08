@@ -990,6 +990,75 @@ body.ai-open .ai{transform:none}
 .alt button{font-size:12.5px;font-weight:500;color:var(--g6)}
 .alt button:hover{color:var(--blush-ink)}
 
+/* ── the allowance, spent ─────────────────────────────────────────────────────
+   Recording stops at the ceiling whether or not anything explains it, and the
+   caption that would have explained it lives in the rail — which is slid away
+   for the whole of a recording. So this is the one thing the app says at that
+   moment, and it says it over the page rather than beside it.
+   Built on the voice picker's overlay, so it opens the way every other panel
+   here opens. */
+.lim-overlay{
+  position:fixed;inset:0;z-index:120;display:grid;place-items:center;
+  background:rgba(30,27,46,.5);backdrop-filter:blur(4px);
+  opacity:0;pointer-events:none;transition:opacity .22s var(--e);
+}
+.lim-overlay.open{opacity:1;pointer-events:auto}
+.lim-panel{
+  position:relative;
+  width:420px;max-width:calc(100vw - 40px);max-height:86vh;overflow:auto;
+  background:var(--g0);border:1px solid var(--rule);border-radius:18px;
+  padding:24px 24px 20px;
+  box-shadow:0 28px 70px -14px rgba(30,27,46,.42);
+  transform:translateY(10px) scale(.985);transition:transform .22s var(--e);
+}
+.lim-overlay.open .lim-panel{transform:none}
+/* The way out, since the panel states a fact rather than asking a question —
+   there is no second choice to give a button to. */
+.lim-x{
+  position:absolute;top:16px;right:16px;
+  display:grid;place-items:center;width:26px;height:26px;border-radius:8px;
+  border:0;background:none;color:var(--g5);cursor:pointer;transition:.14s var(--e);
+}
+.lim-x:hover{color:var(--g8);background:var(--g2)}
+.lim-x svg{width:13px;height:13px}
+.lim-panel h2{font-size:20px;font-weight:700;letter-spacing:-.03em;margin-bottom:5px}
+.lim-sub{font-size:13.5px;line-height:1.6;color:var(--g6);margin-bottom:18px}
+
+.lim-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.lim-col{
+  padding:15px 15px 13px;border-radius:13px;
+  border:1px solid var(--g4);background:var(--g1);
+}
+/* the plan being offered carries the accent; the one you are on does not */
+.lim-col.pro{border-color:var(--primary);background:var(--primary-soft)}
+.lim-col h3{
+  font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--g6);margin-bottom:11px;
+}
+.lim-col.pro h3{color:var(--primary-ink)}
+.lim-col ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.lim-col li{
+  display:flex;align-items:flex-start;gap:7px;
+  font-size:13px;line-height:1.45;color:var(--g7);
+}
+.lim-col.pro li{color:var(--g8)}
+.lim-col li svg{width:13px;height:13px;flex:0 0 auto;margin-top:2px;color:var(--g5)}
+.lim-col.pro li svg{color:var(--primary)}
+/* the numbers are numbers, so they are set as numbers */
+.lim-col li b{font-family:var(--mono);font-weight:500;font-variant-numeric:tabular-nums}
+
+.lim-acts{display:flex;align-items:center;gap:11px}
+/* Sized to its words. Filling the row made it the loudest thing in a panel
+   whose job is to say what happened. */
+.lim-pro{
+  padding:9px 16px;border-radius:9px;border:0;
+  background:var(--primary);color:#fff;
+  font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;
+  transition:background .14s var(--e);
+}
+.lim-pro:hover{background:var(--primary-hi)}
+.lim-note{font-size:12px;color:var(--g5)}
+
 /* ── voice picker popup — mirrors voice-picker.js's .vp-* structure ──
    row click selects · name click plays (turns theme) · dblclick renames
    · trash deletes · + uploads. All five have endpoints already.        */
@@ -1376,6 +1445,45 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
 </div>
 
 <!-- New session: the class name is all we ask for, since the title is that plus today -->
+<!-- The free allowance, spent. Numbers are the server's own, not marketing:
+     20 and 30 minutes are FREE_LIVE_SECONDS and FREE_UPLOAD_SECONDS, seven
+     lectures is MAX_SESSIONS_PER_USER, five at once is MAX_SOCKETS_PER_USER. -->
+<div class="lim-overlay" id="limOverlay">
+  <div class="lim-panel" role="dialog" aria-modal="true" aria-labelledby="limTitle">
+    <button class="lim-x" id="limLater" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <h2 id="limTitle">Free minutes used up</h2>
+    <p class="lim-sub">What you recorded is saved.</p>
+
+    <div class="lim-cols">
+      <div class="lim-col">
+        <h3>Free</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>20</b> min live</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>30</b> min uploads</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Last <b>7</b> lectures</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>5</b> at once</span></li>
+        </ul>
+      </div>
+      <div class="lim-col pro">
+        <h3>Pro</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited live</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited uploads</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Every lecture kept</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Voice lock and alerts</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="lim-acts">
+      <button class="lim-pro" id="limPro" type="button">Switch to Pro</button>
+      <span class="lim-note" id="limNote"></span>
+    </div>
+  </div>
+</div>
+
 <div class="vp-overlay" id="ns">
   <div class="vp-panel ctx-panel" role="dialog" aria-label="New session">
     <button class="ctx-x" id="nsX" type="button" aria-label="Cancel">✕</button>
@@ -1787,6 +1895,30 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',e=>{
   if(e.matches)document.documentElement.dataset.theme='dark';
   else delete document.documentElement.dataset.theme;
 });
+
+/* ── the allowance, spent ──
+   Opened by the server naming the reason, not by reading its wording. */
+const limOverlay=document.getElementById('limOverlay');
+function showLimit(){
+  if(limOverlay.classList.contains('open'))return;   // one close, one panel
+  limOverlay.classList.add('open');
+  document.getElementById('limNote').textContent =
+    USAGE_LAST.live!=null
+      ? 'Used ' + (USAGE_LAST.live/60).toFixed(1) + ' of '
+        + Math.round(USAGE_ALLOWANCE.live/60) + ' minutes'
+      : '';
+}
+const hideLimit=()=>limOverlay.classList.remove('open');
+document.getElementById('limLater').onclick=hideLimit;
+limOverlay.onclick=e=>{ if(e.target===limOverlay)hideLimit(); };
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&limOverlay.classList.contains('open'))hideLimit();
+});
+/* Nothing to send anyone to yet. Saying so is better than a button that looks
+   like it did something. */
+document.getElementById('limPro').onclick=()=>{
+  document.getElementById('limNote').textContent='Paid plans are not open yet.';
+};
 
 const openAI=()=>B.classList.add('ai-open');
 document.getElementById('aibtn').onclick=openAI;
@@ -3382,6 +3514,12 @@ function onServer(d){
        only has to name it. */
     liveSessionId=d.id;
   }else if(d.type==='error'){
+    /* A spent allowance goes to the panel and nowhere else. It is the one
+       refusal the caption cannot deliver -- the caption lives in the rail, and
+       the rail is closed for the whole of a recording -- and once the panel has
+       said it, the rail repeating it in red only leaves the microphone looking
+       broken. The caption goes back to inviting a recording. */
+    if(d.code==='live_limit'){ showLimit(); return; }
     // kept as well as shown: a refusal is followed by a close, and the teardown
     // in between would otherwise take the explanation with it
     lastServerError=d.message||'Transcription error';

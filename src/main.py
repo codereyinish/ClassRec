@@ -1349,6 +1349,10 @@ async def websocket_transcribe(websocket: WebSocket):
                         if usage_state["total"] >= seconds_allowed:
                             await websocket.send_json({
                                 "type": "error",
+                                # named, so the page can answer a spent allowance with
+                                # something other than a line of red text — matching on
+                                # the sentence would break the moment anyone reworded it
+                                "code": "live_limit",
                                 "message": "You have used your free recording minutes."})
                             await websocket.close()
                             break
@@ -1501,6 +1505,7 @@ async def websocket_transcribe(websocket: WebSocket):
                                 f"{usage_state['total']:.0f}s")
                     await websocket.send_json({
                         "type": "error",
+                        "code": "live_limit",
                         "message": "You have used your free recording minutes."})
                     await websocket.close()
                     break
