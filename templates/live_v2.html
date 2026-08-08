@@ -1960,10 +1960,12 @@ limOverlay.onclick=e=>{ if(e.target===limOverlay)hideLimit(); };
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&limOverlay.classList.contains('open'))hideLimit();
 });
-/* Nothing to send anyone to yet. Saying so is better than a button that looks
-   like it did something. */
+/* There is nowhere to send anyone yet, so the button answers rather than
+   pretending to navigate. Deliberately not "you are on the list": the click is
+   not recorded anywhere, and a promise the app cannot keep is worse than none. */
 document.getElementById('limPro').onclick=()=>{
-  document.getElementById('limNote').textContent='Paid plans are not open yet.';
+  document.getElementById('limNote').textContent =
+    'Paid plans are coming. You will hear first.';
 };
 
 const openAI=()=>B.classList.add('ai-open');
