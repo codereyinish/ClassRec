@@ -924,9 +924,15 @@ body.ai-open .ai{transform:none}
   font-family:inherit;font-size:13.5px;color:var(--g7);cursor:pointer;
   transition:.14s var(--e);
 }
-.chip svg{width:16px;height:16px;flex:0 0 auto;color:var(--g5)}
+.chip svg{width:16px;height:16px;flex:0 0 auto}
+/* Each row keeps the colour its subject already has elsewhere on the page: the
+   exam question wears the exam tag's red, the worked example the blue the app
+   uses for reference, and the plain explanation the theme itself. Grey icons
+   made three different questions look like one repeated control. */
+.chip.q-explain svg{color:var(--theme)}
+.chip.q-example svg{color:var(--corn)}
+.chip.q-exam    svg{color:var(--red)}
 .chip:hover{background:var(--g2);color:var(--g8)}
-.chip:hover svg{color:var(--theme)}
 .ai-foot{padding:15px 20px;border-top:1px solid var(--rule)}
 /* The composer holds three rows — what is being asked about, the question, and
    the controls — so it is a box rather than the single line it used to be. The
@@ -1478,15 +1484,15 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
         <h3>What do you want to know?</h3>
       </div>
       <div class="chips">
-        <button class="chip">
+        <button class="chip q-explain">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M8 8h7M8 11.5h5"/></svg>
           Explain this in simpler terms
         </button>
-        <button class="chip">
+        <button class="chip q-example">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9"/></svg>
           Give me a worked example
         </button>
-        <button class="chip">
+        <button class="chip q-exam">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6a1 1 0 0 1 1 1v1H8V4a1 1 0 0 1 1-1z"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M9 13.5l2 2 4-4"/></svg>
           Is this likely on the exam?
         </button>
