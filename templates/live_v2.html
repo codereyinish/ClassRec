@@ -1005,7 +1005,7 @@ body.ai-open .ai{transform:none}
 .lim-overlay.open{opacity:1;pointer-events:auto}
 .lim-panel{
   position:relative;
-  width:420px;max-width:calc(100vw - 40px);max-height:86vh;overflow:auto;
+  width:500px;max-width:calc(100vw - 40px);max-height:86vh;overflow:auto;
   background:var(--g0);border:1px solid var(--rule);border-radius:18px;
   padding:24px 24px 20px;
   box-shadow:0 28px 70px -14px rgba(30,27,46,.42);
@@ -1021,6 +1021,13 @@ body.ai-open .ai{transform:none}
 }
 .lim-x:hover{color:var(--g8);background:var(--g2)}
 .lim-x svg{width:13px;height:13px}
+/* One mark of colour at the top, in the app's own indigo rather than a warning
+   yellow — the panel is offering something, not reporting a fault. */
+.lim-mark{
+  display:grid;place-items:center;width:38px;height:38px;border-radius:11px;
+  background:var(--primary-soft);color:var(--primary-ink);margin-bottom:13px;
+}
+.lim-mark svg{width:19px;height:19px}
 .lim-panel h2{font-size:20px;font-weight:700;letter-spacing:-.03em;margin-bottom:5px}
 .lim-sub{font-size:13.5px;line-height:1.6;color:var(--g6);margin-bottom:18px}
 
@@ -1032,10 +1039,17 @@ body.ai-open .ai{transform:none}
 /* the plan being offered carries the accent; the one you are on does not */
 .lim-col.pro{border-color:var(--primary);background:var(--primary-soft)}
 .lim-col h3{
+  display:flex;align-items:center;gap:7px;
   font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   color:var(--g6);margin-bottom:11px;
 }
-.lim-col.pro h3{color:var(--primary-ink)}
+/* The plan being offered wears the accent solid, so the eye lands on it before
+   it reads either column. */
+.lim-col.pro h3{color:var(--g8)}
+.lim-col.pro h3 em{
+  font-style:normal;padding:3px 8px;border-radius:999px;
+  background:var(--primary);color:#fff;letter-spacing:.05em;font-size:10.5px;
+}
 .lim-col ul{list-style:none;display:flex;flex-direction:column;gap:8px}
 .lim-col li{
   display:flex;align-items:flex-start;gap:7px;
@@ -1044,6 +1058,10 @@ body.ai-open .ai{transform:none}
 .lim-col.pro li{color:var(--g8)}
 .lim-col li svg{width:13px;height:13px;flex:0 0 auto;margin-top:2px;color:var(--g5)}
 .lim-col.pro li svg{color:var(--primary)}
+/* Credits are the one line that is a budget rather than a capability, so it gets
+   its own mark instead of another tick. */
+.lim-col li svg.bolt{color:var(--amber);fill:var(--amber-soft)}
+.lim-col.pro li svg.bolt{color:var(--theme);fill:var(--primary-soft)}
 /* the numbers are numbers, so they are set as numbers */
 .lim-col li b{font-family:var(--mono);font-weight:500;font-variant-numeric:tabular-nums}
 
@@ -1453,6 +1471,11 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
     <button class="lim-x" id="limLater" type="button" aria-label="Close">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
+    <div class="lim-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.8"/><path d="M12 7.4V12l3 1.9"/>
+      </svg>
+    </div>
     <h2 id="limTitle">Free minutes used up</h2>
     <p class="lim-sub">What you recorded is saved.</p>
 
@@ -1460,19 +1483,25 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
       <div class="lim-col">
         <h3>Free</h3>
         <ul>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>20</b> min live</span></li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>30</b> min uploads</span></li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Last <b>7</b> lectures</span></li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>5</b> at once</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>20</b> min live</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>30</b> min uploads</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Last <b>7</b> lectures</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>1</b> recording at a time</span></li>
+          <li><svg class="bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg><span><b>20</b> AI credits</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>1</b> summary a day</span></li>
         </ul>
       </div>
       <div class="lim-col pro">
-        <h3>Pro</h3>
+        <h3>Pro <em>Recommended</em></h3>
         <ul>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited live</span></li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited uploads</span></li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Every lecture kept</span></li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Voice lock and alerts</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited live</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited uploads</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Every lecture kept</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Record as many as you like</span></li>
+          <li><svg class="bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg><span><b>300</b> AI credits</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Summaries without limit</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Flashcards, quizzes, reading</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Add your own files as context</span></li>
         </ul>
       </div>
     </div>
