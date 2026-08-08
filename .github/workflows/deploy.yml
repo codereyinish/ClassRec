@@ -17,6 +17,21 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e                       # stop at the first failure, do not restart onto a half-done deploy
             cd /opt/classrec
             git pull origin main
+
+            # A copy before the schema is touched. WAL mode keeps recent writes in
+            # classrec.db-wal, so copying the .db file alone loses them — .backup
+            # asks SQLite for a consistent copy of everything.
+            mkdir -p backups
+            sqlite3 data/classrec.db ".backup 'backups/classrec-$(date +%Y%m%d-%H%M%S).db'"
+
+            # The schema is brought up to what this code expects, BEFORE the code
+            # starts. Restarting first would put new code in front of an old
+            # database, which is the failure this line exists to prevent.
+            # Safe to run every time: alembic applies only what is missing and
+            # does nothing when there is nothing to apply.
+            venv/bin/alembic upgrade head
+
             systemctl restart classrec
