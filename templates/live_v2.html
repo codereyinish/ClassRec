@@ -2812,6 +2812,13 @@ function dueToDraw(now) {
 
 function resumeLiveWave() {
     stopLiveWave();
+    /* Hand the strip back to the live bars. Playing something repoints
+       waveformBars at the peaks decoded from that clip and sets decodedBuffer,
+       so without this the strip keeps drawing the finished clip while the
+       playhead is put at the live edge — off the end of what is being drawn,
+       which looks like an empty strip with the line stuck at the right. */
+    waveformBars  = liveBars;
+    decodedBuffer = null;          // the live edge is the length again, not the clip
     (function loop(now) {
         if (dueToDraw(now || 0)) {
             const t = liveSamples / SR;   // playhead sits at the live edge
@@ -2936,7 +2943,28 @@ audioEl.addEventListener('ended', () => {
     if (B.classList.contains('rec')) resumeLiveWave();       // back to the live edge
 });
 
-addEventListener('resize', () => { if (!audioPanel.hidden) initWaveform(); });
+/* The strip is a canvas, so its backing store has to be told the size its CSS box
+   has become — and the box changes without the window changing at all: opening
+   the AI panel or the rail narrows .main, and the transition means it changes
+   over a third of a second rather than at once. Listening for window resize
+   missed every one of those, so the canvas kept drawing at its old width and the
+   bars scattered.
+
+   A bar is a fixed slice of TIME, not of width, so nothing has to be recomputed
+   here — measure, then redraw whatever is current. */
+function fitCanvas() {
+    if (audioPanel.hidden) return;
+    const r = devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    if (canvas.width === Math.round(w * r) && canvas.height === Math.round(h * r)) return;
+    canvas.width  = w * r;
+    canvas.height = h * r;
+    canvas.getContext('2d').setTransform(r, 0, 0, r, 0, 0);
+    drawWaveform(liveRaf ? liveSamples / SR : audioEl.currentTime);
+}
+if (window.ResizeObserver) new ResizeObserver(fitCanvas).observe(canvas);
+addEventListener('resize', fitCanvas);
 
 // ===== SEEK =====
 // Click on canvas: offset from center → time delta
