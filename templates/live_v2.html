@@ -3120,12 +3120,33 @@ playPauseBtn.addEventListener('click', () => {
 });
 
 audioEl.addEventListener('ended', () => {
+    /* What was played was a copy of the lecture as it stood when play was
+       pressed, so reaching its end is not reaching the end of the lecture --
+       the lecture kept going while you listened. If it has grown past where
+       this copy stopped, take a fresh one and carry on from the same second.
+       That repeats for as long as there is more, so playback follows the
+       recording instead of stopping short of it.
+
+       Each hand-over costs a beat, because the source is being reloaded. Gapless
+       would mean feeding one stream through MediaSource rather than replacing a
+       file, which is a different piece of work. */
+    if (B.classList.contains('rec')) {
+        const at   = audioEl.currentTime;
+        const live = liveSamples / SR;
+        if (live > at + 0.35) { playFrom(at); return; }   // more lecture exists
+        // caught up with the microphone: the strip belongs to the live edge again
+        playPauseBtn.textContent = '▶';
+        stopSyncLoop();
+        if (lastActiveSpan) lastActiveSpan.classList.add('active');
+        resumeLiveWave();
+        return;
+    }
+
     playPauseBtn.textContent = '▶';
     stopSyncLoop();
     if (decodedBuffer) drawWaveform(decodedBuffer.duration);
     // Keep last word lit after playback ends
     if (lastActiveSpan) lastActiveSpan.classList.add('active');
-    if (B.classList.contains('rec')) resumeLiveWave();       // back to the live edge
 });
 
 /* The strip is a canvas, so its backing store has to be told the size its CSS box
