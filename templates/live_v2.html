@@ -1903,8 +1903,15 @@ mic.addEventListener('click',()=>{
     startRecording();
   }else if(!B.classList.contains('paused')){
     setActivity('paused');roL.textContent='paused';
+    /* The capture loop returns early while paused, so meter() stops being
+       called and the bar keeps the width it had at the instant of the pause —
+       a level reading beside the word "paused". Nothing is arriving, so it
+       shows nothing. */
+    roFill.style.width='0%';
+    setConn('on','Live · paused');   // the socket is up; the microphone is not
   }else{
     setActivity('rec');roL.textContent='good';run();
+    setConn('on','Live · recording');
   }
 });
 
