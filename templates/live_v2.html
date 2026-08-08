@@ -1023,13 +1023,19 @@ body.ai-open .ai{transform:none}
 .lim-x svg{width:13px;height:13px}
 /* One mark of colour at the top, in the app's own indigo rather than a warning
    yellow — the panel is offering something, not reporting a fault. */
+/* Mark and title on one line: two stacked blocks made a header out of what is
+   really a single sentence. */
+.lim-head{display:flex;align-items:center;gap:11px;margin-bottom:18px}
 .lim-mark{
-  display:grid;place-items:center;width:38px;height:38px;border-radius:11px;
-  background:var(--primary-soft);color:var(--primary-ink);margin-bottom:13px;
+  display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
+  background:var(--primary-soft);color:var(--primary-ink);flex:0 0 auto;
 }
-.lim-mark svg{width:19px;height:19px}
-.lim-panel h2{font-size:20px;font-weight:700;letter-spacing:-.03em;margin-bottom:5px}
-.lim-sub{font-size:13.5px;line-height:1.6;color:var(--g6);margin-bottom:18px}
+.lim-mark svg{width:18px;height:18px}
+/* Carries the accent rather than sitting in body colour — it is the line the
+   panel exists to deliver. */
+.lim-panel h2{
+  font-size:20px;font-weight:700;letter-spacing:-.03em;color:var(--primary-ink);
+}
 
 .lim-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
 .lim-col{
@@ -1065,17 +1071,20 @@ body.ai-open .ai{transform:none}
 /* the numbers are numbers, so they are set as numbers */
 .lim-col li b{font-family:var(--mono);font-weight:500;font-variant-numeric:tabular-nums}
 
-.lim-acts{display:flex;align-items:center;gap:11px}
+.lim-acts{display:flex;flex-direction:column;align-items:center;gap:8px}
 /* Sized to its words. Filling the row made it the loudest thing in a panel
    whose job is to say what happened. */
 .lim-pro{
-  padding:9px 16px;border-radius:9px;border:0;
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 18px;border-radius:9px;border:0;
   background:var(--primary);color:#fff;
   font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;
   transition:background .14s var(--e);
 }
 .lim-pro:hover{background:var(--primary-hi)}
-.lim-note{font-size:12px;color:var(--g5)}
+/* the same bolt the credits line carries, so the button names what it buys */
+.lim-pro svg{width:15px;height:15px}
+.lim-note{font-size:12px;color:var(--g5);text-align:center}
 
 /* ── voice picker popup — mirrors voice-picker.js's .vp-* structure ──
    row click selects · name click plays (turns theme) · dblclick renames
@@ -1471,13 +1480,14 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
     <button class="lim-x" id="limLater" type="button" aria-label="Close">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
-    <div class="lim-mark">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="8.8"/><path d="M12 7.4V12l3 1.9"/>
-      </svg>
+    <div class="lim-head">
+      <span class="lim-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.8"/><path d="M12 7.4V12l3 1.9"/>
+        </svg>
+      </span>
+      <h2 id="limTitle">Free minutes used up</h2>
     </div>
-    <h2 id="limTitle">Free minutes used up</h2>
-    <p class="lim-sub">What you recorded is saved.</p>
 
     <div class="lim-cols">
       <div class="lim-col">
@@ -1507,7 +1517,10 @@ body.ai-open .aiwrap{opacity:0;pointer-events:none}
     </div>
 
     <div class="lim-acts">
-      <button class="lim-pro" id="limPro" type="button">Switch to Pro</button>
+      <button class="lim-pro" id="limPro" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg>
+        Switch to Pro
+      </button>
       <span class="lim-note" id="limNote"></span>
     </div>
   </div>
