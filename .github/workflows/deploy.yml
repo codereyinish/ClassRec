@@ -27,6 +27,15 @@ jobs:
             mkdir -p backups
             sqlite3 data/classrec.db ".backup 'backups/classrec-$(date +%Y%m%d-%H%M%S).db'"
 
+            # The newest five, and no more. A copy taken at deploy time is useful
+            # for as long as it takes to see whether the migration worked; past
+            # that, restoring it would throw away every lecture recorded since,
+            # so it stops being something anyone would use. Keeping them all just
+            # fills the disk for a reason nobody will connect to the outage.
+            # This is not a backup against losing the machine — it sits on the
+            # same disk. That is a different copy, somewhere else, on a schedule.
+            ls -t backups/*.db 2>/dev/null | tail -n +6 | xargs -r rm --
+
             # The schema is brought up to what this code expects, BEFORE the code
             # starts. Restarting first would put new code in front of an old
             # database, which is the failure this line exists to prevent.
