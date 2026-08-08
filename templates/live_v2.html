@@ -3109,10 +3109,17 @@ function stopSyncLoop() {
 
 // ===== CONTROLS =====
 playPauseBtn.addEventListener('click', () => {
-    if (!buildWavUrl() && !window.recordingUrl) return;   // nothing captured yet
     if (audioEl.paused) {
-        if (!audioEl.src) audioEl.src = window.recordingUrl;
+        // built here rather than on every click: pausing used to rebuild too,
+        // which revoked the URL the element was in the middle of playing
+        if (!buildWavUrl() && !window.recordingUrl) return;   // nothing captured yet
         stopLiveWave();          // the playhead is the user's now, not the live edge
+        /* buildWavUrl revokes the URL it replaces, so a source set on an earlier
+           press points at a blob that no longer exists — the browser cannot load
+           it, play() fails quietly, and the playhead never moves. Whenever the
+           copy has been rebuilt, the source is replaced and the position carried
+           across, since assigning src winds it back to zero. */
+        if (audioEl.src !== window.recordingUrl) { playFrom(audioEl.currentTime || 0); return; }
         audioEl.play();
         playPauseBtn.textContent = '⏸';
         startSyncLoop();
