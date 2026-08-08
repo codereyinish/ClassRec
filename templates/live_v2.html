@@ -46,6 +46,8 @@
   /* skipping → amber: a step aside, not a failure, so it sits warm of the
      theme without borrowing red's alarm */
   --amber:#E9A23B; --amber-ink:#A65B12; --amber-soft:rgba(233,162,59,.12);
+  /* the red counterpart, for the one panel that has to say stop */
+  --red-soft:#FDECEC;
 
   /* transcript block ground: violet-tinted, one step off white — enough to draw a
      border against without turning the column into a row of cards */
@@ -107,6 +109,7 @@
      at 2.9–3.6, so each has a light counterpart that clears 8:1. */
   --green-ink:var(--green-on-dark);
   --red-ink:var(--red-on-dark);
+  --red-soft:#3A2029;
   --amber-ink:var(--amber-on-dark);
   --blush-ink:var(--blush-on-dark);
   --corn-deep:#9DAEFF;
@@ -1028,13 +1031,14 @@ body.ai-open .ai{transform:none}
 .lim-head{display:flex;align-items:center;gap:11px;margin-bottom:18px}
 .lim-mark{
   display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
-  background:var(--primary-soft);color:var(--primary-ink);flex:0 0 auto;
+  background:var(--red-soft);color:var(--red-ink);flex:0 0 auto;
 }
 .lim-mark svg{width:18px;height:18px}
-/* Carries the accent rather than sitting in body colour — it is the line the
-   panel exists to deliver. */
+/* Red, not the accent. This line reports a stop, and indigo is the colour the
+   panel uses for the thing it is selling — putting the two in the same colour
+   made the limit read as an offer. */
 .lim-panel h2{
-  font-size:20px;font-weight:700;letter-spacing:-.03em;color:var(--primary-ink);
+  font-size:20px;font-weight:700;letter-spacing:-.03em;color:var(--red-ink);
 }
 
 .lim-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
