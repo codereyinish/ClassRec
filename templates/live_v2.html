@@ -3626,10 +3626,15 @@ async function saveSession(){
 
 /* Signing in mid-session changes who the page is for, so the lists it loaded as
    a visitor — empty — are fetched again as them. */
+/* Each part stands on its own. They ran in a chain inside a caller that swallows
+   errors, so one of them throwing took the rest with it silently — which is how
+   the usage panel sat at zero while the account had been charged eighteen
+   minutes: it was simply never asked for. */
 async function refreshForUser(){
-  await loadVoices();
-  await seedTitles();
-  await loadUsage();
+  for(const step of [loadUsage,loadVoices,seedTitles]){
+    try{ await step(); }
+    catch(e){ console.warn('[classrec] '+step.name+' failed', e); }
+  }
 }
 
 /* ── what the account has been charged ───────────────────────────────────────
@@ -3763,6 +3768,10 @@ loadVoices(); loadCourses(); applyAutoTitle(); seedTitles();
     if(!window.Clerk)return;
     if(window.Clerk.session)await refreshForUser();
     window.Clerk.addListener(({user})=>{ refreshForUser(); });
+    /* A second chance for the usage, a moment later. The panel is built by
+       auth.js once Clerk settles, and the numbers above can be in hand before
+       anything exists to put them in. */
+    setTimeout(()=>{ if(window.Clerk&&window.Clerk.session)loadUsage(); },1200);
   }catch{}
 })();
 </script>
