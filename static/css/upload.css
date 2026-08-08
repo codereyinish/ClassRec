@@ -18,6 +18,14 @@
   --sans:'DM Sans',system-ui,sans-serif;
   --mono:'DM Mono',ui-monospace,monospace;
   --e:cubic-bezier(.2,.7,.3,1);
+
+  /* base.html's own names, pointed at the new palette. Anything it styles with
+     them — cards, the shared button, the Clerk controls — follows without each
+     rule having to be found and overridden. */
+  --bg:var(--g0); --bg-surface:var(--block); --bg-elevated:var(--g2);
+  --border:var(--rule); --text:var(--g8); --text-muted:var(--g6);
+  --accent:var(--primary); --accent-dim:var(--primary-soft);
+  --accent-glow:transparent;
 }
 :root[data-theme="dark"]{
   --g0:#17141F; --g1:#1D1927; --g2:#262133; --g3:#2F2940;
@@ -34,6 +42,51 @@ body{
   font-family:var(--sans);
   -webkit-font-smoothing:antialiased;
 }
+
+/* ── the chrome base.html draws ──
+   Its header is a dark bar with a hardcoded background, an amber dot that
+   pulses, a serif wordmark and a link set in uppercase mono. All of that is the
+   earlier theme, and a page in the new one under a header in the old one reads
+   as two applications. Overridden here rather than in base.html, which the other
+   pages still depend on. */
+.site-header{
+  background:var(--g0);
+  border-bottom:1px solid var(--rule);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+.site-logo{
+  font-family:var(--sans);
+  font-size:16.5px;font-weight:700;letter-spacing:-.02em;
+  color:var(--g8);
+}
+/* Indigo, and still. The glow and the pulse were saying something is happening
+   when nothing is — the mic on the live page is what animates, and only while
+   it is recording. */
+.site-logo-dot{
+  width:8px;height:8px;
+  background:var(--theme);
+  box-shadow:none;animation:none;
+}
+.back-link{
+  font-family:var(--sans);
+  font-size:13.5px;letter-spacing:0;text-transform:none;
+  color:var(--g6);font-weight:500;
+}
+.back-link:hover{color:var(--g8)}
+/* "My Lectures" and its neighbours, set in mono at 12px like the back link */
+.header-nav-link{
+  font-family:var(--sans);
+  font-size:13.5px;letter-spacing:0;font-weight:500;
+  color:var(--g6);
+}
+.header-nav-link:hover{color:var(--g8)}
+/* The shared button asks for near-black text, which was right on amber and is
+   not on indigo — white clears 4.57 there, dark text 3.3. */
+.btn-primary{
+  color:#fff;font-family:var(--sans);font-size:13.5px;font-weight:500;
+  border-radius:9px;
+}
+.btn-primary:hover{background:var(--primary-hi)}
 
 /* ── the page's own header ── */
 .up-head{text-align:center;margin:52px auto 30px;padding:0 24px}
