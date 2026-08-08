@@ -3642,7 +3642,13 @@ async function refreshForUser(){
    socket sends the total each time a chunk is billed, which is the only moment
    it can change, and a paused recording bills nothing and so sends nothing. */
 let USAGE_ALLOWANCE={live:20*60,upload:30*60};
+/* Kept because the panel is built by auth.js after Clerk settles, which can be
+   later than the first answer from the server — and later than the first chunk
+   billed. Without this the numbers arrive before anything exists to show them. */
+let USAGE_LAST={live:null,upload:null};
 function showUsage(liveSeconds,uploadSeconds){
+  if(liveSeconds!=null)USAGE_LAST.live=liveSeconds;
+  if(uploadSeconds!=null)USAGE_LAST.upload=uploadSeconds;
   const set=(id,used,limit)=>{
     const t=document.getElementById(id+'-usage-text');
     const b=document.getElementById(id+'-usage-bar');
@@ -3663,10 +3669,20 @@ async function loadUsage(){
   }catch{}
 }
 /* The panel is built by auth.js, so this listens for the click rather than
-   owning the markup. */
+   owning the markup — in the CAPTURE phase, because auth.js's own handler calls
+   stopPropagation() on the avatar and a listener waiting for the click to bubble
+   never hears it. Capture runs on the way down, before the target.
+
+   auth.js then writes its localStorage copy into the panel, so the account's own
+   numbers are put back once they are in hand: last known immediately, so the
+   panel is never blank, and the fetched ones a moment later. */
 document.addEventListener('click',e=>{
-  if(e.target.closest('#user-avatar'))setTimeout(loadUsage,0);
-});
+  if(!e.target.closest('#user-avatar'))return;
+  setTimeout(()=>{
+    showUsage(USAGE_LAST.live,USAGE_LAST.upload);
+    loadUsage();
+  },0);
+},true);
 
 /* ── enrolment : hold 10s → name it → saved ──────────────────────────────────
    The sample is kept as it streams, wrapped as a WAV on release, and posted to
