@@ -932,19 +932,24 @@ body.ai-open .ai{transform:none}
 .ctx-chip{
   display:inline-flex;align-items:center;gap:5px;max-width:100%;
   padding:3px 4px 3px 7px;border-radius:7px;
-  background:var(--g2);color:var(--g7);
-  font-size:12px;font-weight:500;
-  border:1px solid transparent;transition:.14s var(--e);
+  /* the same ground the block itself takes when a chip points at it, so the two
+     are recognisably one thing at both ends */
+  background:var(--primary-soft);color:var(--primary-ink);
+  font-size:12px;font-weight:600;
+  border:1px solid var(--lock-deep);transition:.14s var(--e);
 }
-.ctx-chip:hover{border-color:var(--g4);background:var(--g3)}
-.ctx-chip .ico{width:13px;height:13px;flex:0 0 auto;color:var(--g6)}
+.ctx-chip:hover{background:var(--g0)}
+:root[data-theme="dark"] .ctx-chip:hover{background:var(--g1)}
+.ctx-chip .ico{width:13px;height:13px;flex:0 0 auto;color:var(--primary-ink);opacity:.75}
 .ctx-chip .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Removing something is the one destructive control here, so it is the one that
+   reads as a warning rather than as more indigo. */
 .ctx-chip .x{
   display:grid;place-items:center;width:15px;height:15px;border-radius:4px;
-  color:var(--g6);flex:0 0 auto;
+  color:var(--red-ink);flex:0 0 auto;
 }
 .ctx-chip .x svg{width:9px;height:9px}
-.ctx-chip .x:hover{color:var(--g8);background:var(--g4)}
+.ctx-chip .x:hover{color:#fff;background:var(--red)}
 
 /* One control, two glyphs — the sun shows in dark and the moon in light, so the
    icon is what you are switching TO rather than a badge of where you are. */
