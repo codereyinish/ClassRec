@@ -4,6 +4,7 @@ python-multipart==0.0.6
 python-dotenv==1.0.0
 python-magic==0.4.27
 Jinja2==3.1.6
+PyJWT[crypto]==2.13.0
 sentry-sdk[fastapi]
 onnxruntime==1.20.1
 numpy>=1.24.0

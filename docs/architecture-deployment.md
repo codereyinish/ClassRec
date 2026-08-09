@@ -14,14 +14,13 @@ failure, so future-me doesn't have to re-read the workflow to answer
 ## The pipeline
 
 ```
-  git pull ──> backup ──> prune ──> alembic upgrade ──> systemctl restart
-     22          39         48            55                  57
-      │           │                        │                   │
-   files on    copy to                 schema is           process is
-   disk are    backups/                rewritten           replaced
-   replaced                                                     ▲
-                                                                │
-                       app is LIVE on old code ─────────────────┘
+  git pull ──> pip install ──> backup ──> prune ──> alembic ──> systemctl restart
+      │             │             │                    │               │
+   files on     packages       copy to              schema is      process is
+   disk are     the new code   backups/             rewritten      replaced
+   replaced     needs                                                  ▲
+                                                                       │
+                       app is LIVE on old code ────────────────────────┘
                        through every step before this one
 ```
 
@@ -148,6 +147,38 @@ schedule, and it is not built.
 
 ---
 
+## Decision 5 — dependencies are installed from the file, every deploy · **Accepted**
+
+`requirements.txt` is the only thing that tells the droplet what to install. A
+package added by hand to a local env and never written down does not exist as far
+as the server is concerned.
+
+```
+  local env   pip install PyJWT        ← code works, list unchanged
+  the file    (no PyJWT line)          ← the server's only instruction
+  droplet     no PyJWT                 ← import jwt → ModuleNotFoundError
+```
+
+**Why this failure is worse than the others on this page.** Imports run at
+startup, not per request. So the deploy finishes green, the restart succeeds as a
+*command*, and the app then dies two seconds later — repeatedly, because systemd
+restarts it. `systemctl is-active` reports `active` throughout. Every page 502s.
+
+This is the one failure mode where **the workflow's exit code tells you nothing.**
+It took production down on 2026-08-09; the earlier `sqlite3` failure never did,
+because it stopped the deploy instead.
+
+**Consequences:**
+- Adding an import means adding the line. The package name and the module name
+  routinely differ (`PyJWT`→`jwt`, `Pillow`→`PIL`), so neither list greps against
+  the other.
+- The install runs **before** the migration: alembic comes from this file too, and
+  a migration can need something that arrived with it.
+- Verifying a deploy means asking the app for a page, not asking systemd for a
+  status.
+
+---
+
 ## What survives what
 
 | failure | old schema | old data | app | action |
@@ -155,6 +186,7 @@ schedule, and it is not built.
 | backup step fails | intact | intact | **still serving old code** | fix, push again |
 | migration errors mid-way | **partly migrated**, consistent | intact | **still serving old code** | fix that migration, push again — it resumes |
 | killed / rebooted mid-migration | **partly migrated**, consistent | intact | restarts on old code | same — resume |
+| **a needed package is missing** | migrated | intact | **crash-loop, every page 502** | deploy reports **success** — install it, restart |
 | **migration succeeds, new code breaks on it** | **gone** | at risk | broken | **restore from `backups/`** |
 
 Restore is manual, and the code must go back too or it re-breaks:
@@ -183,10 +215,9 @@ choice between a broken app and losing five days of lectures.
 
 - [x] Auto-deploy on push to `main` (`git pull` + restart)
 - [x] Alembic runs before the restart
-- [x] Backup + prune-to-five written into the workflow
-- [ ] **Backup has never successfully run** — the committed version calls the
-      `sqlite3` *command*, absent on the droplet, which is where the deploy
-      stalled. Fix (Python's stdlib `sqlite3` module, always present) is written
-      but uncommitted.
+- [x] Backup + prune-to-five, running for real since 2026-08-09
+- [x] `pip install -r requirements.txt` on every deploy
+- [ ] Verify the deploy by **requesting a page**, not by reading `systemctl` — the
+      status lies during a crash-loop
 - [ ] Copy backups **off** the droplet — same-disk copies don't survive the machine
 - [ ] Close the restart gap: fresh directory + symlink switch, warmed second process

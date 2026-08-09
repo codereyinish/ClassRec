@@ -21,15 +21,24 @@ jobs:
             cd /opt/classrec
             git pull origin main
 
-            # A copy before the schema is touched. WAL mode keeps recent writes in
-            # classrec.db-wal, so copying the .db file alone loses them — .backup
-            # asks SQLite for a consistent copy of everything.
             # The interpreter the app itself runs on, falling back to the system
             # one. Everything below goes through it, so there is one assumption
             # about this server rather than one per line.
             PY=venv/bin/python
             [ -x "$PY" ] || PY=$(command -v python3)
 
+            # New code can need packages the server has never installed, and
+            # nothing else here would notice: the imports run at startup, so the
+            # app dies in the restart, after the deploy has reported success.
+            # That is how PyJWT — missing from requirements.txt as well as from
+            # the server — took production down rather than failing the deploy.
+            # Before the migration, because alembic is installed from this file
+            # too, and a migration can need something that arrived with it.
+            "$PY" -m pip install -q -r requirements.txt
+
+            # A copy before the schema is touched. WAL mode keeps recent writes in
+            # classrec.db-wal, so copying the .db file alone loses them — .backup
+            # asks SQLite for a consistent copy of everything.
             mkdir -p backups
             # Python's own sqlite3 module, not the sqlite3 command — the command
             # is a separate package that a server has no reason to have, and its
