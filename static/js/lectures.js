@@ -6,6 +6,26 @@
 const listEl   = document.getElementById("lecturesList");
 const detailEl = document.getElementById("lectureDetail");
 
+/* Every call to our server goes through here so the token is attached in one
+   place rather than at each call site. getToken() is asked each time rather than
+   cached: Clerk's tokens last about a minute, and the SDK hands back the current
+   one or quietly mints a fresh one from the session cookie.
+
+   Without it these requests arrive anonymous, and a lecture list filtered by
+   user_id is empty for everyone — which is what this page showed. */
+async function authHeaders() {
+    try {
+        const t = window.Clerk && window.Clerk.session
+            ? await window.Clerk.session.getToken() : null;
+        return t ? { Authorization: 'Bearer ' + t } : {};
+    } catch { return {}; }
+}
+
+async function api(path, opts = {}) {
+    const auth = await authHeaders();
+    return fetch(path, { ...opts, headers: { ...(opts.headers || {}), ...auth } });
+}
+
 function fmtDate(s) {
     if (!s) return "";
     const d = new Date(s.replace(" ", "T") + "Z");   // stored as "YYYY-MM-DD HH:MM:SS" UTC
@@ -21,7 +41,7 @@ async function loadList() {
     listEl.innerHTML = `<div class="lectures-empty">Loading…</div>`;
     let sessions = [];
     try {
-        sessions = await (await fetch("/sessions")).json();
+        sessions = await (await api("/sessions")).json();
     } catch {
         listEl.innerHTML = `<div class="lectures-empty">Could not load lectures.</div>`;
         return;
@@ -45,7 +65,7 @@ async function loadList() {
         card.querySelector(".lecture-card-del").addEventListener("click", async (e) => {
             e.stopPropagation();
             if (!confirm(`Delete "${s.title}"?`)) return;
-            await fetch(`/sessions/${s.id}`, { method: "DELETE" });
+            await api(`/sessions/${s.id}`, { method: "DELETE" });
             loadList();
         });
         listEl.appendChild(card);
@@ -56,7 +76,7 @@ async function loadList() {
 async function openDetail(id) {
     let s;
     try {
-        const res = await fetch(`/sessions/${id}`);
+        const res = await api(`/sessions/${id}`);
         if (!res.ok) return;
         s = await res.json();
     } catch { return; }
@@ -77,3 +97,16 @@ function escapeHtml(str) {
 }
 
 loadList();
+
+/* That first call runs before Clerk has finished loading, so it goes out without
+   a token and comes back empty — which is what this page showed. The load event
+   waits for the async Clerk script, so the SDK is present by here, and its
+   listener fires with the current state and again whenever the signed in user
+   changes. load() is auth.js's to call; this only listens for the result.
+
+   The detail view is left alone: re-running while someone is reading a lecture
+   would throw them back to the list. */
+window.addEventListener("load", () => {
+    if (!window.Clerk) return;
+    window.Clerk.addListener(() => { if (!listEl.hidden) loadList(); });
+});
