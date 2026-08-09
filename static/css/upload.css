@@ -1,7 +1,7 @@
 /* ── Upload, in the app's own palette ────────────────────────────────────────
    base.html carries the earlier theme: near-black, amber, DM Serif Display for
    headings and DM Mono for body text. This page belongs to the same app as
-   /live-v2, so it uses that palette and that type — DM Sans for everything, and
+   /live, so it uses that palette and that type — DM Sans for everything, and
    DM Mono kept for the numbers it was made for.
 
    The tokens are redeclared rather than imported because base.html defines its

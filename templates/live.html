@@ -1,174 +1,448 @@
-{% extends "base.html" %}
+<!doctype html>
+<html lang="en" data-clerk-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClassRec — Live</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-{% block head %}
-<title>Live Recording </title>
+<!-- Everything base.html loads for the other pages. This template does not extend
+     it — it carries its own head — so the shared scripts are named here instead:
+     Sentry, the usage tracker auth.js reads its numbers from, the Clerk SDK, and
+     auth.js itself, which mounts the avatar into #clerk-auth-mount below. -->
+<script src="https://js.sentry-cdn.com/81af2122c85b4d3ba3e97dc0c747d1ff.min.js" crossorigin="anonymous"></script>
+<script src="/static/js/tracker.js?v={{ asset_version }}"></script>
+<script
+    async
+    crossorigin="anonymous"
+    data-clerk-publishable-key="{{ clerk_key }}"
+    src="https://ethical-macaw-49.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+    type="text/javascript"
+></script>
+<script src="/static/js/auth.js?v={{ asset_version }}"></script>
+
+<!-- The page's own styling. Split three ways so no one file carries it all:
+     the shell here, the saved-voice popup and the AI panel beside it. The three
+     share no selector and no keyframe name, so this order is free. -->
 <link rel="stylesheet" href="/static/css/live.css?v={{ asset_version }}">
 <link rel="stylesheet" href="/static/css/voice-picker.css?v={{ asset_version }}">
 <link rel="stylesheet" href="/static/css/doubt-panel.css?v={{ asset_version }}">
-{% endblock %}
+</head>
+<script>
+/* Before the first paint, deliberately: applying this after the page renders
+   shows a white flash on the way into a dark page. A saved choice wins over the
+   system's, because someone who chose is telling you something the OS is not. */
+(function(){
+  try{
+    var saved=localStorage.getItem('classrecTheme');
+    var dark=saved?saved==='dark'
+                  :matchMedia('(prefers-color-scheme: dark)').matches;
+    if(dark)document.documentElement.dataset.theme='dark';
+  }catch(e){}
+})();
+</script>
+<body class="rail-open">
 
-{% block content %}
-    <div class="page-title">
-        <h1>Live <em>Recording</em></h1>
-        <p>Record and transcribe in real-time</p>
+<div class="top">
+  <div class="mark">
+    <span class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 11v2"/>
+      </svg>
+    </span>ClassRec
+  </div>
+  <div class="top-r">
+    <button class="themebtn" id="themeBtn" type="button" aria-label="Switch theme" title="Switch theme">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+      </svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 2.6v2.2M12 19.2v2.2M4.2 12H2M22 12h-2.2M6.3 6.3L4.8 4.8M19.2 19.2l-1.5-1.5M17.7 6.3l1.5-1.5M4.8 19.2l1.5-1.5"/>
+      </svg>
+    </button>
+    <button class="btn" id="newSess">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>
+        <path d="M12 12v5M9.5 14.5h5"/>
+      </svg>New session
+    </button>
+    <!-- same six tags the current live.html offers, and the same name field: you are
+         alerted when the professor says one of them. Click, not hover — a hover menu
+         over a live session is too easy to lose. -->
+    <div class="alertwrap">
+      <button class="btn" id="alertBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>
+        </svg>Alerts<span class="alert-count" id="alertCount">3</span>
+      </button>
+      <div class="alert-menu" id="alertMenu">
+        <div class="alert-head">Alert me for</div>
+        <div id="alertRows"></div>
+        <label class="alert-name" id="alertNameRow">
+          <span class="tagico" style="color:var(--blush-ink)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3.4"/><path d="M15.4 8.6v4.6a2.6 2.6 0 0 0 5.2 0V12A8.6 8.6 0 1 0 17 18.8"/>
+            </svg>
+          </span>
+          <input class="alert-name-input" id="alertNameInput" placeholder="Custom keywords" autocomplete="off" disabled>
+          <span class="cbox">✓</span>
+        </label>
+      </div>
+    </div>
+    <!-- the header's other two pieces, as base.html has them -->
+    <a href="/lectures" class="btn" id="lecturesLink">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 4h11a1 1 0 0 1 1 1v11"/><rect x="4" y="8" width="12" height="12" rx="2"/>
+      </svg>My Lectures
+    </a>
+    <div id="clerk-auth-mount"></div>
+  </div>
+</div>
+
+<div class="shell">
+
+  <button class="handle" id="handle" aria-label="Show recording controls">
+    <span class="ring"></span>
+    <span class="bub">
+      <svg viewBox="0 0 24 24" fill="none">
+        <rect x="8" y="1" width="8" height="13" rx="4" fill="currentColor"/>
+        <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+        <line x1="12" y1="18" x2="12" y2="22" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+        <line x1="8" y1="22" x2="16" y2="22" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+      </svg>
+    </span>
+    <span class="minilock">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+      </svg>
+    </span>
+  </button>
+
+  <div class="lockhint" id="lockhint">Hold mic to capture professor's voice</div>
+
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="row">
+        <label class="sw"><input type="checkbox" id="lockToggle"><span class="tr"></span></label>
+        <span>Lock Mode</span>
+      </div>
+      <button class="collapse" id="collapse" aria-label="Hide recording controls">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>
+        </svg>
+      </button>
     </div>
 
-    <audio id="recordingAudio" style="display:none"></audio>
+    <button class="btn voicebtn" id="voicebtn">
+      <span class="playbtn" aria-label="Locked voice">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 11v2"/>
+        </svg>
+      </span>
+      <span class="txt" id="voicebtnTxt">Select voice</span>
+      <span class="c">▾</span>
+    </button>
 
-    <div class="container">
-        <!-- Left: Controls -->
-        <div class="controls">
-            <div class="voice-lock-toggle-wrapper">
-                <label class="voice-lock-toggle">
-                    <input type="checkbox" id="lockToggle">
-                    <span class="toggle-track"></span>
-                </label>
-                <span class="toggle-label">Lock Mode</span>
-            </div>
-
-            <!-- Pick a saved professor voice (dropdown-style trigger opens the picker) -->
-            <button class="voice-dropdown" id="pickVoiceBtn" type="button">
-                <span id="selectedVoice">Select voice</span>
-                <span class="voice-dropdown-caret">▾</span>
-            </button>
-            <div class="sample-audio-wrapper" id="sampleAudioWrapper" style="display:none">
-                <p class="sample-label">Locked Audio</p>
-                <audio id="sampleAudio" controls></audio>
-            </div>
-
-            <div class="mic-wrapper">
-                <div class="mic-glow-ring" id="micGlowRing">
-                    <div class="mic-bubble" id="micBubble">
-                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="mic-svg">
-                            <rect x="8" y="1" width="8" height="13" rx="4" fill="currentColor"/>
-                            <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-                            <line x1="12" y1="18" x2="12" y2="22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                            <line x1="8" y1="22" x2="16" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                        </svg>
-                    </div>
-                </div>
-                <span class="lock-badge" id="lockBadge">🔒</span>
-                <div class="lock-hint" id="lockHint">Hold mic to capture professor's voice</div>
-            </div>
-
-            <div class="mic-controls-spacer">
-                <button class="pause-btn" id="pauseBtn" style="display:none">⏸ Pause</button>
-                <div id="status" class="status idle">
-                   Click the microphone to start recording
-                </div>
-            </div>
-
-            <div class="device-selector">
-                <label for="micSelect">🎤 Microphone:</label>
-                <select id ="micSelect"></select>
-            </div>
-
-            <div class="instructions">
-                <p class="instructions-title">How to use</p>
-                <p>1. Select <strong>your mic</strong> above</p>
-                <p> 2. Set <strong> Alert Preferences </strong></p>
-                <p>2. Click the mic &amp; allow access</p>
-                <p>3. Speak naturally</p>
-                <p>4. Transcription appears live</p>
-                <p>5. Click again to stop</p>
-            </div>
+    <div class="sect tight">
+      <div class="mic-wrap">
+        <span class="lockbadge">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="10.5" width="16" height="11" rx="2.5"/>
+            <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <div class="glow" id="mic">
+          <span class="bubble">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect x="8" y="1" width="8" height="13" rx="4" fill="currentColor"/>
+              <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <line x1="12" y1="18" x2="12" y2="22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <line x1="8" y1="22" x2="16" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
         </div>
-
-        <!-- Right: Transcript -->
-        <div class="transcript-area" id="transcriptArea">
-            <div class="transcript-sticky">
-            <div class="transcript-header">
-                <h2>Transcription</h2>
-                <div class="session-title" id="sessionTitle">
-                    <div class="title-dot"></div>
-                    <span id="titleText"></span>
-                </div>
-                <div class="alert-dropdown-wrapper">
-                    <button class="alert-toggle-btn">🔔 Alerts</button>
-                    <div class="alert-dropdown">
-                        <div class="alert-dropdown-title">Alert me for:</div>
-                        <label class="tag-option"><input type="checkbox" value="exam" checked> 🔴 Exam / Quiz</label>
-                        <label class="tag-option"><input type="checkbox" value="assignment" checked> 📝 Assignment</label>
-                        <label class="tag-option"><input type="checkbox" value="important" checked> ⭐ Important</label>
-                        <label class="tag-option"><input type="checkbox" value="attendance"> 📋 Attendance</label>
-                        <label class="tag-option"><input type="checkbox" value="classwork"> 📖 Classwork</label>
-                        <label class="tag-option">
-                            <input type="checkbox" id="nameCheck" value="name"> 🙋
-                            <input type="text" id="nameInput" placeholder="My name..." class="name-input" disabled>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Audio panel -->
-            <div id="audioPanel" class="audio-panel">
-                <div class="audio-panel-inner">
-                    <div class="audio-panel-body">
-                        <div class="audio-left">
-                            <button class="audio-btn-play" id="playPause">▶</button>
-                            <div class="time-display" id="timeDisplay">0:00.00</div>
-                        </div>
-                        <canvas id="waveform" class="waveform-canvas"></canvas>
-                    </div>
-                </div>
-            </div>
-            <!-- Collapse toggle — outside and below waveform -->
-            <button class="audio-panel-collapse" id="audioPanelCollapse" title="Toggle waveform">
-                <svg width="32" height="20" viewBox="0 0 32 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 16L16 5L29 16" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M3 11L16 0L29 11" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.45"/>
-                </svg>
-            </button>
-            </div><!-- end transcript-sticky -->
-
-            <div id="transcriptContent">
-                <div class="empty-state" id="emptyState">
-                    <div class="empty-state-icon">📝</div>
-                    <p>Start recording to see transcription appear here...</p>
-                </div>
-            </div>
-
-            <!-- Summary panel (hidden until generated) -->
-            <div class="summary-panel" id="summaryPanel">
-                <div class="summary-panel-header">
-                    <span class="summary-panel-title">✦ Summary</span>
-                    <button class="summary-close-btn" id="summaryCloseBtn">✕</button>
-                </div>
-                <div class="summary-body" id="summaryBody"></div>
-            </div>
-
-            <!-- Sticky at bottom of transcript-area panel -->
-            <div class="summary-bar" id="summaryBar">
-                <button class="summary-btn" id="summaryBtn">✦ Generate Summary</button>
-                <button class="summary-btn" id="saveTranscriptBtn">💾 Save</button>
-            </div>
-        </div>
+        <div class="mic-cap" id="cap">Click the microphone to start recording</div>
+      </div>
     </div>
 
-    <!-- Popup -->
-    <div class="overlay" id="overlay">
-        <div class="popup">
-            <div class="popup-header">
-                <div class="popup-title">Set lecture context </div>
-                <div class="popup-sub">Better context = better transcription</div>
-            </div>
-            <input class="popup-input" type="text" id="promptInput" placeholder="e.g. Java inheritance, polymorphism...">
-        <div class="generating" id="generating">
-            <div class="spin"></div>
-            Generating session title...
-        </div>
-        <div class="title-preview" id="titlePreview">
-            <span class="preview-label">Title</span>
-            <span class="preview-text" id="previewText"></span>
-        </div>
-        <div class="popup-actions">
-            <button class="btn-skip" id="btnSkip">Skip</button>
-            <button class="btn-start" id="btnStart">Start Recording →</button>
-        </div>
+    <div class="sect">
+      <div class="devwrap">
+      <div class="field" id="devField" style="margin-top:0">
+        <span class="fi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8.5 22h7"/>
+          </svg>
+        </span>
+        <span class="txt" id="devTxt">MacBook Pro Microphone</span>
+        <span class="c">▾</span>
+      </div>
+      <div class="devmenu" id="devMenu" role="listbox"></div>
+      </div>
     </div>
-    <script src="/static/js/live.js?v={{ asset_version }}"></script>
-    <script src="/static/js/audio-playback.js?v={{ asset_version }}"></script>
-    <script src="/static/js/voice-picker.js?v={{ asset_version }}"></script>
-    <script src="/static/js/save-transcript.js?v={{ asset_version }}"></script>
-    <script src="/static/js/doubt-panel.js?v={{ asset_version }}"></script>
-{% endblock %}
+
+    <div class="sect">
+      <div class="lbl">This session</div>
+      <div class="readout">
+        <div class="ro"><span>Elapsed</span><b id="roT" class="dim">00:00</b></div>
+        <div class="ro"><span>Words captured</span><b id="roW" class="dim">0</b></div>
+        <div class="ro"><span>Flagged</span><b id="roF" class="dim">0</b></div>
+        <div class="ro"><span>Backend</span><b id="conn" data-state="off">Idle</b></div>
+        <div class="meter">
+          <div class="meter-l"><span>Input level</span><span id="roL">—</span></div>
+          <div class="meter-bar"><div class="meter-fill" id="roFill"></div></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="wrap head">
+      <h1 contenteditable="true" spellcheck="false" aria-label="Session name" id="title"></h1>
+      <!-- class comes from a picker, date from the clock; together they name the session -->
+      <div class="meta">
+        <span class="classwrap">
+          <button class="classpick unset" id="classPick" type="button">Course name <span class="c">▾</span></button>
+          <div class="devmenu" id="classMenu" role="listbox"></div>
+        </span>
+        <span class="sep">·</span>
+        <span class="len">Length <b id="durTxt">0 min</b></span>
+        <!-- inside the meta row and pushed to its right end: it belongs with the
+             session's own details, and appears once a sentence is transcribed -->
+        <button class="btn" id="save">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>
+          </svg>Save
+        </button>
+      </div>
+    </div>
+
+    <!-- Playback belongs to a finished lecture, and a live session has no file to
+         scrub yet. Hidden until one exists, rather than showing the mock's 02:14
+         of audio that was never recorded. -->
+    <div class="wrap" id="audioBar" hidden><div class="audio">
+      <button class="play" id="pl">▶</button>
+      <div class="t"><b id="plAt">00:00</b> / <span id="plDur">00:00</span></div>
+      <canvas id="wv"></canvas>
+      <!-- rides above the playhead while dragging, so you can see where you are -->
+      <div class="wv-time" id="wvTime" hidden></div>
+      <audio id="recAudio" preload="metadata"></audio>
+    </div></div>
+
+    <div class="scroll"><div class="wrap">
+
+      <div class="empty">
+        <span class="empty-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h4"/>
+          </svg>
+        </span>
+        <div class="empty-line">Start recording to see the transcript here</div>
+      </div>
+
+      <div class="stream">
+
+    </div></div></div>
+
+    <button class="jump" id="jump" type="button" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>
+      </svg>
+      Jump to latest
+    </button>
+  </main>
+
+  <aside class="ai">
+    <div class="ai-top">
+      <button class="ai-x" id="aiX" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="ai-body">
+      <!-- Sits at the foot of the panel rather than the head: it is the last
+           thing above the field you are about to type in, so it reads as the
+           opening of a conversation instead of a page heading. -->
+      <div class="ai-hello">
+        <span class="ai-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.4l1.9 4.7 4.7 1.9-4.7 1.9L12 16.6l-1.9-4.7L5.4 10l4.7-1.9z"/>
+          </svg>
+        </span>
+        <h3>What do you want to know?</h3>
+      </div>
+      <div class="chips">
+        <button class="chip q-explain">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M8 8h7M8 11.5h5"/></svg>
+          Explain this in simpler terms
+        </button>
+        <button class="chip q-example">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9"/></svg>
+          Give me a worked example
+        </button>
+        <button class="chip q-exam">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6a1 1 0 0 1 1 1v1H8V4a1 1 0 0 1 1-1z"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M9 13.5l2 2 4-4"/></svg>
+          Is this likely on the exam?
+        </button>
+      </div>
+    </div>
+    <div class="ai-foot">
+      <!-- A box rather than a line: what is being asked about sits above the
+           question, and both belong to the same field. -->
+      <div class="composer">
+        <div class="ctx-chips" id="ctxChips"></div>
+        <textarea id="askInput" rows="1" placeholder="Ask anything…"></textarea>
+        <div class="composer-foot">
+          <button class="cbtn" id="ctxAdd" type="button" title="Add the block you are reading" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+          <button class="send" id="askSend" type="button" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="alt"><button>⚑ Flag without asking</button></div>
+    </div>
+  </aside>
+</div>
+
+<!-- New session: the class name is all we ask for, since the title is that plus today -->
+<!-- The free allowance, spent. Numbers are the server's own, not marketing:
+     20 and 30 minutes are FREE_LIVE_SECONDS and FREE_UPLOAD_SECONDS, seven
+     lectures is MAX_SESSIONS_PER_USER, five at once is MAX_SOCKETS_PER_USER. -->
+<div class="lim-overlay" id="limOverlay">
+  <div class="lim-panel" role="dialog" aria-modal="true" aria-labelledby="limTitle">
+    <button class="lim-x" id="limLater" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="lim-head">
+      <span class="lim-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.8"/><path d="M12 7.4V12l3 1.9"/>
+        </svg>
+      </span>
+      <h2 id="limTitle">Free minutes used up</h2>
+    </div>
+
+    <div class="lim-cols">
+      <div class="lim-col">
+        <h3>Free</h3>
+        <ul>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>20</b> min live</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>30</b> min uploads</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Last <b>7</b> lectures</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>1</b> recording at a time</span></li>
+          <li><svg class="bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg><span><b>20</b> AI credits</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>1</b> summary a day</span></li>
+        </ul>
+      </div>
+      <div class="lim-col pro">
+        <h3>Pro <em>Recommended</em></h3>
+        <ul>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited live</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Unlimited uploads</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Every lecture kept</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Record as many as you like</span></li>
+          <li><svg class="bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg><span><b>300</b> AI credits</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Summaries without limit</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Flashcards, quizzes, reading</span></li>
+          <li><svg class="tk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Add your own files as context</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="lim-acts">
+      <button class="lim-pro" id="limPro" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg>
+        Switch to Pro
+      </button>
+      <span class="lim-note" id="limNote"></span>
+    </div>
+  </div>
+</div>
+
+<div class="vp-overlay" id="ns">
+  <div class="vp-panel ctx-panel" role="dialog" aria-label="New session">
+    <button class="ctx-x" id="nsX" type="button" aria-label="Cancel">✕</button>
+    <div class="vp-title">New session</div>
+
+    <label class="ns-label" for="nsInput">Session name</label>
+    <input class="ctx-input" id="nsInput" placeholder="e.g. Chain rule &amp; composite functions" autocomplete="off">
+
+    <label class="ns-label" id="nsClassLabel">Class</label>
+    <div class="ns-classfield" id="nsClassField">
+      <button class="ctx-input ns-classpick" id="nsClassPick" type="button">
+        <span id="nsClassTxt">Select class</span><span class="c">▾</span>
+      </button>
+      <div class="devmenu" id="nsClassMenu" role="listbox"></div>
+      <!-- With no classes yet there is nothing to select, so the field gives way
+           to the one thing you can actually do here. -->
+      <div class="ns-addfirst" id="nsAddFirst"></div>
+    </div>
+
+    <div class="ns-err" id="nsErr"></div>
+    <div class="ctx-foot">
+      <button class="btn ctx-skip" id="nsCancel" type="button">Skip</button>
+      <button class="btn solid" id="nsCreate" type="button">Create session</button>
+    </div>
+  </div>
+</div>
+
+<!-- Asked on the way into a session, from either entry point. Skip records without
+     context; the cross abandons the whole thing and leaves the page as it was. -->
+<div class="vp-overlay" id="ctx">
+  <div class="vp-panel ctx-panel" role="dialog" aria-label="Set lecture context">
+    <button class="ctx-x" id="ctxX" type="button" aria-label="Cancel">✕</button>
+    <div class="vp-title">Set lecture context</div>
+    <div class="ctx-sub">Better context = better transcription</div>
+    <input class="ctx-input" id="ctxInput" placeholder="e.g. Java inheritance, polymorphism…" autocomplete="off">
+    <div class="ctx-foot">
+      <button class="btn ctx-skip" id="ctxSkip" type="button">Skip</button>
+      <button class="btn solid" id="ctxStart" type="button">Start recording →</button>
+    </div>
+  </div>
+</div>
+
+<div class="vp-overlay" id="vp">
+  <div class="vp-panel" role="dialog" aria-label="Pick a voice">
+    <div class="vp-title">Pick a voice</div>
+    <div class="vp-list" id="vpList"></div>
+    <!-- Sits with the list as its last row: it adds to the same set the boxes above
+         belong to. A voice only exists by being recorded, so it closes up and sends
+         you back to the mic rather than asking for a name with no sample behind it. -->
+    <button class="vp-recnew" id="vpRecordNew" type="button">＋ Record new</button>
+    <div class="vp-add">
+      <div class="vp-add-row">
+        <button class="vp-add-btn" id="vpUpload" type="button">↑ Upload</button>
+        <input type="file" id="vpFile" accept="audio/*" hidden>
+        <!-- only meaningful once a voice is picked, so it hides when none is -->
+        <button class="btn solid vp-start" id="vpStart" type="button">Start session</button>
+      </div>
+      <div class="vp-status" id="vpStatus"></div>
+    </div>
+  </div>
+</div>
+
+<div class="aiwrap">
+  <span class="ai-label">Chat about this transcription <b>⌘J</b></span>
+  <button class="aibtn" id="aibtn" aria-label="Chat about this transcription">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 4l1.7 4.8L18.5 10.5l-4.8 1.7L12 17l-1.7-4.8L5.5 10.5l4.8-1.7L12 4z"/>
+    </svg>
+  </button>
+</div>
+
+
+<!-- One scope across five files, so the order is load-bearing: live.js declares
+     what the others read at the top level. scripts/check-live-page.js checks that
+     against this exact order. -->
+<script src="/static/js/live.js?v={{ asset_version }}"></script>
+<script src="/static/js/audio-playback.js?v={{ asset_version }}"></script>
+<script src="/static/js/voice-picker.js?v={{ asset_version }}"></script>
+<script src="/static/js/save-transcript.js?v={{ asset_version }}"></script>
+<script src="/static/js/doubt-panel.js?v={{ asset_version }}"></script>
+</body>
+</html>

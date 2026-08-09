@@ -1,295 +1,299 @@
-// Voice Picker — self-contained popup + dropdown-trigger component.
-//
-// Backend routes:
-//   GET    /voices              -> top-4 voices (each: {id, name, use_count, has_audio})
-//   POST   /voices?name=..      -> enroll a professor from an uploaded file (stores audio)
-//   PATCH  /voices/{id}         -> rename
-//   DELETE /voices/{id}         -> remove
-//   GET    /voices/{id}/audio   -> the stored clip (for click-to-play)
-//
-// Item interactions (both popup rows and the dropdown trigger):
-//   • click the NAME        -> play the voice audio (name turns green while playing)
-//   • double-click the NAME -> edit it inline (PATCH)
-//   • click the ARROW       -> (popup) select/lock the voice · (trigger) open the popup
+// voice-picker.js — choosing a saved voice, and enrolling a new one
+// Handles: the .vp-* popup, and hold-to-enrol with the naming step after it.
+// Depends on live.js, which loads first.
+/* ── voice picker ─────────────────────────────────────────────── */
+const VOICES=[
+  {n:'Zamaigas_audio.wav',d:'0:24',sel:true},
+  {n:'Prof. Whitaker — CS 301',d:'0:31',sel:false},
+  {n:'Dr. Osei — lecture hall',d:'0:18',sel:false},
+];
+/* Real voices when the app is up, the samples above when it is not. id is what
+   `use_saved_voice` and POST /sessions both call voice_id. */
+async function loadVoices(){
+  try{
+    const rows=await Store.voices.list();
+    if(!Array.isArray(rows))return;
+    VOICES.length=0;
+    rows.forEach((v,i)=>VOICES.push({id:v.id,n:v.name,voice:v.voice_name||'',
+                                     d:v.use_count?('used '+v.use_count+'×'):'—',
+                                     hasAudio:v.has_audio,sel:i===0}));
+    renderVoices();
+    if(VOICES.length&&B.classList.contains('lockon'))B.classList.add('locked');
+  }catch{ /* offline: keep the samples */ }
+}
 
-const VoicePicker = (() => {
-    let overlay, listEl, fileInput, addBtn, addForm, nameInput, fnameEl, statusEl;
-    let onPickCallback = null;
-    let selectedId = null;
-
-    const TRASH_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none"
-        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="3 6 5 6 21 6"></polyline>
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        <line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
-
-    // ---------- audio playback (shared across all name elements) ----------
-    let audioEl = null, playingEl = null;
-    function stopPlaying() {
-        if (playingEl) playingEl.classList.remove("playing");
-        playingEl = null;
-    }
-    function togglePlay(voice, nameEl) {
-        if (!voice || !voice.has_audio) return;
-        if (!audioEl) {
-            audioEl = new Audio();
-            audioEl.addEventListener("ended", stopPlaying);
-            audioEl.addEventListener("pause", stopPlaying);
+/* Courses are local and unrelated to the voice fetch, so they load on their own —
+   a backend that is down must not cost you your class list. */
+async function loadCourses(){
+  await Store.classes.load();
+  renderClasses();         // stays unset until picked: nothing is chosen for you
+}
+const vp=document.getElementById('vp'),vpList=document.getElementById('vpList'),
+      vpStatus=document.getElementById('vpStatus');
+const TRASH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>';
+const vpStart=document.getElementById('vpStart');
+let playing=null;   // {name, arrow} of the row currently playing
+const stopPlay=()=>{
+  /* Stop the audio, not just the arrow. This only reset the row's appearance,
+     so clicking a playing voice again looked like it did nothing, and closing
+     the picker left a clip talking over the page. */
+  try{ if(voiceAudio){voiceAudio.pause();voiceAudio.currentTime=0;voiceAudio=null;} }catch{}
+  if(voiceAudioUrl){URL.revokeObjectURL(voiceAudioUrl);voiceAudioUrl=null;}
+  if(!playing)return;
+  playing.name.classList.remove('playing');
+  playing.arrow.textContent='▸';playing.arrow.classList.remove('on');
+  playing=null;
+};
+// reflect the current selection everywhere it's shown
+function syncSelection(){
+  const v=VOICES.find(o=>o.sel);
+  document.getElementById('voicebtnTxt').textContent=v?v.n:'Select voice';
+  vpStart.hidden=!v;          // nothing to start a session with
+}
+function renderVoices(editIdx){
+  playing=null;   // rows are rebuilt below; the old refs are about to be detached
+  if(!VOICES.length){
+    /* A new account lands here. "No voices yet" states a fact and leaves you
+       stuck; the two ways out are already in this panel, so say which. */
+    vpList.innerHTML='<div class="vp-empty">'
+      +'<strong>No voices yet</strong>'
+      +'<span>Hold the microphone for ten seconds while your professor is talking, '
+      +'or upload a clip of them.</span></div>';
+    syncSelection();return;
+  }
+  vpList.innerHTML='';
+  VOICES.forEach((v,i)=>{
+    const row=document.createElement('div');
+    row.className='vp-item'+(v.sel?' selected':'');
+    row.innerHTML=`<span class="vp-item-name">${v.n}${v.voice?`<em class="vsub">${v.voice}</em>`:''}</span>
+      <span class="vp-gap"></span>
+      <span class="vp-dur">${v.d}</span>
+      <span class="vp-item-arrow">▸</span>
+      <button class="vp-trash" aria-label="Delete voice">${TRASH}</button>`;
+    const name=row.querySelector('.vp-item-name');
+    // row click selects; name click plays; dblclick renames
+    // the ring and the slot both say which voice is picked; a sentence saying it
+    // again is just noise
+    /* Selecting marks the rows in place rather than rebuilding the list. The
+       rebuild replaced every node on the first click of a double-click, so the
+       second landed on a new element and dblclick never fired — renaming only
+       worked on the name itself, which stops propagation and so never triggered
+       the rebuild. */
+    row.onclick=()=>{
+      VOICES.forEach(o=>o.sel=false); v.sel=true;
+      [...vpList.children].forEach((el,idx)=>el.classList.toggle('selected',idx===i));
+      syncSelection();
+      useSavedVoice(v);                       // {type:'use_saved_voice', voice_id}
+      B.classList.add('locked');
+      if(!isBusy())setActivity('');   // picking a voice mid-recording must not end it
+      vpStatus.textContent='';};
+    const arrow=row.querySelector('.vp-item-arrow');
+    /* Playable only when the server actually holds a clip for it. A voice
+       captured in this session has no id until it is saved, and nothing is
+       stored for it — the row used to show the pause glyph regardless, so the
+       control sat there claiming to play something that did not exist. */
+    const playable = !!(v.id && v.hasAudio);
+    if(!playable) arrow.classList.add('mute');
+    const toggle = e => {
+      e.stopPropagation();
+      if(playing&&playing.name===name){stopPlay();return;}
+      stopPlay();
+      if(!playable) return;                                             // nothing to play
+      playVoice(v.id);                                                  // GET /voices/{id}/audio
+      name.classList.add('playing');arrow.textContent='||';arrow.classList.add('on');
+      playing={name,arrow};
+    };
+    name.onclick=toggle;
+    arrow.onclick=toggle;      // the glyph is a control, so it takes the click too
+    const startEdit=()=>{
+      name.contentEditable='true';name.classList.add('editing');
+      row.classList.add('editing');   // the whole box is a field now, not a target
+      name.focus();
+      const r=document.createRange();r.selectNodeContents(name);
+      r.collapse(false);      // caret at the end, not the whole name selected —
+                              // renaming is usually a correction, not a retype
+      const s=getSelection();s.removeAllRanges();s.addRange(r);
+      name.onkeydown=ev=>{
+        if(ev.key==='Enter'){ev.preventDefault();name.blur();stopPlay();vp.classList.remove('open');}
+        if(ev.key==='Escape'){name.textContent=v.n;name.blur();}
+      };
+      name.onblur=async()=>{
+        name.contentEditable='false';name.classList.remove('editing');row.classList.remove('editing');
+        const nn=name.textContent.trim()||v.n;
+        const was=v.n; v.n=nn;name.textContent=nn;syncSelection();
+        if(v.pending){                    // just held: this is the moment it is saved
+          v.pending=false;
+          await saveEnrolledVoice(nn);    // POST /voices — embedding computed, row written
+          return;
         }
-        if (playingEl === nameEl) { audioEl.pause(); return; }   // click again -> stop
-        stopPlaying();
-        audioEl.src = `/voices/${voice.id}/audio`;
-        audioEl.play().catch(() => {});
-        nameEl.classList.add("playing");
-        playingEl = nameEl;
-    }
+        if(v.id&&nn!==was)Store.voices.rename(v.id,nn).catch(()=>{});   // PATCH /voices/{id}
+      };
+    };
+    /* Anywhere in the row, not only on the name itself — the row is the voice,
+       and hunting for the few pixels the text happens to occupy is a worse
+       target the shorter the name is. The bin keeps its own click. */
+    row.ondblclick=e=>{
+      if(e.target.closest('.vp-trash'))return;
+      e.stopPropagation();
+      startEdit();
+    };
+    if(i===editIdx)setTimeout(startEdit,60);   // freshly captured → name it now
+    row.querySelector('.vp-trash').onclick=e=>{e.stopPropagation();
+      if(v.id)Store.voices.remove(v.id).catch(()=>{});                  // DELETE /voices/{id}
+      VOICES.splice(i,1);renderVoices();
+      // deleting the locked voice unlocks: the badge and "click to start" were
+      // outliving the thing they described, leaving "Select voice" next to a padlock
+      if(!VOICES.some(o=>o.sel)){
+        B.classList.remove('locked');
+        if(!isBusy())setActivity('');
+      }
+      vpStatus.className='vp-status';vpStatus.textContent='Deleted.';};
+    vpList.appendChild(row);
+  });
+  syncSelection();
+}
 
-    // ---------- inline rename (contenteditable keeps the element + its id) ----------
-    function startRename(voice, nameEl, onDone) {
-        stopPlaying();
-        nameEl.contentEditable = "true";
-        nameEl.classList.add("editing");
-        nameEl.focus();
-        const range = document.createRange(); range.selectNodeContents(nameEl);
-        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+// a ≥10s hold captured a sample: file it as Untitled N, select it, open the
+// picker with the name already in edit mode
+let untitledN=0;
+function addCapturedVoice(secs){
+  untitledN++;
+  VOICES.forEach(o=>o.sel=false);
+  VOICES.unshift({n:'Voice '+untitledN,d:'0:'+String(secs).padStart(2,'0'),sel:true,pending:true});
+  vp.classList.add('open');
+  /* No status line here: the row is already at the top of the list in edit mode
+     with "Voice N" in the field, which says the same thing twice over. */
+  vpStatus.className='vp-status';
+  vpStatus.textContent='';
+  renderVoices(0);
+}
+/* Dismissing without typing is the skip: the generated name stands and the voice is
+   still saved, rather than the sample being thrown away. */
+async function acceptPendingName(){
+  const p=VOICES.find(v=>v.pending);
+  if(!p||!pendingSample)return;
+  p.pending=false;
+  await saveEnrolledVoice(p.n);
+}
+renderVoices();
+document.getElementById('voicebtn').onclick=()=>{vp.classList.add('open');vpStatus.textContent='';};
+vp.onclick=e=>{if(e.target===vp){acceptPendingName();stopPlay();vp.classList.remove('open');}};
+// "Record new" — back to the rail with the prompt showing, so the next hold enrols
+document.getElementById('vpRecordNew').onclick=()=>{
+  acceptPendingName();
+  stopPlay();
+  vp.classList.remove('open');
+  vpStatus.textContent='';
+  showHint();
+};
+// "Start session" — commits the picked voice and goes straight into recording
+vpStart.onclick=()=>{
+  if(!B.classList.contains('rec')){vp.classList.remove('open');stopPlay();startRecording();}
+  else {vp.classList.remove('open');stopPlay();}
+};
+// Upload — the other way to get a sample in. Named from the file, selected on arrival.
+const vpFile=document.getElementById('vpFile');
+document.getElementById('vpUpload').onclick=()=>vpFile.click();
+vpFile.onchange=async()=>{
+  const f=vpFile.files&&vpFile.files[0];
+  if(!f)return;
+  const named=f.name.replace(/\.[^.]+$/,'');
+  try{
+    const res=await Store.voices.add(named,f);                          // POST /voices?name=
+    if(res&&res.ok){await loadVoices();vpStatus.className='vp-status ok';
+      vpStatus.textContent='Uploaded — “'+named+'” enrolled';vpFile.value='';return;}
+  }catch{}
+  VOICES.forEach(o=>o.sel=false);
+  VOICES.unshift({n:f.name,d:'0:00',sel:true});
+  B.classList.add('locked');
+  if(!isBusy())setActivity('');
+  renderVoices();
+  vpStatus.className='vp-status ok';vpStatus.textContent='Uploaded — locked to “'+f.name+'”';
+  vpFile.value='';
+};
 
-        let done = false;
-        const finish = async (save) => {
-            if (done) return; done = true;
-            nameEl.contentEditable = "false";
-            nameEl.classList.remove("editing");
-            const nn = nameEl.textContent.trim();
-            if (save && nn && nn !== voice.name) {
-                try {
-                    await fetch(`/voices/${voice.id}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name: nn }),
-                    });
-                    voice.name = nn;
-                } catch {}
-            }
-            nameEl.textContent = voice.name;
-            if (onDone) onDone(voice);
-        };
-        nameEl.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") { e.preventDefault(); finish(true); }
-            else if (e.key === "Escape") { finish(false); }
-        });
-        nameEl.addEventListener("blur", () => finish(true), { once: true });
-    }
+/* ── enrolment : hold 10s → name it → saved ──────────────────────────────────
+   The sample is kept as it streams, wrapped as a WAV on release, and posted to
+   POST /voices — the one call that computes an embedding and writes the row. The
+   socket's enroll_start/end pair is not used here: it locks a voice for the current
+   connection and stores nothing, so a voice held that way is gone with the tab. */
+let enrolBuf=[], enrolCapturing=false;
+function wavFromPcm(chunks,rate){
+  let n=0; chunks.forEach(c=>n+=c.length);
+  const pcm=new Int16Array(n); let o=0; chunks.forEach(c=>{pcm.set(c,o);o+=c.length;});
+  const buf=new ArrayBuffer(44+pcm.length*2), v=new DataView(buf);
+  const str=(off,t)=>{for(let i=0;i<t.length;i++)v.setUint8(off+i,t.charCodeAt(i));};
+  str(0,'RIFF'); v.setUint32(4,36+pcm.length*2,true); str(8,'WAVE');
+  str(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  str(36,'data'); v.setUint32(40,pcm.length*2,true);
+  new Int16Array(buf,44).set(pcm);
+  return new Blob([buf],{type:'audio/wav'});
+}
+let pendingSample=null;                       // the WAV waiting for a name
 
-    // single-click = play, double-click = rename (with disambiguation timer)
-    function bindName(nameEl, voice, onRenamed) {
-        let t = null;
-        nameEl.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (nameEl.isContentEditable) return;
-            if (t) return;
-            t = setTimeout(() => { t = null; togglePlay(voice, nameEl); }, 220);
-        });
-        nameEl.addEventListener("dblclick", (e) => {
-            e.stopPropagation();
-            clearTimeout(t); t = null;
-            startRename(voice, nameEl, onRenamed);
-        });
-    }
+async function beginEnrol(){
+  try{ if(!audioCtx)await startCapture(); }catch{}
+  enrolBuf=[];enrolCapturing=true;
+}
+function finishEnrol(seconds){
+  enrolCapturing=false;
+  if(!enrolBuf.length)return null;
+  pendingSample=wavFromPcm(enrolBuf,SR);
+  enrolBuf=[];
+  return pendingSample;
+}
+/* Named (or skipped, which generates one) → the voice is saved and listed. */
+async function saveEnrolledVoice(name){
+  if(!pendingSample)return false;
+  const nm=(name||'').trim()||('Voice '+(VOICES.length+1));
+  try{
+    const fd=new FormData(); fd.append('file',pendingSample,'enrolment.wav');
+    const res=await fetch(API+'/voices?name='+encodeURIComponent(nm),{method:'POST',body:fd});
+    if(!res.ok){vpStatus.className='vp-status error';
+      vpStatus.textContent=(await res.json().catch(()=>({}))).detail||'Could not save the voice';
+      return false;}
+    const saved=await res.json();
+    pendingSample=null;
+    await loadVoices();                        // it now appears in the list
+    const row=VOICES.find(v=>v.id===saved.id);
+    if(row){VOICES.forEach(o=>o.sel=false);row.sel=true;renderVoices();useSavedVoice(row);}
+    vpStatus.className='vp-status ok';vpStatus.textContent='Saved — “'+nm+'”';
+    return true;
+  }catch{ vpStatus.className='vp-status error';vpStatus.textContent='Server unreachable — kept locally';
+    return false; }
+}
 
-    function ensureBuilt() {
-        if (overlay) return;
-        overlay = document.createElement("div");
-        overlay.className = "vp-overlay";
-        overlay.innerHTML = `
-            <div class="vp-panel" role="dialog" aria-label="Pick a voice">
-                <div class="vp-title">Pick a Voice</div>
-                <div class="vp-list"></div>
+/* ── enrolment over the wire (unused by the hold, kept for reference) ── */
+async function enrolStart(){
+  try{
+    await openSocket();
+    if(!audioCtx)await startCapture();
+    enrolling=true;ws.send(JSON.stringify({type:'enroll_start'}));
+  }catch{ /* offline: the local 10s rule still applies */ }
+}
+function enrolEnd(ok){
+  if(!enrolling||!ws||ws.readyState!==1)return false;
+  if(ok){ws.send(JSON.stringify({type:'enroll_end'}));return true;}   // wait for enroll_success
+  enrolling=false;return false;
+}
 
-                <div class="vp-add">
-                    <button class="vp-add-btn" type="button" title="Add a voice">+</button>
-                    <div class="vp-add-form" hidden>
-                        <div class="vp-fname"></div>
-                        <input class="vp-input vp-name" type="text" placeholder="Voice name">
-                        <div class="vp-add-actions">
-                            <button class="vp-add-cancel" type="button">Cancel</button>
-                            <button class="btn-primary vp-add-save" type="button">Add</button>
-                        </div>
-                    </div>
-                    <input class="vp-file" type="file" accept="audio/*" hidden>
-                    <div class="vp-status"></div>
-                </div>
-            </div>`;
-        document.body.appendChild(overlay);
+/* The page opens empty and fills from the socket — the mock's "already finished a
+   lecture" scaffolding is deliberately not carried over. */
+loadVoices(); loadCourses(); applyAutoTitle(); seedTitles();
 
-        listEl    = overlay.querySelector(".vp-list");
-        fileInput = overlay.querySelector(".vp-file");
-        addBtn    = overlay.querySelector(".vp-add-btn");
-        addForm   = overlay.querySelector(".vp-add-form");
-        nameInput = overlay.querySelector(".vp-name");
-        fnameEl   = overlay.querySelector(".vp-fname");
-        statusEl  = overlay.querySelector(".vp-status");
-
-        overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-        addBtn.addEventListener("click", () => fileInput.click());
-        fileInput.addEventListener("change", () => {
-            const f = fileInput.files[0];
-            if (!f) return;
-            nameInput.value = f.name.replace(/\.[^.]+$/, "");
-            fnameEl.textContent = f.name;
-            addBtn.hidden = true;
-            addForm.hidden = false;
-            setStatus("");
-            nameInput.focus();
-        });
-        overlay.querySelector(".vp-add-cancel").addEventListener("click", resetAdd);
-        overlay.querySelector(".vp-add-save").addEventListener("click", uploadVoice);
-    }
-
-    async function refresh() {
-        listEl.innerHTML = `<div class="vp-empty">Loading…</div>`;
-        try {
-            const voices = await (await fetch("/voices")).json();
-            render(voices);
-        } catch {
-            listEl.innerHTML = `<div class="vp-empty">Could not load voices.</div>`;
-        }
-    }
-
-    function render(voices) {
-        if (!voices.length) {
-            listEl.innerHTML = `<div class="vp-empty">No voices yet.</div>`;
-            return;
-        }
-        listEl.innerHTML = "";
-        voices.forEach((v) => {
-            const item = document.createElement("div");
-            item.className = "vp-item" + (v.id === selectedId ? " selected" : "");
-            // click the BOX -> select/lock this voice
-            item.addEventListener("click", () => {
-                selectedId = v.id;
-                if (onPickCallback) onPickCallback(v);
-                close();
-            });
-
-            const nameEl = document.createElement("span");
-            nameEl.className = "vp-item-name";
-            nameEl.textContent = v.name;
-            bindName(nameEl, v, refresh);       // click name = play, dblclick = rename (both stop bubbling)
-            item.appendChild(nameEl);
-
-            // decorative dropdown arrow (clicking it just selects, via the row handler)
-            const arrow = document.createElement("span");
-            arrow.className = "vp-item-arrow";
-            arrow.textContent = "▾";
-            item.appendChild(arrow);
-
-            const trash = document.createElement("button");
-            trash.className = "vp-trash";
-            trash.title = "Remove";
-            trash.innerHTML = TRASH_SVG;
-            trash.addEventListener("click", async (e) => {
-                e.stopPropagation();
-                await fetch(`/voices/${v.id}`, { method: "DELETE" });
-                await refresh();
-            });
-            item.appendChild(trash);
-
-            listEl.appendChild(item);
-        });
-    }
-
-    async function uploadVoice() {
-        const file = fileInput.files[0];
-        const name = (nameInput.value || "").trim();
-        if (!file) return;
-        if (!name) { setStatus("Enter a name.", "error"); return; }
-
-        const saveBtn = overlay.querySelector(".vp-add-save");
-        const cancelBtn = overlay.querySelector(".vp-add-cancel");
-        saveBtn.disabled = true; cancelBtn.disabled = true;
-        saveBtn.textContent = "Adding…";
-        setStatus("Analyzing voice… (a few seconds)");
-
-        const fd = new FormData();
-        fd.append("file", file);
-        try {
-            const res = await fetch(`/voices?name=${encodeURIComponent(name)}`, { method: "POST", body: fd });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                setStatus(err.detail || "Failed.", "error");
-                return;
-            }
-            resetAdd();
-            await refresh();
-        } catch {
-            setStatus("Failed.", "error");
-        } finally {
-            saveBtn.disabled = false; cancelBtn.disabled = false;
-            saveBtn.textContent = "Add";
-        }
-    }
-
-    function resetAdd() {
-        fileInput.value = "";
-        nameInput.value = "";
-        fnameEl.textContent = "";
-        addForm.hidden = true;
-        addBtn.hidden = false;
-        setStatus("");
-    }
-
-    function setStatus(msg, kind = "") {
-        statusEl.textContent = msg;
-        statusEl.className = "vp-status" + (kind ? " " + kind : "");
-    }
-
-    function open(onPick) {
-        ensureBuilt();
-        onPickCallback = onPick || null;
-        resetAdd();
-        overlay.classList.add("open");
-        refresh();
-    }
-    function close() { if (overlay) overlay.classList.remove("open"); }
-
-    // expose the play + rename helpers so the dropdown trigger can reuse them
-    return { open, close, play: togglePlay, rename: startRename };
-})();
-
-window.VoicePicker = VoicePicker;
-
-// ---------- Dropdown trigger (#pickVoiceBtn) on the live page ----------
-// name click = play · caret click = open popup · double-click name = rename
-(function wireDropdown() {
-    const trigger = document.getElementById("pickVoiceBtn");
-    if (!trigger) return;
-    const label = document.getElementById("selectedVoice");
-    let current = null;   // the currently-selected voice object
-    let t = null;
-
-    function openPicker() {
-        VoicePicker.open((voice) => {
-            current = voice;
-            window.selectedVoiceId = voice.id;
-            if (label) { label.textContent = voice.name; label.classList.add("has-voice"); }
-            window.onVoicePicked?.(voice);
-        });
-    }
-
-    trigger.addEventListener("click", (e) => {
-        if (label && label.isContentEditable) return;
-        // caret, or nothing picked yet -> open the picker
-        if (!current || e.target.closest(".voice-dropdown-caret")) { openPicker(); return; }
-        // name clicked -> play (single-click, disambiguated from dblclick)
-        if (label && (e.target === label || label.contains(e.target))) {
-            if (t) return;
-            t = setTimeout(() => { t = null; VoicePicker.play(current, label); }, 220);
-        }
-    });
-    trigger.addEventListener("dblclick", (e) => {
-        if (!current || !label) return;
-        if (e.target === label || label.contains(e.target)) {
-            clearTimeout(t); t = null;
-            VoicePicker.rename(current, label, (v) => { current = v; });
-        }
-    });
+/* Those four ran before Clerk had finished loading, so they went out without a
+   token and came back empty. Once Clerk settles — and again whenever the signed
+   in user changes — they are re-run as whoever is now signed in. */
+(async()=>{
+  try{
+    await window.__clerk_loaded;
+    if(!window.Clerk)return;
+    if(window.Clerk.session)await refreshForUser();
+    window.Clerk.addListener(({user})=>{ refreshForUser(); });
+    /* A second chance for the usage, a moment later. The panel is built by
+       auth.js once Clerk settles, and the numbers above can be in hand before
+       anything exists to put them in. */
+    setTimeout(()=>{ if(window.Clerk&&window.Clerk.session)loadUsage(); },1200);
+  }catch{}
 })();

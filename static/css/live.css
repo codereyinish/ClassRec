@@ -1,816 +1,965 @@
-/* Lock page scroll — only transcript-area scrolls internally */
-body, .page-wrapper { overflow: hidden; }
+/* live.css — the live page's own shell: tokens, dark theme, top bar, the
+   rail, the transcript column, the empty state, the lecture-context prompt
+   and the spent-allowance notice.
+   The voice picker is in voice-picker.css, the AI panel in doubt-panel.css. */
+/* ─────────────────────────────────────────────────────────────
+   ONE primary colour (Midnight Violet) for every action.
+   A 9-step violet-tinted grey ramp does all structural work.
+   The other brand colours appear ONLY on word states, where
+   they carry meaning — Refactoring UI: accents "used pretty
+   sparingly", greys do the rest.
+   No cards. A transcript is continuous speech, so it runs as
+   one column with time in a margin gutter.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --g0:#FFFFFF; --g1:#FBFAFB; --g2:#F4F2F6; --g3:#EAE7EE;
+  --g4:#D9D5E0; --g5:#B4AEC0; --g6:#8B8399; --g7:#5A5269; --g8:#281F3E;
 
-.page-title {
-    text-align: center;
-    margin-bottom: 28px;
-}
-.page-title h1 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 32px;
-    color: var(--text);
-    font-weight: 400;
-    letter-spacing: -0.01em;
-}
-.page-title h1 em {
-    font-style: italic;
-    color: var(--text);
-    opacity: 0.65;
-}
-.page-title p {
-    font-size: 12px;
-    color: #a8a8b8;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-top: 6px;
-}
+  /* theme #7678ED — title, mic, accents. Filled buttons drop one shade
+     to #6365EB so white labels clear AA (4.57:1 vs 3.70:1). */
+  --theme:#7678ED; --primary:#6365EB; --primary-hi:#5053E8; --primary-soft:#EFEFFD;
+  --lock-deep:#4A3FBF;   /* lock badge — deliberately darker than the Lock Mode toggle */
 
-.container {
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 20px;
-    max-width: 1400px;
-    margin: 0 auto;
-    height: calc(100vh - 220px);
-}
+  --teal:#75B291; --corn:#6A85FF; --corn-deep:#2440C8; --blush:#DBA693; --blush-ink:#9A4A2C;
+  /* lock states → theme · recording → green · paused → red */
+  --mic-bg:#7678ED; --red:#EF4444; --red-ink:#DC0D0D;
+  --green:#4ADE80; --green-2:#86EFAC; --green-ink:#14803B;
+  /* skipping → amber: a step aside, not a failure, so it sits warm of the
+     theme without borrowing red's alarm */
+  --amber:#E9A23B; --amber-ink:#A65B12; --amber-soft:rgba(233,162,59,.12);
+  /* the red counterpart, for the one panel that has to say stop */
+  --red-soft:#FDECEC;
 
-/* ===== LEFT: CONTROLS ===== */
-.controls {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 36px 28px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    position: relative;
-}
+  /* transcript block ground: violet-tinted, one step off white — enough to draw a
+     border against without turning the column into a row of cards */
+  --block:#F8F7FB;
 
-/* ===== MIC GLOW RING ===== */
-.mic-glow-ring {
-    position: relative;
-    width: 148px;
-    height: 148px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 24px;
-}
+  /* Structural lines. --g3 read as nothing at all -- rail, top bar and content
+     ran together as one surface -- so rules get their own token, one step firmer
+     than g3 and well short of g4. Controls take g4, being things you click. */
+  --rule:#E2DEE7;
 
-/* Halo — stays tight around the bubble edge, blurs softly outward */
-.mic-glow-ring::before {
-    content: '';
-    position: absolute;
-    inset: -5px;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity 0.5s ease;
-    background: conic-gradient(
-        from -90deg,
-        transparent 0deg,
-        #e8a020    60deg,
-        #f5c842   150deg,
-        #e8a020   200deg,
-        #c97b10   240deg,
-        transparent 300deg,
-        transparent 360deg
-    );
-    filter: blur(5px);
-    z-index: 0;
-}
-.mic-glow-ring.recording::before {
-    opacity: 1;
-    animation: spin-halo 4s linear infinite;
-}
-.mic-glow-ring.paused::before {
-    inset: -3px;
-    filter: blur(3px);
-    background: conic-gradient(
-        from 0deg,
-        #ef4444 0deg,
-        #f87171 60deg,
-        #c0392b 120deg,
-        #ef4444 180deg,
-        #f87171 240deg,
-        #c0392b 300deg,
-        #ef4444 360deg
-    );
-    opacity: 0.85;
-    animation: spin-halo 60s linear infinite;
+  /* --primary does two jobs — a fill under white labels, and indigo text on
+     --primary-soft — and the two want opposite lightness. Splitting off the ink
+     lets the fill stay where white clears AA while the text meets it too:
+     #5053E8 on --primary-soft is 4.92, against 4.01 for --primary itself. */
+  --primary-ink:#5053E8;
+
+  /* Text on a dark ground, for the statuses whose inks are tuned for white. */
+  --green-on-dark:#6EE7A0; --red-on-dark:#FF8A8A;
+  --amber-on-dark:#F0B860; --blush-on-dark:#E5A98F;
+  --tip-bg:var(--g8); --tip-fg:#fff;   /* the scrub time bubble, which inverts */
+
+  /* The waveform is drawn onto a canvas, which cannot read a class the way the
+     rest of the page can — so its three colours are tokens the drawing code
+     reads back, rather than constants that would stay light. */
+  --wave-played:#6365EB;
+  --wave-unplayed:rgba(118,120,237,.22);
+  --wave-head:#4A3FBF;
+
+  --sans:'DM Sans',system-ui,sans-serif;
+  --mono:'DM Mono',ui-monospace,monospace;
+  --rail:288px; --ai:380px; --measure:820px; --gutter:78px;
+  --e:cubic-bezier(.2,.7,.3,1);
 }
 
-/* Lock mode: static green ring */
-.mic-glow-ring.locked::before {
-    opacity: 0;
+/* ── dark ────────────────────────────────────────────────────────────────────
+   The same palette at the other end of the ramp, not a different one. Every grey
+   keeps the violet tint the light theme is built on, so the page reads as the
+   same app with the lights off rather than as a generic dark theme.
+
+   Measured rather than eyeballed, against --g0:
+     --g8 16.1   --g7 10.8   --g6 7.2   --g5 5.0   --theme 7.3   --primary-ink 8.2
+   so body text, sub-lines and placeholders all clear AA, and the borders sit at
+   1.3–1.6 — visible as structure without drawing themselves.
+
+   --primary is deliberately NOT lightened: it is the ground under white labels,
+   where lightening it drops white to 3.16. The ink token carries the light half. */
+:root[data-theme="dark"]{
+  --g0:#17141F; --g1:#1D1927; --g2:#262133; --g3:#2F2940;
+  --g4:#3D3651; --g5:#8A82A0; --g6:#A79FBB; --g7:#CBC4DA; --g8:#F3F0F9;
+
+  --theme:#9A9CF5; --primary:#6365EB; --primary-hi:#7477F0;
+  --primary-soft:#262450; --primary-ink:#A5A7F7;
+  --lock-deep:#8E86F5;
+
+  --block:#1F1B2A;
+  --rule:#2C2639;
+
+  /* The status inks are dark by design, for white grounds. On this one they land
+     at 2.9–3.6, so each has a light counterpart that clears 8:1. */
+  --green-ink:var(--green-on-dark);
+  --red-ink:var(--red-on-dark);
+  --red-soft:#3A2029;
+  --amber-ink:var(--amber-on-dark);
+  --blush-ink:var(--blush-on-dark);
+  --corn-deep:#9DAEFF;
+
+  /* Dark text on a light chip, so it stays the inverse of the page. */
+  --tip-bg:#F3F0F9; --tip-fg:#17141F;
+
+  /* The playhead is the app's darkest indigo, which disappears here. */
+  --wave-played:#8486F0;
+  --wave-unplayed:rgba(154,156,245,.26);
+  --wave-head:#C9C6FF;
+
+  /* Declared in their own :root further down, for the new-session dialog and the
+     alert rows. Near-white by design, so without these they are lit patches on
+     an unlit page. Same job here: a step up from the ground, then two borders. */
+  --tint-1:#221E2E; --tint-2:#332C46; --tint-3:#453D5E;
+
+  /* --red and --green are left alone deliberately: as text on this ground they
+     measure 4.83 and 10.42, so they still carry. Only the inks, which are dark
+     by design, needed replacing. */
 }
-.mic-glow-ring.locked .mic-bubble {
-    box-shadow: 0 0 0 1.5px rgba(74, 222, 128, 0.7);
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--g0);color:var(--g8);font-family:var(--sans);
+  font-size:15px;line-height:1.6;font-optical-sizing:auto;
+  -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden;
 }
-/* Enrolling: small spinning green glow */
-.mic-glow-ring.enrolling::before {
-    background: conic-gradient(
-        from -90deg,
-        transparent 0deg,
-        #4ade80 80deg,
-        #86efac 160deg,
-        transparent 240deg,
-        transparent 360deg
-    );
-    opacity: 0.9;
-    animation: spin-halo 3s linear infinite;
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+
+/* ── top bar : four things, not eight ── */
+.top{
+  height:58px;flex:0 0 auto;display:flex;align-items:center;
+  padding:0 22px;border-bottom:1px solid var(--rule);
+}
+.mark{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16.5px;letter-spacing:-.03em;color:var(--g8)}
+.logo{
+  width:30px;height:30px;flex:0 0 auto;border-radius:9px;
+  background:#1E1B2E;display:grid;place-items:center;color:var(--theme);
+}
+.logo svg{width:17px;height:17px;display:block}
+.top-r{margin-left:auto;display:flex;align-items:center;gap:18px}
+/* base.html's My Lectures link, wearing this page's button so the row reads as
+   one set: neutral label, theme-coloured glyph, same size as New session. */
+#lecturesLink{text-decoration:none;color:var(--g7)}
+#lecturesLink:hover{color:var(--g8)}
+
+/* ── auth.js, in this page's clothes ──────────────────────────────────────────
+   auth.js renders the avatar and dropdown with inline styles written for the
+   dark amber theme: uppercase DM Mono, #e8a020, a near-black panel. It is shared
+   with /lectures and /upload, so it is overridden here rather than forked, and
+   a style attribute can only be outranked by !important.
+
+   The few selectors that match on inline style text are matching strings auth.js
+   writes verbatim — the usage bar's height and the Free Plan badge's amber —
+   because those elements carry no class or id of their own. */
+#clerk-auth-mount{position:relative;display:flex;align-items:center}
+
+/* --lock-deep, matching the modal it opens rather than the page's own buttons */
+#clerk-login-btn{
+  font-family:var(--sans)!important;font-size:13.5px!important;font-weight:600!important;
+  letter-spacing:0!important;text-transform:none!important;
+  background:var(--lock-deep)!important;border:1px solid var(--lock-deep)!important;color:#fff!important;
+  padding:8px 16px!important;border-radius:10px!important;
+  animation:none!important;box-shadow:none!important;transition:.15s var(--e)!important;
+}
+#clerk-login-btn:hover{background:#3E34A8!important;border-color:#3E34A8!important;color:#fff!important}
+
+#user-avatar{
+  width:32px!important;height:32px!important;
+  background:var(--lock-deep)!important;color:#fff!important;
+  font-family:var(--sans)!important;font-size:13px!important;font-weight:600!important;
+}
+#user-avatar:hover{box-shadow:0 0 0 3px #E7E7FB!important}
+
+#user-dropdown{
+  top:44px!important;right:0!important;width:264px!important;
+  background:var(--g0)!important;border:1px solid var(--rule)!important;
+  border-radius:14px!important;box-shadow:0 18px 44px -16px rgba(40,31,62,.34)!important;
+  font-family:var(--sans)!important;
+}
+#user-dropdown,#user-dropdown *{font-family:var(--sans)!important}
+#user-dropdown div{border-color:var(--rule)!important;color:var(--g8)!important}
+#user-dropdown span{color:var(--g6)!important}
+/* the two 4px rails behind the usage bars */
+#user-dropdown div[style*="height: 4px"]{background:var(--g3)!important}
+#live-usage-bar,#upload-usage-bar{background:var(--lock-deep)!important}
+#live-usage-text,#upload-usage-text{font-family:var(--sans)!important;font-variant-numeric:tabular-nums!important;color:var(--g6)!important;font-size:12px!important}
+/* the Free Plan badge */
+#user-dropdown div[style*="rgba(232,160,32,0.1)"]{
+  background:var(--teal-soft,rgba(117,178,145,.14))!important;border-color:rgba(117,178,145,.45)!important;color:#39795A!important;
+  letter-spacing:0!important;text-transform:none!important;font-size:11.5px!important;font-weight:600!important;
+}
+#get-pro-btn{
+  font-family:var(--sans)!important;font-size:12.5px!important;letter-spacing:0!important;
+  background:rgba(74,63,191,.08)!important;border:1px solid #CFCFF6!important;color:var(--lock-deep)!important;
+  border-radius:9px!important;
+}
+#get-pro-btn:hover{background:rgba(74,63,191,.14)!important}
+#signout-btn{
+  font-family:var(--sans)!important;font-size:12.5px!important;letter-spacing:0!important;
+  color:var(--g6)!important;border-radius:9px!important;
+}
+#signout-btn:hover{color:var(--red-ink)!important;background:rgba(239,68,68,.08)!important}
+.state{font-size:13px;color:var(--g6);font-variant-numeric:tabular-nums}
+body.rec .state{color:var(--primary);font-weight:500}
+/* One solid primary; every other action is plain + icon in neutral, so nothing
+   reads as a competing theme. Same pattern as the NotebookLM bar. */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  border-radius:9px;padding:9px 15px;font-size:13.5px;font-weight:600;
+  letter-spacing:-.01em;color:var(--g7);transition:.16s var(--e);
+}
+.btn svg{width:16px;height:16px;flex:0 0 auto}
+/* top-bar ghost buttons carry the theme in the glyph, matching the device field's
+   mic — the label stays neutral so the row doesn't turn into a wall of indigo */
+.top-r .btn:not(.solid) svg{color:var(--theme)}
+.btn:hover{background:var(--g2);color:var(--g8)}
+.btn.solid{background:var(--primary);color:#fff}
+.btn.solid:hover{background:var(--primary-hi)}
+
+/* ── alerts : which spoken tags interrupt you ──────────────────────────────
+   Tags are told apart by a coloured dot from the palette, not by emoji — the rest
+   of this page speaks in line icons and one accent, and 🔴📝⭐ would break both. */
+.alertwrap{position:relative}
+.alert-count{
+  min-width:18px;height:18px;padding:0 5px;border-radius:999px;
+  background:var(--primary-soft);color:var(--primary);
+  font-size:11px;font-weight:700;display:grid;place-items:center;
+}
+.alert-menu{
+  position:absolute;right:0;top:calc(100% + 8px);z-index:70;width:250px;
+  background:var(--g0);border:1px solid var(--rule);border-radius:13px;
+  box-shadow:0 18px 44px -14px rgba(40,31,62,.32);padding:7px;
+  display:none;flex-direction:column;gap:1px;
+}
+.alert-menu.open{display:flex}
+.alert-head{
+  font-size:11px;font-weight:600;color:var(--g6);
+  letter-spacing:.04em;text-transform:uppercase;padding:8px 10px 7px;
+}
+.alert-row{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  padding:8px 10px;border-radius:9px;font-size:13.5px;color:var(--g7);
+  transition:.14s var(--e);
+}
+.alert-row:hover{background:var(--tint-1)}
+.tagico{display:grid;place-items:center;flex:0 0 auto;width:17px;height:17px;opacity:.55;transition:opacity .14s var(--e)}
+.tagico svg{width:16px;height:16px;display:block}
+.alert-row.on .tagico,.alert-name.on .tagico{opacity:1}   /* off tags keep the glyph, lose the confidence */
+.alert-row.on{color:var(--g8);font-weight:500}
+/* a real box on the right, as in the current dropdown — you can see it is a choice
+   before you make it, which a check that only exists once ticked cannot do */
+.cbox{
+  width:17px;height:17px;border-radius:5px;flex:0 0 auto;margin-left:auto;
+  border:1.5px solid var(--g4);background:var(--g0);
+  display:grid;place-items:center;font-size:10px;font-weight:800;color:transparent;
+  transition:.14s var(--e);
+}
+.alert-row:hover .cbox{border-color:var(--g5)}
+.alert-row.on .cbox,.alert-name.on .cbox{background:var(--primary);border-color:var(--primary);color:#fff}
+.alert-name{
+  display:flex;align-items:center;gap:9px;padding:8px 10px;
+  border-top:1px solid var(--rule);margin-top:5px;padding-top:11px;
+}
+.alert-name-input{
+  flex:1;min-width:0;width:100%;padding:7px 10px;border-radius:8px;
+  border:1.5px solid var(--g4);background:var(--g0);
+  font-family:var(--sans);font-size:12.5px;color:var(--g8);outline:none;
+}
+.alert-name-input::placeholder{color:var(--g5)}
+/* off: still clearly a field, just not one you can type in yet */
+.alert-name-input:disabled{background:var(--g2);border-color:var(--rule);color:var(--g5);cursor:pointer}
+.alert-name-input:focus{border-color:var(--theme);background:var(--g0)}
+
+/* ── shell ── */
+.shell{flex:1;display:flex;min-height:0;position:relative}
+
+/* handle = mini mic; mirrors the big mic's state colours exactly */
+/* only exists while the rail is collapsed — with the rail open the big mic
+   is right there and this is duplicate furniture */
+.handle{
+  position:absolute;top:30px;left:18px;z-index:40;width:42px;height:42px;
+  border-radius:999px;display:grid;place-items:center;
+  transition:opacity .2s var(--e),transform .25s var(--e);
+}
+body.rail-open .handle{opacity:0;transform:scale(.8);pointer-events:none}
+.handle .ring{
+  /* the halo reaches 7px past the disc; without this, brushing the glow counts as
+     touching the mic and the rail flew open from the empty space beside it */
+  pointer-events:none;
+  position:absolute;inset:-7px;border-radius:999px;opacity:0;transition:opacity .45s ease;
+  filter:blur(3.5px);
+  background:conic-gradient(from -90deg,transparent 0deg,var(--green) 60deg,var(--green-2) 150deg,var(--green) 220deg,#22A85A 260deg,transparent 320deg,transparent 360deg);
+}
+.handle .bub{
+  position:relative;z-index:1;width:42px;height:42px;border-radius:999px;
+  background:#1E1B2E;border:0;
+  display:grid;place-items:center;color:var(--theme);
+  transition:transform .2s var(--e),color .3s var(--e);
+}
+body.rec .handle .bub{color:var(--green)}
+body.locked:not(.rec):not(.paused) .handle .bub{box-shadow:0 0 0 1.5px rgba(118,120,237,.85)}
+.handle .bub svg{width:18px;height:18px;display:block}
+.handle:hover .bub{transform:scale(1.06)}
+body.rec .handle .ring{opacity:1;animation:spin 4s linear infinite}
+/* collapsed mic mirrors the state: red and drifting when paused */
+body.paused .handle .ring{
+  background:conic-gradient(from 0deg,var(--red) 0deg,#F87171 60deg,#C0392B 120deg,var(--red) 180deg,#F87171 260deg,transparent 340deg);
+  animation:spin 9s linear infinite;
+}
+body.paused .handle .bub{color:#F87171}
+/* the locked voice stays locked through pause — show it while collapsed too */
+/* Mini version of the big mic's badge, same 1:30 seat on the rim: white disc,
+   dark purple glyph. The 42px handle has radius 21, so 21·cos45 ≈ 15 puts the
+   badge centre on the rim and leaves it 2px outside the box. */
+.handle .minilock{
+  pointer-events:none;
+  position:absolute;top:-2px;right:-2px;z-index:2;
+  width:17px;height:17px;border-radius:999px;
+  background:var(--g0);box-shadow:0 1px 3px rgba(40,31,62,.28);
+  display:grid;place-items:center;color:var(--lock-deep);
+}
+.handle .minilock svg{width:9px;height:9px;display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── rail ── */
+.rail{
+  width:var(--rail);flex:0 0 var(--rail);border-right:1px solid var(--rule);
+  padding:14px 24px 24px;overflow-y:auto;
+  transition:margin-left .4s var(--e),opacity .25s var(--e);
+}
+body:not(.rail-open) .rail{margin-left:calc(var(--rail)*-1);opacity:0;pointer-events:none}
+
+/* Hovering the mic opens the rail; it then stays until the collapse icon is used.
+   Nothing closes it by itself, so the pointer can wander anywhere -- across the
+   transcript, out of the window -- without the rail sliding away underneath. */
+/* the mic selector takes the slot the redundant "Controls" heading had */
+/* Lock Mode takes the top slot, collapse icon opposite it */
+.rail-head{display:flex;align-items:center;gap:10px;height:32px;margin-bottom:14px}
+.rail-head .collapse{margin-left:auto}
+.rail-head .row span{white-space:nowrap}
+/* Select voice only exists while Lock Mode is on, as in live.html */
+.voicebtn{
+  display:none;width:100%;justify-content:space-between;margin-top:10px;
+  padding:9px 12px;font-size:13px;border:1px solid var(--g4);color:var(--g7);
+}
+.voicebtn:hover{border-color:var(--g5);background:var(--g2)}
+body.lockon .voicebtn{display:inline-flex}
+.field .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* the input picker was styled furniture with nothing behind it — it opens now */
+.devwrap{position:relative}
+.field{cursor:pointer}
+.field:hover{border-color:var(--g5)}
+.devmenu{
+  position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:50;
+  background:var(--g0);border:1px solid var(--rule);border-radius:11px;
+  box-shadow:0 14px 34px -14px rgba(40,31,62,.3);padding:5px;
+  display:none;flex-direction:column;gap:2px;
+}
+.devmenu.open{display:flex}
+/* Each option is its own box. Borderless rows ran together into what looked
+   like one paragraph, so the edge is always drawn, not revealed on hover —
+   hover is what turns it the theme colour. */
+.devopt{
+  display:flex;align-items:center;gap:8px;text-align:left;width:100%;
+  padding:8px 10px;border-radius:8px;font-size:13px;color:var(--g7);
+  border:1px solid var(--rule);background:var(--g0);transition:.14s var(--e);
+}
+.devopt+.devopt{margin-top:5px}
+.devopt:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
+.devopt.on{color:var(--primary);font-weight:600;background:var(--primary-soft);border-color:var(--theme)}
+.devopt.muted{color:var(--g6)}          /* clearing the choice, not making one */
+.devopt .tick{margin-left:auto;font-size:11px;opacity:0}
+.devopt.on .tick{opacity:1}
+.fi{display:grid;place-items:center;flex:0 0 auto;color:var(--theme)}
+.fi svg{width:15px;height:15px;display:block}
+.collapse{
+  width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+  color:var(--g5);transition:.15s var(--e);
+}
+.collapse svg{width:17px;height:17px}
+.collapse:hover{background:var(--g2);color:var(--g8)}
+
+/* two dividers total, one rhythm, everything on the same left edge */
+.sect{padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid var(--rule)}
+.sect.tight{padding-bottom:0;margin-bottom:20px;border-bottom:0}
+.sect:last-child{border:0;margin:0;padding:0}
+.lbl{font-size:12px;font-weight:600;color:var(--g6);margin-bottom:9px}
+/* control first, then label — the arrangement from live.html */
+.row{display:flex;align-items:center;justify-content:flex-start;gap:12px}
+.row span{font-size:14px;font-weight:500}
+.sw{position:relative;width:40px;height:22px;flex:0 0 auto}
+.sw input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+.tr{position:absolute;inset:0;border-radius:999px;background:var(--g4);transition:.22s var(--e)}
+.tr::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:999px;background:#fff;transition:.22s var(--e)}
+.sw input:checked+.tr{background:var(--primary)}
+.sw input:checked+.tr::after{transform:translateX(18px)}
+.field{
+  width:100%;margin-top:11px;padding:10px 12px;border-radius:9px;
+  background:var(--g1);border:1px solid var(--g4);font-size:13.5px;
+  display:flex;align-items:center;gap:9px;
+}
+.field:hover{border-color:var(--g4)}
+.field .c{color:var(--g5);font-size:11px}
+
+/* original circle form — centred disc with the glow ring, caption beneath.
+   Sized to the tighter rail rather than the old 136px. */
+/* clearance so the halo never bleeds into Select voice above it */
+.mic-wrap{display:grid;place-items:center;position:relative;padding:22px 0 2px;cursor:pointer}
+.glow{position:relative;width:100px;height:100px;border-radius:999px;display:grid;place-items:center}
+/* Halo needs real clearance now the bubble is a bright fill — a 5px sliver
+   was invisible against #7678ED. Blurred so it reads as glow, not a ring. */
+/* Halo. BASE gradient is the lock colour; recording overrides it with green.
+   The base must never be a state colour — when it was, releasing a short hold
+   snapped the background before the opacity had faded, flashing that colour. */
+.glow::before{
+  content:'';position:absolute;inset:-4px;border-radius:999px;opacity:0;
+  transition:opacity .5s ease;filter:blur(3.5px);z-index:0;
+  background:conic-gradient(from -90deg,transparent 0deg,var(--theme) 80deg,#A5A6F3 160deg,transparent 240deg,transparent 360deg);
+}
+/* recording: green, 4s */
+body.rec .glow::before{
+  opacity:1;animation:spin 4s linear infinite;
+  background:conic-gradient(from -90deg,transparent 0deg,var(--green) 60deg,var(--green-2) 150deg,var(--green) 220deg,#22A85A 260deg,transparent 320deg,transparent 360deg);
+}
+/* paused: red, 60s — a drift, not a spin */
+body.paused .glow::before{
+  inset:-5px;filter:blur(4px);opacity:.85;
+  background:conic-gradient(from 0deg,var(--red) 0deg,#F87171 60deg,#C0392B 120deg,var(--red) 180deg,#F87171 240deg,#C0392B 300deg,var(--red) 360deg);
+  animation:spin 60s linear infinite;
+}
+/* waiting for the mic: the neutral base gradient, dim and slow. Deliberately not
+   green — nothing is being captured until the prompt is answered. */
+body.starting .glow::before{opacity:.45;animation:spin 8s linear infinite}
+/* enrolling: the LOCK colour — same #7678ED as the Lock Mode toggle, 3s */
+body.enrolling .glow::before{
+  opacity:.9;
+  background:conic-gradient(from -90deg,transparent 0deg,var(--theme) 80deg,#A5A6F3 160deg,transparent 240deg,transparent 360deg);
+  animation:spin 3s linear infinite;
+}
+/* Locked and idle: no halo, just a static ring in the lock colour. Scoped to idle
+   because `locked` is now set as soon as Lock Mode goes on, and at equal specificity
+   this rule sits after the activity ones -- unscoped, it silently cancelled the
+   enrol halo the moment a voice was already on file. */
+/* Idle only. The halo starts 4px off the disc, so an opaque ring on the disc's edge
+   covered the brightest part of it and the green read thin and dim once a voice was
+   locked. While there is activity the halo carries the state and the badge says
+   locked; the ring is only needed when nothing is glowing. */
+body.locked:not(.rec):not(.paused):not(.enrolling) .bubble{box-shadow:0 0 0 1.5px rgba(118,120,237,.85)}
+body.locked:not(.rec):not(.paused):not(.enrolling) .glow::before{opacity:0}
+
+/* Lock Mode armed (on, nothing captured yet): a static solid ring in the
+   lock colour. No rotation — it's a state, not an activity. */
+.glow::after{
+  content:'';position:absolute;inset:-6px;border-radius:999px;z-index:0;
+  border:1.5px solid transparent;opacity:0;
+  transition:opacity .35s ease;
+}
+/* (no armed-state ring — the toggle and the hint already say lock is on) */
+
+/* Lock symbol — top-right of the circle, hugging the rim at about 1:30. The
+   circle is 100px and starts 22px down (.mic-wrap padding), so a 45° offset is
+   50·cos45 ≈ 35px across and the same down: 22 + 50 - 35 - 11 ≈ 25px from the
+   top. Anchoring to the rail's right edge instead left it ~90px adrift of the
+   circle it describes.
+   The disc behind it is load-bearing, not decoration: the badge overlaps the
+   boundary between the white rail and the near-black bubble, and a bare dark
+   purple glyph goes invisible over the dark side. */
+.lockbadge{
+  position:absolute;top:25px;left:50%;z-index:3;
+  width:22px;height:22px;border-radius:999px;
+  background:var(--g0);box-shadow:0 1px 3px rgba(40,31,62,.28);
+  display:grid;place-items:center;
+  color:var(--lock-deep);opacity:0;
+  transform:translateX(calc(-50% + 35px)) scale(.5);
+  transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;
+}
+.lockbadge svg{width:13px;height:13px;display:block}
+body.locked .lockbadge{opacity:1;transform:translateX(calc(-50% + 35px)) scale(1)}
+
+/* "Hold mic to capture professor's voice" — lives on .shell, not in .rail,
+   because .rail has overflow-y:auto and was clipping it. left/top are both
+   measured off the circle in placeHint(); anchoring to the rail edge instead
+   left it ~108px adrift, since the rail is 288px and the circle only 100px. */
+.lockhint{
+  position:absolute;left:0;top:0;z-index:60;
+  background:#1E1B2E;color:#E4E1EE;border-radius:9px;padding:9px 13px;
+  font-size:12.5px;font-weight:500;white-space:nowrap;
+  box-shadow:0 8px 22px -8px rgba(30,27,46,.45);
+  opacity:0;pointer-events:none;
+  transition:opacity .3s var(--e);   /* fade in place — sliding in read as a distraction */
+}
+.lockhint::before{
+  content:'';position:absolute;left:-5px;top:50%;margin-top:-5px;
+  width:10px;height:10px;background:#1E1B2E;transform:rotate(45deg);border-radius:2px;
+}
+.lockhint.visible{opacity:1}
+body:not(.rail-open) .lockhint{display:none}
+
+/* One voice box only, and it's the Select voice slot itself. Once a voice is
+   locked this button becomes the locked-voice row: play button + name. */
+/* The waveform mark, not a play triangle: this row's action is choosing a voice,
+   and it was reading as a transport control. Playback lives on the name. */
+.playbtn{
+  width:20px;height:20px;flex:0 0 auto;
+  color:var(--theme);display:none;place-items:center;
+}
+.playbtn svg{width:16px;height:16px;display:block}
+body.locked .voicebtn .playbtn{display:grid}
+body.locked .voicebtn{border-color:#CFCFF6;background:var(--primary-soft);color:var(--g8)}
+.voicebtn .txt{text-align:left}
+
+/* dark disc matching the logo badge; state lives in the halo, not the fill */
+/* same treatment as the logo badge: dark disc, theme-coloured glyph */
+.bubble{
+  position:relative;z-index:1;width:96px;height:96px;border-radius:999px;
+  background:#1E1B2E;border:0;
+  display:grid;place-items:center;color:var(--theme);transition:.3s var(--e);
+}
+.bubble svg{width:34px;height:34px;display:block}
+.mic-wrap:hover .bubble{background:#2A2540}
+body.enrolling .bubble{color:var(--theme)}
+body.rec .bubble{color:var(--green)}
+body.paused .bubble{color:#F87171}
+/* status line — colours mirror live.css .status.{recording,paused,error} */
+.mic-cap{
+  margin-top:13px;text-align:center;font-size:11.5px;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--g6);
+  max-width:230px;line-height:1.5;
+}
+body.rec .mic-cap{color:var(--green-ink)}
+body.paused .mic-cap{color:var(--red-ink)}
+.mic-cap.err{color:var(--red-ink)}
+.mic-cap.enrol{color:var(--primary)}   /* matches Lock Mode, not green */
+/* live session readout — replaces the how-to, which the first-run walkthrough covers.
+   Elapsed, words and flags are all already client-side, so nothing new is needed. */
+.readout{display:grid;gap:11px}
+.ro{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.ro span{font-size:13px;color:var(--g6)}
+.ro b{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--g8);font-variant-numeric:tabular-nums}
+/* the link to the server, stated plainly — a mock that silently pretends to record
+   is worse than one that says it is pretending */
+#conn{font-size:11.5px;display:inline-flex;align-items:center;gap:6px}
+#conn::before{content:'';width:6px;height:6px;border-radius:999px;background:var(--g4)}
+#conn[data-state=on]{color:var(--green-ink)}
+#conn[data-state=on]::before{background:var(--green)}
+#conn[data-state=wait]{color:var(--amber-ink,#8A5C05)}
+#conn[data-state=wait]::before{background:#E8A020}
+#conn[data-state=off]{color:var(--g6)}
+.ro b.dim{color:var(--g5)}
+.meter{margin-top:3px}
+.meter-l{display:flex;justify-content:space-between;font-size:12.5px;color:var(--g6);margin-bottom:7px}
+.meter-bar{height:4px;border-radius:999px;background:var(--g3);overflow:hidden}
+.meter-fill{height:100%;width:8%;border-radius:999px;background:var(--g4);transition:width .18s linear,background .3s var(--e)}
+body.rec .meter-fill{background:var(--theme);animation:lvl 1.9s var(--e) infinite}
+@keyframes lvl{0%{width:22%}30%{width:71%}55%{width:44%}80%{width:86%}100%{width:31%}}
+
+/* ── centre : continuous column, time in a margin gutter, no cards ── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;transition:padding-right .38s var(--e)}
+body.ai-open .main{padding-right:var(--ai)}
+.wrap{width:100%;max-width:var(--measure);margin-inline:auto;padding-inline:28px}
+
+/* title + meta read as the page header, so they get a rule of their own rather
+   than borrowing the playback strip's — which disappears in the empty state */
+/* The rule lives on a pseudo-element inside .head, not on .head's own border:
+   .wrap carries 28px of inline padding, so a border on the box itself started
+   28px left of the title's glyphs while every other rule on the page (they sit on
+   children of .wrap) started at the text. This one now matches them. */
+/* Title on the left, Save on the right, both above the rule. Save is hidden
+   until a transcript exists — an empty session has nothing to save, and a button
+   that does nothing yet is worse than one that arrives when it is useful. */
+.head{padding-top:34px;padding-bottom:0}
+/* The rule stays a child so it starts at the text, not 28px out in the wrap's
+   padding — which is why it was an ::after in the first place. The flex row goes
+   inside, so the rule is not dragged into it as a 1px column. */
+.head::after{content:'';display:block;height:1px;background:var(--rule);margin-top:18px}
+/* Small and outlined, not a second solid button competing with the primary
+   action — and only once a sentence exists to save. */
+.meta #save{
+  display:none;margin-left:auto;padding:5px 11px;font-size:12.5px;font-weight:600;
+  border:1px solid #CFCFF6;background:var(--primary-soft);color:var(--primary);border-radius:8px;
+}
+.meta #save svg{width:14px;height:14px;color:var(--primary)}
+.meta #save:hover{background:#E7E7FB;border-color:var(--theme)}
+body.has-lines .meta #save{display:inline-flex}
+/* the lecture title is the one thing on this page worth renaming, so it edits in place */
+.head h1{
+  font-size:31px;font-weight:700;letter-spacing:-.032em;line-height:1.15;
+  cursor:text;                 /* it is editable; the pointer should say so */
+  outline:none;border-radius:7px;margin-left:-7px;padding:1px 7px;
+  transition:background .15s var(--e),box-shadow .15s var(--e);
+}
+/* Both the name and the course start blank and read as prompts, not as values —
+   nothing is chosen on the user's behalf. */
+/* Cleared for typing, the ghost keeps showing the name you would get anyway —
+   the stand-in never changes into a different word behind your back. */
+.head h1:empty::before{content:var(--ph,'Untitled 1');color:var(--g5)}
+.head h1.auto{color:var(--g5)}          /* a stand-in name, not one you chose */
+/* Unset, but still a control worth noticing — one step lighter than a chosen
+   course, not the near-invisible grey a pure placeholder gets. */
+.classpick.unset{color:var(--g6);font-weight:500}
+/* one gap value for the whole row; the pick button's padding is cancelled by equal
+   negative margins so its hover target can be generous without widening the gap */
+.head .meta{margin-top:7px;font-size:13.5px;color:var(--g6);display:flex;align-items:center;gap:9px}
+.sep{color:var(--g4)}
+.len{color:var(--g7);font-weight:500}
+.classwrap{position:relative;display:inline-flex}
+.classpick{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:13.5px;color:var(--g7);font-weight:500;
+  padding:2px 7px;margin:0 -7px;border-radius:7px;transition:.15s var(--e);
+}
+.classpick:hover{background:var(--g2);color:var(--g8)}
+.classpick .c{font-size:10px;color:var(--g5)}
+/* -16px = the menu's 5px padding + a row's 1px border and 10px padding, so the
+   option text lands exactly under the class name it drops from. */
+.classwrap .devmenu{left:-16px;right:auto;min-width:220px;top:calc(100% + 4px)}
+.head .meta b{color:var(--g8);font-weight:600}
+
+/* audio : a rule, not a box */
+.audio{
+  display:flex;align-items:center;gap:15px;
+  padding:12px 0 13px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+}
+.play{width:38px;height:38px;flex:0 0 auto;border-radius:999px;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:12px}
+.play:hover{background:var(--primary-hi)}
+.t{font-family:var(--mono);font-size:12.5px;color:var(--g6);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.t b{color:var(--g8);font-weight:500}
+
+/* The total is also the way back to now: it is the live length, so clicking it
+   takes the playhead there. Coloured so it reads as a control rather than a
+   second timestamp sitting next to the first. */
+#plDur{color:var(--primary);cursor:pointer;border-radius:5px;padding:1px 4px;margin:0 -4px;
+  transition:background .14s var(--e),color .14s var(--e)}
+#plDur:hover{background:var(--primary-soft)}
+body.rec #plDur::after{content:'';display:inline-block;width:5px;height:5px;margin-left:5px;
+  border-radius:999px;background:var(--green-ink);vertical-align:middle}
+canvas{flex:1;height:34px;display:block;min-width:0;cursor:grab}
+canvas:active{cursor:grabbing}
+
+/* The time under the cursor while scrubbing. Mono here is right — it is a
+   timestamp, and the digits must not shuffle as they change. */
+.audio{position:relative}
+.wv-time{
+  position:absolute;top:-11px;transform:translateX(-50%);
+  padding:3px 7px;border-radius:6px;background:var(--tip-bg);color:var(--tip-fg);
+  font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;
+  pointer-events:none;white-space:nowrap;z-index:2;
 }
 
-@keyframes spin-halo {
-    to { transform: rotate(360deg); }
+.scroll{flex:1;overflow-y:auto;padding-bottom:80px}
+/* Reading further up no longer gets dragged to the bottom, so this is how you
+   find out the lecture has moved on without it — and how you get back. Sits over
+   the column rather than in it, so nothing reflows when it appears. */
+.jump{
+  position:absolute;left:50%;bottom:26px;z-index:40;
+  transform:translate(-50%,6px);opacity:0;pointer-events:none;
+  display:flex;align-items:center;gap:7px;
+  padding:8px 15px 8px 12px;border-radius:999px;
+  background:var(--primary);color:#fff;font-size:13px;font-weight:500;
+  box-shadow:0 14px 34px -12px rgba(40,31,62,.5);
+  transition:opacity .18s var(--e),transform .18s var(--e),background .14s var(--e);
+}
+.jump.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.jump:hover{background:var(--primary-hi)}
+.jump svg{width:15px;height:15px;display:block}
+
+/* Timed blocks — the navigable unit, exactly the structure live.js builds:
+   .transcript-chunk > .timestamp (+ .tag) + .transcript-text
+   Quiet grey blocks on a white ground: discrete and scannable without
+   turning into bordered cards. */
+.stream{display:grid;gap:9px;padding-top:20px}
+/* Blocks, not a page of prose — the whole point of chunking is that a lecture
+   arrives in pieces you can face one at a time. At --g1 on white they merged into
+   one column of text, so each gets a tinted ground and a hairline of its own, and
+   lifts under the cursor to say it is a thing you can act on.
+   The left edge is a transparent 2.5px border on every block, coloured only when
+   tagged — so text never shifts between a tagged block and a plain one. */
+.chunk{
+  cursor:pointer;               /* a block is actionable — copy, ask, flag */
+  background:var(--block);
+  border:1px solid var(--rule);
+  border-left:2.5px solid transparent;
+  border-radius:12px;padding:14px 18px 16px;
+  position:relative;
+  transition:transform .16s var(--e),box-shadow .16s var(--e),
+             border-color .16s var(--e),background .16s var(--e);
+}
+/* sideways, not up: the column is a vertical stack, so lifting a block fights the
+   reading direction while a nudge right reads as "this one is under the cursor" */
+.chunk:hover{
+  transform:translateX(4px);
+  background:var(--g0);border-color:var(--g4);
+  box-shadow:0 10px 24px -14px rgba(40,31,62,.4);
+}
+/* a softer edge appears under the cursor and leaves with it — the same gesture the
+   live app makes in green. Tagged and flagged blocks keep their own colour, since
+   theirs means something permanent. */
+.chunk:hover{border-left-color:rgba(118,120,237,.45)}
+.chunk.tagged,.chunk.tagged:hover{border-left-color:var(--tagline)}
+.chunk.flagged,.chunk.flagged:hover{border-left-color:var(--blush)}
+
+/* per-block actions, top-right inside — quiet until the block is under the cursor */
+.chunk-act{
+  position:absolute;top:9px;right:10px;display:flex;gap:2px;
+  opacity:.45;transition:opacity .16s var(--e);   /* legible at rest, certain on hover */
+}
+.chunk:hover .chunk-act,.chunk-act:focus-within{opacity:1}
+.chunk-act button{
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+  color:var(--g6);transition:.14s var(--e);
+}
+.chunk-act button:hover{background:var(--g2);color:var(--g7)}
+.chunk-act .ask:hover{background:var(--primary-soft);color:var(--primary)}
+.chunk-act button svg{width:15px;height:15px;display:block}
+.chunk-act button.done{color:var(--primary)}
+.chunk:hover{background:var(--g2)}
+.timestamp{
+  display:flex;align-items:center;gap:11px;margin-bottom:7px;
+  font-family:var(--mono);font-size:11.5px;color:var(--g5);
+  font-variant-numeric:tabular-nums;
+}
+/* Alert tags. Same class names live.js already writes (`tag tag-exam`), so porting
+   is a copy — only the paint changes: pill + icon on light ground instead of the
+   dark-theme rgba borders, and the palette dot colours instead of emoji. */
+.tag{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:2px 8px 2px 6px;border-radius:999px;
+  /* .timestamp is mono for its numbers — a label inside it must opt back out */
+  font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.005em;
+}
+.tag svg{width:12px;height:12px;display:block;flex:0 0 auto}
+/* border and text carry the tag's own colour, as in the current build */
+.tag-exam       {color:var(--red-ink);   background:rgba(239,68,68,.08);   border:1px solid rgba(239,68,68,.35)}
+.tag-assignment {color:var(--corn-deep); background:rgba(106,133,255,.10); border:1px solid rgba(106,133,255,.40)}
+.tag-important  {color:var(--primary);   background:var(--primary-soft);   border:1px solid rgba(118,120,237,.38)}
+.tag-attendance {color:#39795A;          background:rgba(117,178,145,.14); border:1px solid rgba(117,178,145,.45)}
+.tag-classwork  {color:var(--g7);        background:var(--g2);             border:1px solid var(--g4)}
+.tag-name       {color:var(--blush-ink); background:rgba(219,166,147,.16); border:1px solid rgba(219,166,147,.55)}
+.tag.flag{color:var(--blush-ink);background:rgba(219,166,147,.16);border:1px solid rgba(219,166,147,.55)}
+
+/* The matched keyword itself, marked inside its word span so data-start/data-end
+   survive — the reason live.js highlights per span rather than over the block. */
+mark[class^="highlight-"]{background:transparent;color:inherit;border-radius:3px;padding:0 2px}
+.highlight-exam       {background:rgba(239,68,68,.18)!important}
+.highlight-assignment {background:rgba(106,133,255,.20)!important}
+.highlight-important  {background:rgba(118,120,237,.18)!important}
+.highlight-attendance {background:rgba(117,178,145,.24)!important}
+.highlight-classwork  {background:rgba(139,131,153,.20)!important}
+.highlight-name       {background:rgba(219,166,147,.34)!important}
+.transcript-text{font-size:16.5px;line-height:1.66;letter-spacing:-.008em;color:var(--g8)}
+
+/* Every word is a seek point: clicking one plays the lecture from there, and the
+   word under the playhead lights as it goes. The hover tint says so before the
+   click, without putting a box round every word in the page. */
+.stream span.word{cursor:pointer;border-radius:3px;padding:0 1px;transition:background .12s var(--e)}
+.stream span.word:hover{background:var(--primary-soft)}
+.stream span.word.active{background:var(--primary-soft);color:var(--primary);font-weight:600}
+
+/* The left edge means "something fired here" — an alert matched, or you flagged it.
+   A block with no tags never gets one, so the stripe stays meaningful down a long
+   lecture. Colour comes from --tagline, set per block to the first tag's colour,
+   which is the same thing live.js decides when it appends the chip. */
+.chunk.tagged{box-shadow:inset 2.5px 0 0 var(--tagline,var(--g4))}
+.chunk.flagged{box-shadow:inset 2.5px 0 0 var(--blush)}
+
+/* word states — the only place brand colour appears */
+.w{border-radius:2px;transition:background .1s linear}
+/* playback: the theme, at enough strength to read as a moving marker rather than a
+   wash — green belongs to the recording state, not to reading one back */
+.w.wp{background:color-mix(in srgb,var(--theme) 38%,transparent)}
+.w.sel{background:color-mix(in srgb,var(--corn) 24%,transparent);box-shadow:inset 0 -2px 0 var(--corn-deep)}
+.w.flag{background:color-mix(in srgb,var(--blush) 40%,transparent)}
+
+/* ── empty state : nothing recorded yet ──────────────────────────
+   The page opens here. Playback strip and stream stay out of the way until
+   there is something to play or read, so the column says one thing only. */
+.empty{
+  display:flex;flex-direction:column;align-items:center;gap:18px;
+  padding:96px 20px 0;text-align:center;
+}
+.empty-ico{
+  width:54px;height:54px;border-radius:14px;
+  background:var(--primary-soft);border:1px solid #DEDEFB;
+  display:grid;place-items:center;color:var(--theme);
+}
+.empty-ico svg{width:26px;height:26px;display:block}
+/* the page's own type, not a monospaced stand-in */
+.empty-line{font-size:15px;font-weight:500;color:var(--g7);letter-spacing:-.012em}
+body.has-text .empty{display:none}
+body:not(.has-text) .audio,
+body:not(.has-text) .stream{display:none}
+/* chunks arrive as the session runs rather than all at once */
+.chunk:not(.in){display:none}
+
+/* ── lecture context prompt : asked once, on the way into a session ── */
+.ctx-panel{position:relative}
+.ctx-x{
+  position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:8px;
+  display:grid;place-items:center;color:var(--g5);font-size:15px;line-height:1;
+  transition:.15s var(--e);
+}
+.ctx-x:hover{background:var(--g2);color:var(--g8)}
+/* DM Mono is for tabular numbers only — timestamps, durations, counters. Prose,
+   labels and placeholders are DM Sans, always. */
+.ctx-sub{font-size:13.5px;color:var(--g6);margin:-9px 0 16px}
+.ctx-input{
+  width:100%;padding:12px 14px;border-radius:11px;border:1.5px solid var(--g4);
+  /* inputs don't inherit font-family — without this it falls back to Arial */
+  background:var(--g1);font-family:var(--sans);font-size:14px;color:var(--g8);outline:none;
+  transition:.15s var(--e);
+}
+.ctx-input::placeholder{color:var(--g5)}
+.ctx-input:focus{border-color:var(--theme);background:var(--g0);box-shadow:0 0 0 3px var(--primary-soft)}
+/* Dialog controls sit on tints of the theme rather than neutral grey — three light
+   steps of the same indigo (wash → line → deep) instead of borrowing the grey ramp. */
+:root{--tint-1:#FAFAFE; --tint-2:#E7E7FB; --tint-3:#C9C9F5}
+/* One step deeper than the wash the fields sit on, so an edge is visible before
+   you hover it — --tint-2 read as no border at all against white. */
+#ns .ctx-input,#ns .ns-classpick{background:var(--tint-1);border-color:var(--tint-3)}
+#ns .ctx-input:hover,#ns .ns-classpick:hover{border-color:var(--theme)}
+#ns .ctx-input:focus{border-color:var(--theme);background:var(--g0)}
+#ns .devmenu{border-color:var(--tint-2);background:var(--g0)}
+#ns .devopt{border-color:var(--tint-2)}
+#ns .devopt:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
+#ns .cls-add{border-top-color:var(--tint-2)}
+/* Skip keeps its amber in here too — the dialog tints everything else indigo,
+   but the way past a step should read the same wherever it appears. */
+.ns-err{
+  font-size:12.5px;font-weight:500;color:var(--red-ink);
+  max-height:0;opacity:0;overflow:hidden;transition:.2s var(--e);
+}
+.ns-err.on{max-height:24px;opacity:1;margin-top:14px}
+.ns-label{display:block;font-size:12px;font-weight:600;color:var(--g6);margin:14px 0 6px}
+.ns-label:first-of-type{margin-top:0}
+.ns-classfield{position:relative}
+.ns-classpick{display:flex;align-items:center;justify-content:space-between;gap:9px;text-align:left;cursor:pointer}
+.ns-classpick .c{color:var(--g5);font-size:10px;flex:0 0 auto}
+.ns-classpick:hover{border-color:var(--g5)}
+/* static, not floating: the panel scrolls (overflow:auto), which clipped an
+   absolutely-positioned menu at its edge. Expanding in place pushes the footer
+   down instead, and survives a short viewport. */
+.ns-classfield .devmenu{position:static;margin-top:6px;box-shadow:none;max-height:180px;overflow-y:auto}
+/* the add row is a menu row until it is clicked, then it is the field itself */
+/* The rows carry their own edges now, so the add row needs separation, not a
+   rule across the menu. */
+.cls-add{margin-top:5px}
+.cls-add.only{margin-top:0}
+.cls-add-input{
+  width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--theme);
+  background:var(--g0);font-family:var(--sans);font-size:13px;color:var(--g8);outline:none;
 }
 
-.mic-bubble {
-    width: 144px;
-    height: 144px;
-    border-radius: 50%;
-    background: #12122a;
-    border: 1px solid rgba(255,255,255,0.1);  /* thin white border, idle state */
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    z-index: 1;
-    transition: border-color 0.3s ease;
-    flex-shrink: 0;
+/* No classes yet: the select field and its label would only offer "nothing",
+   so both step aside for the single action that is actually available. */
+.ns-addfirst{display:none}
+.ns-classfield.no-classes .ns-classpick,
+.ns-classfield.no-classes .devmenu{display:none}
+.ns-classfield.no-classes .ns-addfirst{display:block}
+.ns-addfirst .add-first{
+  width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+  padding:13px 10px;border-radius:10px;border:1px dashed var(--g4);
+  background:transparent;font-family:var(--sans);font-size:13.5px;font-weight:600;
+  color:var(--g7);transition:.15s var(--e);
 }
-.mic-bubble:hover { border-color: rgba(255,255,255,0.2); }
-.mic-bubble.recording { border-color: transparent; }
-.mic-bubble.paused    { border-color: transparent; }
+/* Colour arrives on hover, as everywhere else — at rest it is a neutral outline. */
+.ns-addfirst .add-first:hover{background:var(--primary-soft);border-color:var(--theme);color:var(--primary)}
+.ctx-foot{display:flex;align-items:center;gap:9px;margin-top:18px}
+.ctx-foot .btn.solid{margin-left:auto}
+/* Dashed: skipping is the optional way out, and the broken border says so
+   without needing a second colour. */
+.ctx-skip{border:1.5px dashed var(--amber);color:var(--amber-ink)}
+.ctx-skip:hover{background:var(--amber-soft);border-color:var(--amber-ink)}
 
-.mic-svg {
-    width: 34px;
-    height: 34px;
-    color: #4ade80;
-    transition: color 0.3s;
-    position: relative;
-    z-index: 2;
-    display: block;
-    margin: auto;
+/* ── the allowance, spent ─────────────────────────────────────────────────────
+   Recording stops at the ceiling whether or not anything explains it, and the
+   caption that would have explained it lives in the rail — which is slid away
+   for the whole of a recording. So this is the one thing the app says at that
+   moment, and it says it over the page rather than beside it.
+   Built on the voice picker's overlay, so it opens the way every other panel
+   here opens. */
+.lim-overlay{
+  position:fixed;inset:0;z-index:120;display:grid;place-items:center;
+  background:rgba(30,27,46,.5);backdrop-filter:blur(4px);
+  opacity:0;pointer-events:none;transition:opacity .22s var(--e);
 }
-.mic-bubble.paused .mic-svg { color: #f87171; }
-
-/* Pause button */
-.mic-controls-spacer {
-    min-height: 90px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 8px;
+.lim-overlay.open{opacity:1;pointer-events:auto}
+.lim-panel{
+  position:relative;
+  width:500px;max-width:calc(100vw - 40px);max-height:86vh;overflow:auto;
+  background:var(--g0);border:1px solid var(--rule);border-radius:18px;
+  padding:24px 24px 20px;
+  box-shadow:0 28px 70px -14px rgba(30,27,46,.42);
+  transform:translateY(10px) scale(.985);transition:transform .22s var(--e);
 }
-
-.pause-btn {
-    padding: 7px 20px;
-    border-radius: 20px;
-    border: 1px solid rgba(232,160,32,0.4);
-    background: #0d0d11;
-    color: #e8a020;
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    cursor: pointer;
-    margin-bottom: 14px;
-    transition: all 0.2s;
+.lim-overlay.open .lim-panel{transform:none}
+/* The way out, since the panel states a fact rather than asking a question —
+   there is no second choice to give a button to. */
+.lim-x{
+  position:absolute;top:16px;right:16px;
+  display:grid;place-items:center;width:26px;height:26px;border-radius:8px;
+  border:0;background:none;color:var(--g5);cursor:pointer;transition:.14s var(--e);
 }
-.pause-btn:hover { border-color: rgba(232,160,32,0.8); color: #f5c842; background: rgba(232,160,32,0.12); }
-.pause-btn.paused { border-color: rgba(232,160,32,0.4); color: #e8a020; }
-
-.status {
-    text-align: center;
-    margin-bottom: 24px;
-    font-size: 12px;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    min-width: 200px;
-    text-transform: uppercase;
+.lim-x:hover{color:var(--g8);background:var(--g2)}
+.lim-x svg{width:13px;height:13px}
+/* One mark of colour at the top, in the app's own indigo rather than a warning
+   yellow — the panel is offering something, not reporting a fault. */
+/* Mark and title on one line: two stacked blocks made a header out of what is
+   really a single sentence. */
+.lim-head{display:flex;align-items:center;gap:11px;margin-bottom:18px}
+.lim-mark{
+  display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
+  background:var(--red-soft);color:var(--red-ink);flex:0 0 auto;
 }
-.status.recording { color: #e8a020; }
-.status.paused    { color: #ef4444; }
-.status.error     { color: #ef4444; }
-
-.device-selector { width: 100%; margin-bottom: 24px; }
-.device-selector label {
-    display: block;
-    font-size: 11px;
-    color: var(--text-muted);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-}
-#micSelect {
-    width: 100%;
-    padding: 8px 12px;
-    font-size: 12px;
-    font-family: 'DM Mono', monospace;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    outline: none;
-    cursor: pointer;
-    transition: border-color 0.2s;
-}
-#micSelect:focus { border-color: rgba(120,140,255,0.5); }
-
-.instructions {
-    width: 100%;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-}
-.instructions-title {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text-muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 10px;
-}
-.instructions p { font-size: 13px; color: #a8a8b8; line-height: 1.8; }
-.instructions strong { color: var(--text); }
-
-/* ===== RIGHT: TRANSCRIPT ===== */
-.transcript-area {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 28px;
-    /* flex column: header (top) · transcript (scrolls) · button bar (pinned bottom) */
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-/* only the transcript scrolls; the header + button bar stay put */
-#transcriptContent {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-}
-/* Sticky wrapper — header + audio panel scroll together and stick as one unit */
-.transcript-sticky {
-    flex-shrink: 0;                 /* header stays at the top, never shrinks */
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background: var(--bg-surface);
-    margin-left: -28px;
-    margin-right: -28px;
-    margin-top: -28px;
-    padding: 4px 28px 0;
-    margin-bottom: 16px;
+.lim-mark svg{width:18px;height:18px}
+/* Red, not the accent. This line reports a stop, and indigo is the colour the
+   panel uses for the thing it is selling — putting the two in the same colour
+   made the limit read as an offer. */
+.lim-panel h2{
+  font-size:20px;font-weight:700;letter-spacing:-.03em;color:var(--red-ink);
 }
 
-.transcript-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 0;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
-    position: relative;
+.lim-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.lim-col{
+  padding:15px 15px 13px;border-radius:13px;
+  border:1px solid var(--g4);background:var(--g1);
 }
-.transcript-area h2 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 20px;
-    font-weight: 400;
-    color: var(--text);
-    margin: 0;
+/* the plan being offered carries the accent; the one you are on does not */
+.lim-col.pro{border-color:var(--primary);background:var(--primary-soft)}
+.lim-col h3{
+  display:flex;align-items:center;gap:7px;
+  font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--g6);margin-bottom:11px;
 }
+/* The plan being offered wears the accent solid, so the eye lands on it before
+   it reads either column. */
+.lim-col.pro h3{color:var(--g8)}
+.lim-col.pro h3 em{
+  font-style:normal;padding:3px 8px;border-radius:999px;
+  background:var(--primary);color:#fff;letter-spacing:.05em;font-size:10.5px;
+}
+.lim-col ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.lim-col li{
+  display:flex;align-items:flex-start;gap:7px;
+  font-size:13px;line-height:1.45;color:var(--g7);
+}
+.lim-col.pro li{color:var(--g8)}
+.lim-col li svg{width:13px;height:13px;flex:0 0 auto;margin-top:2px;color:var(--g5)}
+.lim-col.pro li svg{color:var(--primary)}
+/* Credits are the one line that is a budget rather than a capability, so it gets
+   its own mark instead of another tick. */
+.lim-col li svg.bolt{color:var(--amber);fill:var(--amber-soft)}
+.lim-col.pro li svg.bolt{color:var(--theme);fill:var(--primary-soft)}
+/* the numbers are numbers, so they are set as numbers */
+.lim-col li b{font-family:var(--mono);font-weight:500;font-variant-numeric:tabular-nums}
 
-.empty-state { text-align: center; color: var(--text-muted); padding: 60px 20px; font-size: 14px; }
-.empty-state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
+.lim-acts{display:flex;flex-direction:column;align-items:center;gap:8px}
+/* Sized to its words. Filling the row made it the loudest thing in a panel
+   whose job is to say what happened. */
+.lim-pro{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 18px;border-radius:9px;border:0;
+  background:var(--primary);color:#fff;
+  font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;
+  transition:background .14s var(--e);
+}
+.lim-pro:hover{background:var(--primary-hi)}
+/* the same bolt the credits line carries, so the button names what it buys */
+.lim-pro svg{width:15px;height:15px}
+.lim-note{font-size:12px;color:var(--g5);text-align:center}
 
-.transcript-chunk {
-    background: var(--bg-elevated);
-    border-left: 3px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin-bottom: 12px;
-    transition: all 0.2s ease;
-    scroll-margin-top: 210px;  /* clears the sticky audio panel when scrolled into view */
-}
-.transcript-chunk:hover {
-    border-left-color: var(--green);
-    box-shadow: 0 0 20px rgba(82,168,120,0.06);
-    transform: translateX(4px);
-}
-.transcript-chunk.flagged { border-left-color: var(--red); background: rgba(224,82,82,0.05); }
-
-.timestamp {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-bottom: 8px;
-    letter-spacing: 0.04em;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-.transcript-text { font-size: 14px; color: var(--text); line-height: 1.7; }
-
-mark { background: none; }
-.highlight-exam       { background: rgba(224,82,82,0.18);   border-radius: 3px; padding: 0 3px; color: #f08080; }
-.highlight-assignment { background: rgba(82,168,120,0.18);  border-radius: 3px; padding: 0 3px; color: #80c8a0; }
-.highlight-important  { background: rgba(120,140,255,0.18); border-radius: 3px; padding: 0 3px; color: #a0aaff; }
-.highlight-attendance { background: rgba(80,130,220,0.18);  border-radius: 3px; padding: 0 3px; color: #80a8e0; }
-.highlight-classwork  { background: rgba(160,100,220,0.18); border-radius: 3px; padding: 0 3px; color: #c080e0; }
-.highlight-name       { background: rgba(200,160,255,0.15); border-radius: 3px; padding: 0 3px; color: #c8a0ff; }
-
-.tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 5px;
-    font-weight: 500;
-    letter-spacing: 0.03em;
-}
-.tag-exam       { background: rgba(224,82,82,0.15);   color: #f08080; border: 1px solid rgba(224,82,82,0.25); }
-.tag-assignment { background: rgba(82,168,120,0.15);  color: #80c8a0; border: 1px solid rgba(82,168,120,0.25); }
-.tag-important  { background: rgba(120,140,255,0.15); color: #a0aaff; border: 1px solid rgba(120,140,255,0.25); }
-
-/* Alert dropdown */
-.alert-dropdown-wrapper { position: relative; margin-left: auto; }
-.alert-toggle-btn {
-    padding: 6px 14px;
-    border-radius: 20px;
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    font-size: 12px;
-    font-family: 'DM Mono', monospace;
-    color: var(--text-muted);
-    cursor: pointer;
-    letter-spacing: 0.04em;
-    transition: all 0.2s;
-}
-.alert-toggle-btn:hover { border-color: rgba(120,140,255,0.5); color: #a0aaff; }
-.alert-dropdown {
-    display: none;
-    position: absolute;
-    right: 0;
-    top:100%;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    z-index: 50;
-    min-width: 200px;
-    flex-direction: column;
-    gap: 10px;
-}
-.alert-dropdown-title {
-    font-size: 10px;
-    font-weight: 500;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border);
-}
-.alert-dropdown-wrapper:hover .alert-dropdown { display: flex; }
-.tag-option { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
-.tag-option input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #a0aaff; }
-.name-input {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 12px;
-    font-family: 'DM Mono', monospace;
-    color: var(--text);
-    outline: none;
-    width: 120px;
-    transition: border-color 0.2s;
-}
-.name-input:disabled { opacity: 0.4; }
-.name-input:focus { border-color: rgba(120,140,255,0.5); }
-
-/* Session title pill — indigo */
-.session-title {
-    display: none;
-    align-items: center;
-    gap: 8px;
-    background: rgba(120,140,255,0.1);
-    border: 1px solid rgba(120,140,255,0.2);
-    border-radius: 20px;
-    padding: 4px 14px;
-    font-size: 11px;
-    color: #a0aaff;
-}
-.session-title.visible { display: flex; }
-.title-dot { width: 5px; height: 5px; border-radius: 50%; background: #a0aaff; }
-
-/* ===== POPUP ===== */
-.overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 200;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.25s;
-}
-.overlay.open { opacity: 1; pointer-events: all; }
-.popup {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 32px 28px;
-    width: 400px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    transform: translateY(16px) scale(0.97);
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
-}
-.overlay.open .popup { transform: translateY(0) scale(1); }
-.popup-title { font-family: 'DM Serif Display', serif; font-size: 22px; font-weight: 400; color: var(--text); }
-.popup-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-.popup-input {
-    width: 100%;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 16px;
-    font-size: 13px;
-    font-family: 'DM Mono', monospace;
-    color: var(--text);
-    outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-.popup-input::placeholder { color: var(--text-muted); }
-.popup-input:focus {
-    border-color: rgba(120,140,255,0.5);
-    box-shadow: 0 0 0 3px rgba(120,140,255,0.08);
-}
-.generating { display: none; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); }
-.generating.visible { display: flex; }
-.spin {
-    width: 12px; height: 12px;
-    border: 2px solid var(--border);
-    border-top-color: #a0aaff;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.title-preview {
-    display: none;
-    align-items: center;
-    gap: 10px;
-    background: rgba(120,140,255,0.08);
-    border: 1px solid rgba(120,140,255,0.2);
-    border-radius: 8px;
-    padding: 10px 14px;
-}
-.title-preview.visible { display: flex; }
-.preview-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
-.preview-text { font-size: 13px; color: #a0aaff; font-weight: 500; }
-.popup-actions { display: flex; gap: 10px; }
-.btn-skip {
-    flex: 1; padding: 11px; border-radius: 9px; border: 1px solid var(--border);
-    background: transparent; font-size: 12px; font-family: 'DM Mono', monospace;
-    color: var(--text-muted); cursor: pointer; transition: all 0.2s;
-}
-.btn-skip:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
-.btn-start {
-    flex: 2; padding: 11px; border-radius: 9px; border: none;
-    background: var(--accent); font-size: 12px; font-family: 'DM Mono', monospace;
-    color: #0d0d11; cursor: pointer; font-weight: 500; letter-spacing: 0.04em; transition: all 0.2s;
-}
-.btn-start:hover { background: #f0aa28; box-shadow: 0 0 20px var(--accent-glow); }
-
-/* ===== MIC WRAPPER + LOCK BADGE ===== */
-.mic-wrapper {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 48px;
-    margin-bottom: 24px;
-}
-
-.lock-badge {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    font-size: 18px;
-    opacity: 0;
-    transform: scale(0.5);
-    transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    pointer-events: none;
-    filter: hue-rotate(80deg) saturate(2) brightness(1.2);
-}
-.lock-badge.visible {
-    opacity: 1;
-    transform: scale(1);
-}
-
-.lock-hint {
-    position: absolute;
-    left: calc(100% + 12px);
-    top: 50%;
-    transform: translateY(-50%);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 11px;
-    font-family: 'DM Mono', monospace;
-    color: var(--text-muted);
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-}
-.lock-hint::before {
-    content: '';
-    position: absolute;
-    right: 100%;
-    top: 50%;
-    transform: translateY(-50%);
-    border: 6px solid transparent;
-    border-right-color: var(--border);
-}
-.lock-hint.visible {
-    opacity: 1;
-}
-
-/* ===== VOICE LOCK TOGGLE ===== */
-.voice-lock-toggle-wrapper {
-    position: absolute;
-    top: 16px;
-    left: 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.voice-lock-toggle {
-    position: relative;
-    display: inline-block;
-}
-
-.voice-lock-toggle input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-    position: absolute;
-}
-
-.toggle-track {
-    display: block;
-    width: 36px;
-    height: 20px;
-    background: var(--bg-elevated);
-    border: 1px solid rgba(255,255,255,0.35);
-    border-radius: 20px;
-    cursor: pointer;
-    transition: all 0.2s;
-    position: relative;
-}
-.toggle-track::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    transition: all 0.2s;
-}
-.voice-lock-toggle input:checked + .toggle-track {
-    background: rgba(76,175,130,0.2);
-    border-color: #4caf82;
-}
-.voice-lock-toggle input:checked + .toggle-track::after {
-    background: #4caf82;
-    left: 19px;
-}
-.voice-lock-toggle input:disabled + .toggle-track {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.toggle-label {
-    font-size: 11px;
-    font-family: 'DM Mono', monospace;
-    color: var(--text-muted);
-    letter-spacing: 0.04em;
-}
-
-.status.enrolling {
-    color: #4ade80;
-}
-
-.sample-audio-wrapper {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-}
-
-.sample-label {
-    font-size: 10px;
-    font-family: 'DM Mono', monospace;
-    color: var(--text-muted);
-    margin: 0;
-}
-
-.sample-audio-wrapper audio {
-    width: 160px;
-    height: 28px;
-}
-
-@media (max-width: 1024px) {
-    .container { grid-template-columns: 1fr; height: auto; }
-    .transcript-area { min-height: 400px; }
-}
-
-/* ===== WORD SPANS ===== */
-span.word {
-    cursor: pointer;
-    border-radius: 3px;
-    transition: background 0.1s;
-}
-span.word:hover { background: rgba(82,183,136,0.15); }
-span.word.active { background: rgba(82,183,136,0.3); color: #52b788; }
-
-/* ===== AUDIO PANEL ===== */
-.audio-panel {
-    display: none;
-    background: #000;
-    border-radius: 20px;
-    width: 100%;
-    margin-bottom: 12px;
-}
-.audio-panel.visible { display: block; }
-.audio-panel-collapse {
-    display: none;
-    background: none;
-    border: none;
-    color: rgba(160, 100, 255, 0.85);
-    cursor: pointer;
-    padding: 4px 0 8px;
-    width: 100%;
-    text-align: center;
-    line-height: 1;
-    transition: color 0.2s, transform 0.4s cubic-bezier(0.4,0,0.2,1);
-    filter: drop-shadow(0 0 6px rgba(140, 80, 255, 0.5));
-}
-.audio-panel.visible ~ .audio-panel-collapse { display: block; }
-.audio-panel-collapse:hover { color: rgba(210, 160, 255, 1); filter: drop-shadow(0 0 10px rgba(160, 100, 255, 0.8)); }
-.audio-panel-collapse.collapsed { transform: rotate(180deg); }
-
-.audio-panel-inner {
-    overflow: hidden;
-    max-height: 160px;
-    transition: max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.audio-panel.collapsed .audio-panel-inner { max-height: 0; }
-
-.audio-panel-body {
-    padding: 0 16px 10px 16px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-
-.audio-left {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    flex-shrink: 0;
-}
-
-.waveform-canvas {
-    flex: 1;
-    height: 120px;
-    display: block;
-    background: #000;
-    cursor: pointer;
-    min-width: 0;
-}
-
-.time-display {
-    font-size: 10px;
-    font-family: 'DM Mono', monospace;
-    color: rgba(255,255,255,0.75);
-    font-weight: 400;
-    letter-spacing: 0.04em;
-    text-align: center;
-    white-space: nowrap;
-}
-
-.audio-btn-play {
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    background: #ffffff;
-    border: none;
-    color: #000;
-    font-size: 18px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: transform 0.12s, background 0.15s;
-    padding-left: 3px; /* optical center for triangle */
-}
-.audio-btn-play:hover { background: #e0e0e0; transform: scale(1.06); }
-
-/* ===== SUMMARY BAR + BUTTON ===== */
-.summary-bar {
-    display: none;
-    flex-shrink: 0;                 /* pinned at the bottom of the flex column */
-    padding: 14px 0 2px;
-    margin-top: 8px;
-    background: var(--bg-surface);
-    justify-content: center;
-    z-index: 8;
-}
-.summary-bar.visible { display: flex; }
-.summary-btn {
-    background: transparent;
-    border: 1px solid rgba(232, 160, 32, 0.5);
-    color: #e8a020;
-    font-family: 'DM Mono', monospace;
-    font-size: 13px;
-    letter-spacing: 0.04em;
-    padding: 9px 28px;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
-}
-.summary-btn:hover {
-    background: rgba(232, 160, 32, 0.1);
-    border-color: rgba(232, 160, 32, 0.85);
-    color: #f5c842;
-    box-shadow: 0 0 14px rgba(232, 160, 32, 0.2);
-}
-.summary-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* ===== SUMMARY PANEL ===== */
-.summary-panel {
-    display: none;
-    background: rgba(18, 18, 24, 0.97);
-    border: 1px solid rgba(232, 160, 32, 0.2);
-    border-radius: 14px;
-    margin: 0 0 12px;
-    overflow: hidden;
-}
-.summary-panel.visible { display: block; }
-.summary-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 18px 10px;
-    border-bottom: 1px solid rgba(232, 160, 32, 0.12);
-}
-.summary-panel-title {
-    font-family: 'DM Serif Display', serif;
-    font-size: 16px;
-    color: #e8a020;
-    letter-spacing: 0.02em;
-}
-.summary-close-btn {
-    background: none;
-    border: none;
-    color: rgba(255,255,255,0.35);
-    font-size: 14px;
-    cursor: pointer;
-    transition: color 0.2s;
-    padding: 2px 4px;
-}
-.summary-close-btn:hover { color: rgba(255,255,255,0.8); }
-.summary-body {
-    padding: 14px 18px 18px;
-    font-size: 13.5px;
-    line-height: 1.75;
-    color: rgba(255,255,255,0.82);
-    white-space: pre-wrap;
-}

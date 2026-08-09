@@ -1,16 +1,22 @@
 #!/usr/bin/env node
-/* Load-time sanity check for templates/live_v2.html.
+/* Load-time sanity check for the live page's scripts.
  *
- * The page is one long inline script, and three separate breakages have all had
- * the same shape: a statement at the top level touching something that is not
- * ready yet — a deleted variable, or a `const` declared further down. Either
- * throws while the script is still executing, so every handler below the failure
- * is never bound. The page renders perfectly and nothing works.
+ * Three separate breakages have all had the same shape: a statement at the top
+ * level touching something that is not ready yet — a deleted variable, or a
+ * `const` declared further down. Either throws while the script is still
+ * executing, so every handler below the failure is never bound. The page renders
+ * perfectly and nothing works.
  *
  * A browser catches this instantly; without one, this does:
  *   1. syntax check
  *   2. undeclared identifiers used at the top level
  *   3. top-level reads of a `const`/`let` declared later (temporal dead zone)
+ *
+ * The script used to be one inline block; it is now five files. They are classic
+ * scripts sharing one global scope, so what matters is the order live.html loads
+ * them in — a binding declared in a later file does not exist yet for top-level
+ * code in an earlier one. They are joined here in exactly that order, and every
+ * line number is reported back as file:line.
  *
  * Run: node scripts/check-live-page.js
  */
@@ -18,9 +24,21 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const FILE = path.join(__dirname, '..', 'templates', 'live_v2.html');
-const html = fs.readFileSync(FILE, 'utf8');
-const js = html.split('<script>').pop().split('</script>')[0];
+// The order live.html loads them in. Changing it here without changing it there
+// makes this check meaningless.
+const FILES = [
+    'live.js', 'audio-playback.js', 'voice-picker.js',
+    'save-transcript.js', 'doubt-panel.js',
+];
+
+const origin = [null];              // concatenated line number -> "file:line"
+let js = '';
+for (const name of FILES) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'static', 'js', name), 'utf8');
+    src.split('\n').forEach((_, i) => origin.push(`${name}:${i + 1}`));
+    js += src + '\n';
+}
+const where = (n) => origin[n] || `line ${n}`;
 
 /* Comments and string literals are blanked before anything is scanned, keeping
  * line numbers intact. Without this the checker reads prose: "a cursor passing
@@ -74,6 +92,7 @@ const KNOWN_GLOBALS = new Set([
     'FocusEvent', 'Event', 'IntersectionObserver', 'requestAnimationFrame',
     'cancelAnimationFrame', 'devicePixelRatio', 'addEventListener', 'alert',
     'isNaN', 'parseInt', 'parseFloat', 'encodeURIComponent', 'structuredClone',
+    'matchMedia',   // a real global; without it the theme listener reads as a fault
 ]);
 const KEYWORDS = new Set([
     'if', 'for', 'while', 'switch', 'try', 'catch', 'return', 'else', 'do',
@@ -122,7 +141,7 @@ lines.forEach((line, i) => {
         if (!declaredAt.has(name)) continue;                       // not ours
         const at = declaredAt.get(name);
         if (at > 0 && at > i + 1) {
-            fail(`line ${i + 1}: reads "${name}" but it is declared on line ${at} `
+            fail(`${where(i + 1)}: reads "${name}" but it is declared at ${where(at)} `
                + `— temporal dead zone, throws at load`);
         }
     }
@@ -135,7 +154,7 @@ lines.forEach((line, i) => {
     if (!m) return;
     const name = m[1];
     if (KEYWORDS.has(name) || KNOWN_GLOBALS.has(name) || declaredAt.has(name)) return;
-    fail(`line ${i + 1}: "${name}" is not declared anywhere — throws at load`);
+    fail(`${where(i + 1)}: "${name}" is not declared anywhere — throws at load`);
 });
 
 if (failures) {

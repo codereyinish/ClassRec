@@ -1,205 +1,125 @@
-/* Voice Picker — self-contained popup component.
-   Reuses base.html design tokens (--bg-surface, --accent, --red, ...). */
-
-/* The dropdown-style trigger on the live page — pinned just to the right of the
-   (absolutely-positioned, top-left) Lock Mode toggle. */
-.voice-dropdown {
-    position: absolute;
-    top: 14px;
-    right: 16px;                 /* extreme right of the controls card */
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 130px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 5px 9px;
-    color: var(--text-muted);
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    cursor: pointer;
-    transition: border-color 0.15s;
+/* voice-picker.css — the saved-voice popup and its .vp-* structure.
+   Loaded by live.html. */
+/* ── voice picker popup — mirrors voice-picker.js's .vp-* structure ──
+   row click selects · name click plays (turns theme) · dblclick renames
+   · trash deletes · + uploads. All five have endpoints already.        */
+.vp-overlay{
+  position:fixed;inset:0;z-index:80;display:grid;place-items:center;
+  background:rgba(30,27,46,.42);backdrop-filter:blur(3px);
+  opacity:0;pointer-events:none;transition:opacity .22s var(--e);
 }
-#selectedVoice { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.voice-dropdown:hover { border-color: var(--accent); }
-.voice-dropdown-caret { color: var(--text-muted); font-size: 10px; padding-left: 4px; }
-/* selected voice name: play (green) / edit states, matching the popup rows */
-#selectedVoice { padding: 1px 3px; border-radius: 4px; outline: none; }
-#selectedVoice.has-voice { cursor: pointer; }
-#selectedVoice.playing { color: var(--green); }
-#selectedVoice.editing { background: var(--bg); box-shadow: inset 0 0 0 1px var(--accent); cursor: text; }
-
-/* Full-screen dim overlay behind the popup */
-.vp-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-
-    /* hidden by default; .open triggers the smooth fade-in */
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
+.vp-overlay.open{opacity:1;pointer-events:auto}
+.vp-panel{
+  width:400px;max-width:calc(100vw - 40px);max-height:78vh;overflow:auto;
+  background:var(--g0);border-radius:16px;padding:22px;
+  box-shadow:0 24px 60px -12px rgba(30,27,46,.35);
+  transform:translateY(8px) scale(.98);transition:transform .22s var(--e);
 }
-.vp-overlay.open {
-    opacity: 1;
-    pointer-events: auto;
+.vp-overlay.open .vp-panel{transform:none}
+.vp-title{font-size:17px;font-weight:700;letter-spacing:-.025em;margin-bottom:15px}
+.vp-list{display:flex;flex-direction:column;gap:7px}
+.vp-item{
+  display:flex;align-items:center;gap:10px;
+  padding:11px 13px;border-radius:11px;
+  border:1.5px solid var(--rule);background:var(--g1);cursor:pointer;
+  transition:.15s var(--e);
 }
-
-/* The popup panel */
-.vp-panel {
-    width: 380px;
-    max-width: calc(100vw - 40px);
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-
-    /* smooth slide-up + scale as it opens */
-    transform: translateY(12px) scale(0.98);
-    transition: transform 0.2s ease;
+.vp-item:hover{border-color:#CFCFF6;background:var(--g0)}
+.vp-item.selected{border-color:var(--theme);background:var(--primary-soft)}
+/* Only as wide as its text: at flex:1 the name filled the row, so a click almost
+   anywhere hit "play" and selecting the box became near-impossible. The gap after
+   it takes the slack and belongs to the row. */
+.vp-item-name{
+  flex:0 1 auto;min-width:0;max-width:100%;font-size:14px;font-weight:500;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  border-radius:5px;padding:1px 3px;outline:none;
 }
-.vp-overlay.open .vp-panel {
-    transform: translateY(0) scale(1);
+.vp-gap{flex:1;align-self:stretch;min-width:14px}
+.vp-item-name:hover{color:var(--primary)}      /* theme hint: click to play */
+/* the voice under its class — same row, quieter line */
+.vsub{display:block;font-style:normal;font-size:11px;font-weight:400;color:var(--g6);margin-top:1px}
+.vp-item-name.playing{color:var(--primary)}
+.vp-item-name.editing{color:var(--g8);cursor:text;background:var(--g2)}
+.vp-item.editing{cursor:text}   /* renaming: the row is a field, so it stops offering a pointer */
+.vp-dur{font-size:11.5px;color:var(--g5);font-family:var(--mono);flex:0 0 auto}
+/* Minimal: the glyph carries it, in the theme colour so it is findable, with no
+   disc behind it and no colour shift under the cursor. */
+.vp-item-arrow{
+  width:22px;height:22px;flex:0 0 auto;
+  display:grid;place-items:center;font-size:11px;line-height:1;
+  color:var(--primary);
 }
-
-.vp-title {
-    font-family: 'DM Serif Display', serif;
-    font-size: 18px;
-    color: var(--text);
-    margin-bottom: 16px;
+/* ▸ becomes || while this voice is playing — the glyph is the transport state */
+.vp-item-arrow.on{font-weight:700;letter-spacing:1px}
+.vp-item-arrow.mute{color:var(--g4)}   /* no clip stored: nothing to press */
+.vp-trash{
+  width:26px;height:26px;border-radius:7px;flex:0 0 auto;
+  /* red at rest, not only under the cursor — delete should read as destructive
+     before you reach for it. Muted so three rows of it don't shout. */
+  display:grid;place-items:center;color:var(--red);opacity:.7;transition:.15s var(--e);
 }
-
-/* The list of voices */
-.vp-list { display: flex; flex-direction: column; gap: 8px; }
-
-.vp-item {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 12px 14px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    cursor: pointer;                 /* box area is clickable = select */
-    transition: border-color 0.15s, background 0.15s;
+.vp-trash svg{width:14px;height:14px}
+.vp-trash:hover{opacity:1;color:var(--red-ink);background:rgba(239,68,68,.1)}
+.vp-empty{padding:20px 4px 6px;text-align:center;display:grid;gap:6px}
+.vp-empty strong{font-size:14px;font-weight:600;color:var(--g7)}
+.vp-empty span{font-size:12.5px;line-height:1.55;color:var(--g6)}
+/* last row of the list, so it takes the box's shape and the list's gap */
+.vp-recnew{
+  width:100%;margin-top:7px;padding:11px 13px;border-radius:11px;
+  border:1.5px dashed var(--g4);background:transparent;
+  font-size:13px;font-weight:600;color:var(--g6);transition:.15s var(--e);
 }
-.vp-item:hover { border-color: var(--accent); background: rgba(255,255,255,0.02); }
-.vp-item.selected { border-color: var(--accent); background: var(--accent-dim); }
-
-.vp-item-name {
-    font-size: 13px;               /* only as wide as the text -> click it = play */
-    color: var(--text);
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 4px;
-    outline: none;
+.vp-recnew:hover{border-color:var(--theme);color:var(--primary);background:var(--primary-soft)}
+/* no rule here — the dashed row above already breaks the list from the actions,
+   and a line on top of it was one edge too many */
+.vp-add{margin-top:14px}
+.vp-add-row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.vp-start{margin-left:auto}          /* the commit action, so it sits apart from the two adds */
+.vp-start[hidden]{display:none}
+.vp-add-btn{
+  display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;
+  color:var(--g7);padding:8px 13px;border-radius:9px;border:1.5px dashed var(--g4);
+  transition:.15s var(--e);
 }
-.vp-item-name:hover { color: var(--green); }             /* green hint: click to play */
-.vp-item-name.playing { color: var(--green); }           /* stays green while playing */
-.vp-item-name.editing { color: var(--text); cursor: text; }   /* just the cursor */
-.vp-item:focus-within { border-color: var(--accent); }        /* one highlight on the row */
+.vp-add-btn:hover{color:var(--primary);border-color:var(--theme);background:var(--primary-soft)}
+.vp-status{margin-top:9px;font-size:12px;color:var(--g6)}
+.vp-status.ok{color:var(--primary)}
+.vp-status.error{color:var(--red-ink)}
+.vp-status:empty{display:none}
 
-/* the per-item dropdown arrow (decorative) — pushed to the right, with the trash */
-.vp-item-arrow {
-    margin-left: auto;             /* push arrow + trash to the far right */
-    color: var(--text-muted);
-    font-size: 11px;
-    padding: 4px 6px;
+/* floating AI icon — primary colour, bottom right */
+/* The button says what it does only when you go near it — a permanent label would
+   sit over the transcript all lecture. The shortcut on the pill is real: cmd/ctrl+J
+   opens the same panel, so the affordance is not decoration. */
+.aiwrap{position:fixed;right:24px;bottom:24px;z-index:50;display:flex;align-items:center;gap:10px}
+.ai-label{
+  display:flex;align-items:center;gap:8px;white-space:nowrap;
+  background:var(--g0);border:1px solid var(--rule);border-radius:999px;
+  padding:9px 14px;font-size:13px;font-weight:500;color:var(--g7);
+  box-shadow:0 8px 22px -12px rgba(40,31,62,.45);
+  opacity:0;transform:translateX(8px);pointer-events:none;
+  transition:opacity .18s var(--e),transform .18s var(--e);
 }
-
-/* small traditional red trash button */
-.vp-trash {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--red);
-    opacity: 0.65;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 6px;
-    transition: opacity 0.15s, background 0.15s;
+.ai-label b{
+  font-size:11.5px;font-weight:600;color:var(--g6);
+  background:var(--g2);border-radius:5px;padding:2px 5px;
 }
-.vp-trash:hover { opacity: 1; background: rgba(224, 82, 82, 0.12); }
-
-/* Empty / loading states */
-.vp-empty {
-    font-size: 12px;
-    color: var(--text-muted);
-    text-align: center;
-    padding: 16px 0;
+.aiwrap:hover .ai-label{opacity:1;transform:none}
+.aibtn{
+  position:relative;
+  width:50px;height:50px;border-radius:999px;background:var(--primary);color:#fff;
+  display:grid;place-items:center;box-shadow:0 5px 18px -5px rgba(40,31,62,.5);transition:.18s var(--e);
 }
-
-/* Bottom: add a new voice */
-.vp-add {
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+/* the sparkle twinkles when you come near it, rather than sitting inert */
+@keyframes twinkle{
+  0%{transform:rotate(0deg) scale(1)}
+  35%{transform:rotate(18deg) scale(1.16)}
+  65%{transform:rotate(-10deg) scale(1.05)}
+  100%{transform:rotate(0deg) scale(1)}
 }
-
-/* the native file input must stay hidden (global input styles can override `hidden`) */
-.vp-file { display: none !important; }
-
-/* the compact "+" add button — centered */
-.vp-add-btn {
-    align-self: center;
-    width: 34px;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    border-radius: 8px;
-    font-size: 20px;
-    line-height: 1;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
-}
-.vp-add-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-/* the edit-name form (after a file is chosen) */
-.vp-add-form { display: flex; flex-direction: column; gap: 10px; }
-/* explicit display overrides the `hidden` attribute — restore hiding */
-.vp-add-form[hidden] { display: none; }
-.vp-fname { font-size: 11px; color: var(--text-muted); }
-.vp-input {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 9px 12px;
-    color: var(--text);
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-}
-.vp-input:focus { outline: none; border-color: var(--accent); }
-.vp-add-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.vp-add-cancel {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    border-radius: 7px;
-    padding: 8px 16px;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    cursor: pointer;
-}
-.vp-add-cancel:hover { color: var(--text); }
-
-.vp-status { font-size: 11px; color: var(--text-muted); min-height: 0; }
-.vp-status.error { color: var(--red); }
-.vp-status.ok { color: var(--green); }
-.vp-status:empty { display: none; }
+.aiwrap:hover .aibtn svg{animation:twinkle 1.1s var(--e) infinite}
+.aibtn svg{width:21px;height:21px}
+.aiwrap:hover .aibtn{background:var(--primary-hi);transform:translateY(-2px)}
+/* whole cluster, not just the button — with the panel open the label was left
+   floating over the composer */
+body.ai-open .aiwrap{opacity:0;pointer-events:none}
