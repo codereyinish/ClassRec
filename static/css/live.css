@@ -313,7 +313,12 @@ body.paused .handle .bub{color:#F87171}
   width:17px;height:17px;border-radius:999px;
   background:var(--g0);box-shadow:0 1px 3px rgba(40,31,62,.28);
   display:grid;place-items:center;color:var(--lock-deep);
+  opacity:0;transition:opacity .3s var(--e);
 }
+/* Only once a voice is actually locked, the same condition the full-size badge
+   answers to. Without it the collapsed mic wore a padlock from the moment the
+   page opened, saying a voice was held when none was. */
+body.locked .handle .minilock{opacity:1}
 .handle .minilock svg{width:9px;height:9px;display:block}
 @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -963,3 +968,65 @@ body:not(.has-text) .stream{display:none}
 .lim-pro svg{width:15px;height:15px}
 .lim-note{font-size:12px;color:var(--g5);text-align:center}
 
+
+/* ── narrower than the layout was drawn for ──────────────────────────────────
+   Everything above this line is the page as designed, and none of it changes:
+   the rules below only exist inside media queries.
+
+   The layout rests on three fixed widths — rail 288, AI panel 380, measure 820 —
+   which together want about 1490px of window. Under that they have to give way
+   in order, and the order is what these three blocks are: first the panel stops
+   reserving space, then the rail stops being a column, then the widths that are
+   still absolute become relative. */
+
+/* The AI panel stops making room for itself and lies over the transcript. The
+   380px it asked for came out of the reading column, and by here the column is
+   the thing worth protecting. */
+@media (max-width:1180px){
+  body.ai-open .main{padding-right:0}
+}
+
+/* The rail stops being a column and becomes a drawer over the page. It keeps its
+   width and the slide it already had — what changes is that it no longer takes
+   288px from the transcript, which at this width there is none to give.
+
+   .handle still opens it and the collapse icon still closes it, so nothing about
+   how it works moves. */
+@media (max-width:900px){
+  .rail{
+    position:absolute;left:0;top:0;bottom:0;z-index:60;
+    background:var(--g0);box-shadow:0 10px 40px rgba(40,31,62,.16);
+  }
+  /* Dimmed so the drawer reads as sitting over the page rather than in it.
+     It does not take the pointer: the page behind stays usable, and nobody can
+     be trapped by a scrim that has nothing listening to it. */
+  body.rail-open .shell::after{
+    content:'';position:absolute;inset:0;z-index:55;pointer-events:none;
+    background:rgba(40,31,62,.34);
+  }
+}
+
+/* A phone. The two remaining fixed widths are redeclared as tokens rather than
+   overridden rule by rule — .rail's width and the negative margin that hides it
+   are both written in terms of --rail, so moving the token moves both and they
+   cannot drift apart. */
+@media (max-width:620px){
+  :root{--rail:min(86vw,288px); --ai:100%}
+
+  .wrap{padding-inline:16px}
+  .top{padding:0 14px}
+  .top-r{gap:10px}
+
+  /* The glyph carries the button and the label is dropped — three labelled
+     buttons and an avatar do not fit a phone's top bar. font-size:0 collapses
+     the text without touching the markup; .alert-count sets its own size, so the
+     count survives, which is the part that is actually information. */
+  .top-r .btn{font-size:0;gap:6px;padding:9px 10px}
+  .top-r .btn svg{width:17px;height:17px}
+
+  .head{padding-top:24px}
+  .head h1{font-size:24px}
+
+  /* The collapsed mic comes in from the edge by the same amount the wrap did. */
+  .handle{top:20px;left:12px}
+}
