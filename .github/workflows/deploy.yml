@@ -24,8 +24,19 @@ jobs:
             # A copy before the schema is touched. WAL mode keeps recent writes in
             # classrec.db-wal, so copying the .db file alone loses them — .backup
             # asks SQLite for a consistent copy of everything.
+            # The interpreter the app itself runs on, falling back to the system
+            # one. Everything below goes through it, so there is one assumption
+            # about this server rather than one per line.
+            PY=venv/bin/python
+            [ -x "$PY" ] || PY=$(command -v python3)
+
             mkdir -p backups
-            sqlite3 data/classrec.db ".backup 'backups/classrec-$(date +%Y%m%d-%H%M%S).db'"
+            # Python's own sqlite3 module, not the sqlite3 command — the command
+            # is a separate package that a server has no reason to have, and its
+            # absence is what stopped the first attempt at this deploy. The
+            # module is part of the standard library, so anything running this
+            # app already has it, and .backup is the same call either way.
+            "$PY" -c "import sqlite3,sys; s=sqlite3.connect('data/classrec.db'); d=sqlite3.connect(sys.argv[1]); s.backup(d); d.close(); s.close()" "backups/classrec-$(date +%Y%m%d-%H%M%S).db"
 
             # The newest five, and no more. A copy taken at deploy time is useful
             # for as long as it takes to see whether the migration worked; past
@@ -41,6 +52,6 @@ jobs:
             # database, which is the failure this line exists to prevent.
             # Safe to run every time: alembic applies only what is missing and
             # does nothing when there is nothing to apply.
-            venv/bin/alembic upgrade head
+            "$PY" -m alembic upgrade head
 
             systemctl restart classrec
