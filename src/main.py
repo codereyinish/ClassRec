@@ -482,11 +482,6 @@ async def lectures_page(request: Request):
 async def live_page(request: Request):
     return templates.TemplateResponse("live.html", {"request": request})
 
-@app.get("/live-v2", response_class=HTMLResponse)
-async def live_page_v2(request: Request):
-    """The redesigned live page. Runs alongside /live, on the same endpoints."""
-    return templates.TemplateResponse("live_v2.html", {"request": request})
-
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return FileResponse("static/favicon.ico")
