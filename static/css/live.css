@@ -1015,16 +1015,52 @@ body:not(.has-text) .stream{display:none}
 
   .wrap{padding-inline:16px}
   .top{padding:0 14px}
-  .top-r{gap:10px}
+  .top-r{gap:8px}
 
-  /* The glyph carries the button and the label is dropped — three labelled
-     buttons and an avatar do not fit a phone's top bar. font-size:0 collapses
-     the text without touching the markup; .alert-count sets its own size, so the
-     count survives, which is the part that is actually information. */
-  .top-r .btn{font-size:0;gap:6px;padding:9px 10px}
-  .top-r .btn svg{width:17px;height:17px}
+  /* The mark keeps its tile and drops its word. Four glyphs, an avatar and the
+     wordmark measured about 470px of row in 365px of phone, and a flex row that
+     cannot fit shrinks whatever will yield — which was the sign-in button. */
+  .mark{font-size:0;gap:0;flex:0 0 auto}
 
-  .head{padding-top:24px}
+  /* Squeezed, it wrapped "Sign in" onto two lines, which made it taller than the
+     58px bar and pushed it past the padding to the screen edge. It is a fixed
+     size now and wraps nowhere: the row has to find its room elsewhere. */
+  #clerk-login-btn{
+    flex:0 0 auto!important;white-space:nowrap!important;
+    padding:7px 12px!important;font-size:12.5px!important;
+  }
+
+  /* The names go under the glyphs. Four unlabelled icons in a row is a guessing
+     game, and there is no width to put a name beside each one — so it goes below,
+     small enough to read as a caption rather than as a second row of buttons.
+
+     The labels are bare text nodes, so they become anonymous flex items and take
+     their size from the button itself; the glyphs are sized in px and do not
+     follow. The theme button is the one with no text of its own, so it is given
+     one here rather than in the markup, where it would also reach the desktop. */
+  .top-r .btn,
+  .top-r .themebtn{
+    display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:3px;width:auto;height:auto;padding:4px 5px;
+    font-size:9px;font-weight:600;line-height:1;letter-spacing:.01em;
+    white-space:nowrap;color:var(--g6);
+  }
+  .top-r .themebtn::after{content:'Theme'}
+  .top-r .btn svg,.top-r .themebtn svg{width:18px;height:18px}
+
+  /* Stacked, the count would have been a third row and taken the bar past the
+     58px it has, so it sits on the glyph as a badge instead. */
+  .top-r #alertBtn{position:relative}
+  .top-r #alertBtn .alert-count{
+    position:absolute;top:-1px;right:-1px;
+    min-width:14px;height:14px;padding:0 3px;font-size:9px;
+  }
+
+  /* The mic is absolute over the column at y 20–62, and the title starts at the
+     wrap's own padding — so it sat behind it and "Untitled 1" read "itled 1".
+     The head starts below the mic instead of beside it; there is no width on a
+     phone to put them side by side. */
+  .head{padding-top:74px}
   .head h1{font-size:24px}
 
   /* The collapsed mic comes in from the edge by the same amount the wrap did. */
