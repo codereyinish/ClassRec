@@ -11,6 +11,7 @@ The tables:
     Chunk    — that lecture as it arrives, until the recording ends
     Flag     — a moment in a lecture the student wants to come back to
     User     — the account everything above belongs to
+    Signal   — a first sign-in or a request for Pro, kept to be read back
 """
 
 from __future__ import annotations
@@ -230,3 +231,40 @@ class Chunk(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
     lecture: Mapped["Session"] = relationship(back_populates="chunks")
+
+
+class Signal(Base):
+    """Something worth being told about, kept so it can be read back later.
+
+    Two kinds today: an account being seen for the first time, and someone
+    asking for Pro. Both are already knowable — the first from a `users` row,
+    the second not at all — but neither is knowable *as an event*, in order,
+    which is what makes a feed rather than a count.
+
+    A row is the record, not the notification. Nothing here sends anything;
+    /admin reads these back. That is deliberate: a write that also delivers has
+    to decide what happens when delivery fails, and the answer would either lose
+    the signal or fail the request that produced it. Writing first leaves the
+    delivery to be added later against rows that already exist.
+    """
+
+    __tablename__ = "signals"
+
+    id:         Mapped[int]               = mapped_column(primary_key=True)
+    # 'signup' | 'upgrade_attempt'. Deliberately a plain string, not an Enum:
+    # SQLite has no enum type, so an Enum column becomes a CHECK constraint that
+    # a migration must rewrite every time a kind is added.
+    kind:       Mapped[str]               = mapped_column(String, index=True)
+    # Nullable for the same reason Voice.user_id is: a signal outlives the
+    # account that caused it. ON DELETE SET NULL rather than CASCADE — deleting
+    # an account should not silently rewrite the history of what happened.
+    user_id:    Mapped[int | None]        = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    # Clerk's id, copied at the time of writing. The FK above goes null when the
+    # account is deleted; this keeps the feed readable after that, and it is the
+    # id you would search Clerk for. Not a foreign key and not unique.
+    clerk_user_id: Mapped[str | None]     = mapped_column(String)
+    # Indexed because the feed is always read newest-first.
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(),
+                                                          index=True)

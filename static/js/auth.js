@@ -190,10 +190,23 @@ function renderNav(clerk) {
             window.location.reload();
         });
 
-        // Get Pro (placeholder for Stripe later)
-        document.getElementById("get-pro-btn").addEventListener("click", () => {
+        // Get Pro. Records the ask and shows what came back, rather than an
+        // alert() — a browser dialog is the one piece of this page the app's
+        // own styling cannot reach, and the answer is worth reading.
+        document.getElementById("get-pro-btn").addEventListener("click", async () => {
             document.getElementById("user-dropdown").style.display = "none";
-            alert("Pro plans coming soon! 🚀");
+            try {
+                const t = await clerk.session.getToken();
+                const r = await fetch("/upgrade-request", {
+                    method: "POST",
+                    headers: { Authorization: "Bearer " + t },
+                });
+                const d = await r.json();
+                showWaitlistNote(r.ok ? d.message
+                    : "Could not reach the server. Try again in a moment.");
+            } catch {
+                showWaitlistNote("Could not reach the server. Try again in a moment.");
+            }
         });
 
     } else {
@@ -282,6 +295,58 @@ function _showUpgradeModal(clerk) {
 
     // Not signed in — open Clerk's own modal with dark theme
     clerk.openSignIn({ appearance: clerkTheme() });
+}
+
+// ===== THE WAITLIST NOTE =====
+/* What the Pro button says back. A note rather than a modal: nothing is being
+   decided, so there is nothing to dismiss before carrying on.
+
+   The colours are literals rather than var(--primary) and friends. auth.js is
+   loaded by base.html too, and those pages do not declare the token block —
+   var() with no fallback there resolves to nothing and the note comes out
+   unstyled. These are the same values live.css and index.css use. */
+function showWaitlistNote(text) {
+    document.getElementById("waitlist-note")?.remove();
+
+    const note = document.createElement("div");
+    note.id = "waitlist-note";
+    note.style.cssText = `
+        position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
+        z-index: 1200; max-width: min(420px, calc(100vw - 32px));
+        display: flex; gap: 12px; align-items: flex-start;
+        background: #FFFFFF; color: #281F3E;
+        border: 1px solid #E2DEE7; border-left: 3px solid #6365EB;
+        border-radius: 12px; padding: 14px 16px;
+        font-family: 'DM Sans', system-ui, sans-serif; font-size: 14px; line-height: 1.55;
+        box-shadow: 0 10px 34px rgba(40,31,62,.16);
+        opacity: 0; transition: opacity .18s cubic-bezier(.2,.7,.3,1),
+                                transform .18s cubic-bezier(.2,.7,.3,1);
+        cursor: pointer;
+    `;
+    note.innerHTML =
+        `<svg viewBox="0 0 24 24" fill="none" stroke="#6365EB" stroke-width="1.8"
+              stroke-linecap="round" style="width:18px;height:18px;flex:none;margin-top:1px">
+           <circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 1.8"/>
+         </svg>
+         <span></span>`;
+    // textContent, not innerHTML: the sentence comes from the server, and the
+    // one place a server string becomes markup is the one place it should not.
+    note.querySelector("span").textContent = text;
+
+    document.body.appendChild(note);
+    requestAnimationFrame(() => {
+        note.style.opacity = "1";
+        note.style.transform = "translateX(-50%) translateY(0)";
+    });
+
+    const close = () => {
+        note.style.opacity = "0";
+        note.style.transform = "translateX(-50%) translateY(8px)";
+        setTimeout(() => note.remove(), 200);
+    };
+    note.addEventListener("click", close);
+    // Long enough to read two sentences without hurrying, and dismissible before.
+    setTimeout(close, 9000);
 }
 
 // ===== STANDARD AUTH MODAL (sign in button click) =====

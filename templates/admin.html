@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>ClassRec — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/admin.css?v={{ asset_version }}">
+
+<!-- Like /live and the landing page, this does not extend base.html: that file
+     carries the earlier near-black and amber theme, and following it here would
+     mean undoing the palette the rest of the app moved to. -->
+
+<!-- Set before paint. In a stylesheet or at the end of the body this would show
+     a white page first and then correct itself, which on a dashboard someone
+     opens at night is the whole first impression. -->
+<script>
+  (function(){
+    var t = localStorage.getItem("theme");
+    if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<script
+    async
+    crossorigin="anonymous"
+    data-clerk-publishable-key="{{ clerk_key }}"
+    src="https://ethical-macaw-49.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+    type="text/javascript"
+></script>
+</head>
+<body>
+
+<!-- Everything below starts hidden and is filled by admin.js once /admin/data
+     answers. The markup carries no numbers: this page is served to anyone who
+     types the URL, and the gate is on the data, not on the frame. -->
+
+<div class="wrap" id="dash" hidden>
+
+  <header class="bar">
+    <span class="mark">
+      <span class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 11v2"/>
+        </svg>
+      </span>ClassRec
+    </span>
+    <span class="tag">Admin</span>
+    <span class="gen">Read <b id="genAt">—</b></span>
+    <button class="refresh" id="refreshBtn" type="button">Refresh</button>
+  </header>
+
+  <section class="tiles">
+    <div class="tile">
+      <div class="tile-k">Accounts</div>
+      <div class="tile-v" id="kUsers">—</div>
+      <div class="tile-s"><b id="kUsers7">—</b> in the last 7 days</div>
+    </div>
+    <div class="tile">
+      <div class="tile-k">Asked for Pro</div>
+      <div class="tile-v" id="kPro">—</div>
+      <div class="tile-s"><b id="kPro7">—</b> in the last 7 days</div>
+    </div>
+    <div class="tile">
+      <div class="tile-k">Lectures recorded</div>
+      <div class="tile-v" id="kLectures">—</div>
+      <div class="tile-s">across every account</div>
+    </div>
+    <div class="tile">
+      <div class="tile-k">Recorded time</div>
+      <div class="tile-v" id="kHours">—</div>
+      <div class="tile-s">live and uploaded, together</div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>What happened, by day</h2>
+      <p class="sub">The last 30 days, including the quiet ones.</p>
+      <div class="legend">
+        <span class="lg"><i class="sw" style="background:var(--s-signup)"></i>New account</span>
+        <span class="lg"><i class="sw" style="background:var(--s-upgrade)"></i>Asked for Pro</span>
+      </div>
+      <div id="activityWrap"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Recorded time, by account</h2>
+      <p class="sub">Live and uploaded added together, longest first.</p>
+      <div id="rankWrap"></div>
+    </section>
+  </div>
+
+  <div class="grid one">
+    <section class="panel">
+      <h2>Every account</h2>
+      <p class="sub">One row per person, oldest first.</p>
+      <div class="t-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Clerk account</th>
+              <th>Plan</th>
+              <th class="t-num">Live</th>
+              <th class="t-num">Upload</th>
+              <th class="t-num">Lectures</th>
+              <th class="t-num">Joined</th>
+            </tr>
+          </thead>
+          <tbody id="peopleBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="grid one">
+    <section class="panel">
+      <h2>Latest</h2>
+      <p class="sub">The 50 most recent, newest first.</p>
+      <ul class="feed" id="feed"></ul>
+    </section>
+  </div>
+</div>
+
+<!-- What a visitor who is not the admin sees, and what the admin sees for the
+     moment before the fetch answers. Says nothing about what is behind it. -->
+<div class="locked" id="locked" hidden>
+  <h1>Nothing here</h1>
+  <p>This page is not available.</p>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script src="/static/js/admin.js?v={{ asset_version }}"></script>
+</body>
+</html>

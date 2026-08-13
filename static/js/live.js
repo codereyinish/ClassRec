@@ -369,12 +369,24 @@ limOverlay.onclick=e=>{ if(e.target===limOverlay)hideLimit(); };
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&limOverlay.classList.contains('open'))hideLimit();
 });
-/* There is nowhere to send anyone yet, so the button answers rather than
-   pretending to navigate. Deliberately not "you are on the list": the click is
-   not recorded anywhere, and a promise the app cannot keep is worse than none. */
-document.getElementById('limPro').onclick=()=>{
-  document.getElementById('limNote').textContent =
-    'Paid plans are coming. You will hear first.';
+/* There is still nowhere to send anyone, so the button answers rather than
+   pretending to navigate — but the click is now recorded, which is what the
+   earlier wording here was careful not to claim. /upgrade-request writes the
+   row and hands back the sentence, so the answer is worded in one place rather
+   than three.
+
+   The note is written from the reply and not before it: saying "you are on the
+   list" and then failing to write the row is the promise this was avoiding. */
+document.getElementById('limPro').onclick=async()=>{
+  const note=document.getElementById('limNote');
+  note.textContent='One moment…';
+  try{
+    const r=await api('/upgrade-request',{method:'POST'});
+    if(!r.ok)throw new Error(r.status);
+    note.textContent=(await r.json()).message;
+  }catch{
+    note.textContent='Could not reach the server. Try again in a moment.';
+  }
 };
 
 const openAI=()=>B.classList.add('ai-open');
