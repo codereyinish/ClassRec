@@ -1,0 +1,191 @@
+/* admin.css — the dashboard behind /admin.
+   Same palette and type as the live page and the landing page, because it is
+   the same app: DM Sans for everything, DM Mono only where digits line up, one
+   primary indigo, and a violet-tinted grey ramp doing the structural work.
+
+   The tokens are declared here rather than imported, the same way index.css
+   does it: live.css carries its own copy and extracting a shared file would
+   mean editing the live page, which is a change of its own. Same values.
+
+   The two series colours are not eyeballed. Indigo #6365EB and amber #E9A23B
+   were checked against a white surface for lightness, chroma, contrast and
+   colour-vision separation (worst adjacent pair ΔE 35.1 protan, 30.8 tritan).
+   Dark keeps the indigo and drops the amber to #C0821F, because the dark
+   lightness band is 0.48–0.67 and #E9A23B sits at 0.764 — a flip of the light
+   palette fails. */
+:root{
+  --g0:#FFFFFF; --g1:#FBFAFB; --g2:#F4F2F6; --g3:#EAE7EE;
+  --g4:#D9D5E0; --g5:#B4AEC0; --g6:#8B8399; --g7:#5A5269; --g8:#281F3E;
+
+  --theme:#7678ED; --primary:#6365EB; --primary-hi:#5053E8; --primary-soft:#EFEFFD;
+  --primary-ink:#5053E8;
+  --rule:#E2DEE7;
+  --block:#F8F7FB;
+
+  /* the two things that happen, and nothing else */
+  --s-signup:#6365EB;
+  --s-upgrade:#E9A23B;
+  --s-upgrade-ink:#A65B12;   /* amber is 2.11:1 on white — text takes the ink */
+
+  --sans:'DM Sans',system-ui,sans-serif;
+  --mono:'DM Mono',ui-monospace,monospace;
+  --measure:1120px;
+  --e:cubic-bezier(.2,.7,.3,1);
+}
+:root[data-theme="dark"]{
+  --g0:#17141F; --g1:#1D1927; --g2:#262133; --g3:#2F2940;
+  --g4:#3D3651; --g5:#8A82A0; --g6:#A79FBB; --g7:#CBC4DA; --g8:#F3F0F9;
+
+  --theme:#9A9CF5; --primary:#6365EB; --primary-hi:#7477F0;
+  --primary-soft:#262450; --primary-ink:#A5A7F7;
+  --rule:#2F2940;
+  --block:#1F1B2A;
+
+  --s-signup:#6365EB;
+  --s-upgrade:#C0821F;
+  --s-upgrade-ink:#E0A44A;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--g0);color:var(--g8);font-family:var(--sans);
+  font-size:15px;line-height:1.6;font-optical-sizing:auto;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+h1,h2,h3{letter-spacing:-.03em;line-height:1.15;font-weight:700}
+
+/* Numbers, and nothing else. A monospaced label is the giveaway of a page
+   nobody drew. */
+.n,.tile-v,.feed time,.t-num,.axis text,.gen b{
+  font-family:var(--mono);font-variant-numeric:tabular-nums
+}
+
+.wrap{max-width:var(--measure);margin-inline:auto;padding:0 28px 96px}
+
+/* ── top bar ───────────────────────────────────────────────────────────────── */
+.bar{
+  display:flex;align-items:center;gap:14px;
+  padding:20px 0 22px;border-bottom:1px solid var(--rule);margin-bottom:30px;
+}
+.mark{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:-.02em}
+.logo{
+  width:26px;height:26px;border-radius:7px;background:var(--g8);color:var(--g0);
+  display:grid;place-items:center;flex:none;
+}
+.logo svg{width:15px;height:15px}
+.tag{
+  font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--g6);
+  border:1px solid var(--rule);border-radius:20px;padding:3px 10px;
+}
+.gen{margin-left:auto;font-size:12.5px;color:var(--g6)}
+.refresh{
+  border:1px solid var(--g4);background:transparent;color:var(--g7);
+  font-family:var(--sans);font-size:13px;font-weight:500;
+  padding:7px 13px;border-radius:9px;cursor:pointer;transition:.15s var(--e);
+}
+.refresh:hover{border-color:var(--primary);color:var(--primary-ink)}
+
+/* ── stat tiles ────────────────────────────────────────────────────────────── */
+/* No plot inside, so no hover layer — these are the one form that skips it. */
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:34px}
+.tile{border:1px solid var(--rule);border-radius:14px;padding:17px 18px 15px;background:var(--g0)}
+.tile-k{font-size:12.5px;color:var(--g6);margin-bottom:9px}
+.tile-v{font-size:34px;line-height:1;font-weight:500;letter-spacing:-.02em}
+.tile-s{font-size:12.5px;color:var(--g6);margin-top:7px}
+.tile-s b{font-weight:500;color:var(--g7);font-family:var(--mono)}
+
+/* ── panels ────────────────────────────────────────────────────────────────── */
+.grid{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;margin-bottom:18px}
+/* The table needs 660px before it starts scrolling sideways, which is more than
+   the 1.55fr column has. Full width is cheaper than making six columns narrower
+   than their contents. */
+.grid.one{grid-template-columns:1fr}
+.panel{border:1px solid var(--rule);border-radius:14px;padding:19px 20px 16px;background:var(--g0);min-width:0}
+.panel h2{font-size:15.5px;margin-bottom:3px}
+.panel .sub{font-size:12.5px;color:var(--g6);margin-bottom:17px}
+
+/* legend — always present at two series, so identity is never colour alone */
+.legend{display:flex;gap:15px;margin-bottom:13px}
+.lg{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--g7)}
+.sw{width:10px;height:10px;border-radius:3px;flex:none}
+
+/* ── charts ────────────────────────────────────────────────────────────────── */
+.chart{width:100%;display:block;overflow:visible}
+.chart .grid-line{stroke:var(--rule);stroke-width:1}
+.chart .axis text{fill:var(--g6);font-size:10.5px}
+.chart .bar{transition:opacity .12s var(--e)}
+.chart .col:hover .bar{opacity:.72}
+/* the invisible hit target — bigger than the mark, per column */
+.chart .hit{fill:transparent;cursor:default}
+
+.empty{
+  display:grid;place-items:center;height:150px;text-align:center;
+  color:var(--g6);font-size:13.5px;border:1px dashed var(--rule);border-radius:11px;
+}
+
+/* ranked bars, drawn in HTML rather than SVG — one row per account, so the
+   label and the number are real text that wraps and can be selected */
+.rank{display:flex;flex-direction:column;gap:13px}
+.rk-top{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.rk-id{font-family:var(--mono);font-size:12px;color:var(--g7);
+       overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk-v{margin-left:auto;font-family:var(--mono);font-size:12.5px;color:var(--g8);flex:none}
+.rk-track{height:9px;border-radius:5px;background:var(--g2);overflow:hidden}
+.rk-fill{height:100%;border-radius:5px;background:var(--primary);
+         transition:width .5s var(--e)}
+
+/* ── feed ──────────────────────────────────────────────────────────────────── */
+.feed{list-style:none;display:flex;flex-direction:column}
+.feed li{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--rule)}
+.feed li:last-child{border-bottom:0}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.feed .what{font-size:13.5px}
+.feed .who{font-family:var(--mono);font-size:11.5px;color:var(--g6);
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.feed time{margin-left:auto;font-size:11.5px;color:var(--g6);flex:none}
+
+/* ── table ─────────────────────────────────────────────────────────────────── */
+.t-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:660px}
+th{
+  text-align:left;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--g6);font-weight:500;padding:0 14px 10px 0;border-bottom:1px solid var(--rule);
+}
+td{padding:12px 14px 12px 0;border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:0}
+.t-num{text-align:right;padding-right:0}
+th.t-num{text-align:right;padding-right:0}
+.pill{
+  display:inline-block;font-size:11.5px;padding:2px 9px;border-radius:20px;
+  background:var(--g2);color:var(--g7);
+}
+.pill.pro{background:var(--primary-soft);color:var(--primary-ink);font-weight:500}
+
+/* ── tooltip ───────────────────────────────────────────────────────────────── */
+.tip{
+  position:fixed;pointer-events:none;opacity:0;transform:translate(-50%,-115%);
+  background:var(--g8);color:var(--g0);border-radius:9px;padding:8px 11px;
+  font-size:12px;line-height:1.45;white-space:nowrap;z-index:40;
+  transition:opacity .1s var(--e);box-shadow:0 6px 22px rgba(40,31,62,.22);
+}
+.tip.on{opacity:1}
+.tip .td{font-family:var(--mono);font-size:11px;opacity:.72;margin-bottom:3px}
+.tip .tr{display:flex;align-items:center;gap:7px}
+.tip .tr b{font-family:var(--mono);font-weight:500;margin-left:auto;padding-left:12px}
+
+/* ── the frame a non-admin gets ────────────────────────────────────────────── */
+.locked{max-width:430px;margin:16vh auto;text-align:center}
+.locked h1{font-size:21px;margin-bottom:9px}
+.locked p{color:var(--g6);font-size:14px}
+
+@media (max-width:900px){
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  .grid{grid-template-columns:1fr}
+}
+@media (max-width:520px){
+  .wrap{padding:0 18px 72px}
+  .tiles{gap:11px}
+  .tile-v{font-size:28px}
+  .gen{display:none}
+}

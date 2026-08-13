@@ -14,13 +14,17 @@ import json
 import io
 import httpx
 from logger import logger
-from sqlalchemy import update           # for the atomic usage increment
+import datetime
+from sqlalchemy import update, select, func, desc  # update: the atomic usage increment
 from sqlalchemy.orm import Session       # the DB session TYPE (for the type hint)
 from database import get_db, SessionLocal  # get_db for routes; SessionLocal for the WS handler
 import repository as repo                  # our data operations (create/list/...)
 from clerk_auth import (current_user, current_user_optional,
                         clerk_user_id_from_token, get_or_create_user, AuthError)
-from models import User                    # for the usage write on the socket
+from models import User, Signal            # for the usage write on the socket, and /admin
+# models.Session is a lecture; sqlalchemy.orm.Session above is the DB session.
+# Two different things with one name, so the table gets the name it is read by.
+from models import Session as Lecture
 from pydantic import BaseModel, Field, field_validator
 import sentry_sdk
 import onnxruntime as ort
@@ -51,6 +55,20 @@ sentry_sdk.init(
 # ======= SETUP =======
 load_dotenv()
 CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "pk_test_ZXRoaWNhbC1tYWNhdy00OS5jbGVyay5hY2NvdW50cy5kZXYk")
+
+# Who may read /admin/data. A Clerk user id ("user_2abc…"), compared against the
+# id in a verified token — so it is the account that is trusted, not the URL.
+# Unset means nobody: an admin page that defaults to open is the wrong default,
+# and a deploy that forgets the variable should lock rather than expose.
+ADMIN_CLERK_USER_ID = os.getenv("ADMIN_CLERK_USER_ID", "")
+
+# What someone asking for Pro is told. Here rather than in the page because it
+# is the same sentence in three places, and because the answer to "can I pay
+# you" is a product decision that should be greppable.
+WAITLIST_MESSAGE = (
+    "You're on the waitlist. Demand has been heavy, so for now we're keeping "
+    "the model available to a limited number of paid users."
+)
 
 app = FastAPI()
 
@@ -735,6 +753,147 @@ def me_route(user = Depends(current_user)):
         "upload_seconds": int(user.upload_seconds),
         "live_allowance": FREE_LIVE_SECONDS,
         "upload_allowance": FREE_UPLOAD_SECONDS,
+    }
+
+
+# ======= ASKING FOR PRO =======
+
+@app.post("/upgrade-request")
+def upgrade_request_route(user = Depends(current_user), db: Session = Depends(get_db)):
+    """Record that someone asked for Pro, and tell them where they stand.
+
+    There is nothing to buy yet, so the honest answer is the waitlist line. The
+    row written here is the reason the route exists at all: how many people
+    tried to pay is the one thing the app cannot reconstruct later from anything
+    else it stores, and a button that only shows a message throws it away.
+    """
+    db.add(Signal(kind="upgrade_attempt", user_id=user.id,
+                  clerk_user_id=user.clerk_user_id))
+    db.commit()
+    logger.info(f"[pro] upgrade requested by user id={user.id}")
+    return {"status": "waitlisted", "message": WAITLIST_MESSAGE}
+
+
+# ======= ADMIN =======
+
+def _require_admin(user = Depends(current_user_optional)) -> User:
+    """The admin, or 404 for everybody else.
+
+    404 rather than 403 because 403 answers a question worth leaving unanswered:
+    it confirms the page is real and that the caller merely is not allowed. A
+    404 is what any wrong URL returns.
+
+    Optional rather than required for the same reason. current_user raises 401
+    "Sign in to continue" when there is no token, and that reply says the route
+    is real and gated — the one bit this is trying not to hand out. Signed out,
+    signed in as somebody else, and no such URL all have to look identical.
+
+    The empty check comes first on purpose. Without it an unset
+    ADMIN_CLERK_USER_ID would be compared against a Clerk id and, on the day
+    someone deploys without the variable, the only thing standing between the
+    page and the internet would be that no real id happens to be "".
+    """
+    if (not ADMIN_CLERK_USER_ID or user is None
+            or user.clerk_user_id != ADMIN_CLERK_USER_ID):
+        raise HTTPException(status_code=404, detail="Not found")
+    return user
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    """The dashboard's shell — markup and scripts, and no data at all.
+
+    Deliberately not gated. A page typed into the address bar arrives as a plain
+    navigation, which carries cookies but not the `Authorization: Bearer` header
+    the rest of this API is read with, so a gate here could only ever reject
+    everyone including the admin. Nothing is lost by serving it: the numbers
+    come from /admin/data, which is gated, and a visitor who loads this gets an
+    empty frame and a 404 from the fetch.
+    """
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+
+@app.get("/admin/data")
+def admin_data_route(_admin = Depends(_require_admin), db: Session = Depends(get_db)):
+    """Every number the dashboard draws, read at request time.
+
+    One route rather than several: the page shows a single moment, and four
+    fetches could each land on a different one — a total that disagrees with the
+    feed under it looks like a bug in the app rather than in the reading.
+    """
+    now = datetime.datetime.utcnow()
+    since_7 = now - datetime.timedelta(days=7)
+    first_day = (now - datetime.timedelta(days=29)).date()
+
+    def count(model, *where):
+        return db.execute(
+            select(func.count()).select_from(model).where(*where)
+        ).scalar_one() if where else db.execute(
+            select(func.count()).select_from(model)
+        ).scalar_one()
+
+    # ── the headline counts ──────────────────────────────────────────────────
+    totals = {
+        "users":           count(User),
+        "users_7d":        count(User, User.created_at >= since_7),
+        "lectures":        count(Lecture),
+        "pro_requests":    count(Signal, Signal.kind == "upgrade_attempt"),
+        "pro_requests_7d": count(Signal, Signal.kind == "upgrade_attempt",
+                                 Signal.created_at >= since_7),
+    }
+
+    # ── events per day, last 30 ──────────────────────────────────────────────
+    # Grouped in SQL, then zero-filled in Python. The database only knows about
+    # days something happened; a chart needs the quiet days too, or thirty days
+    # with two events in them draws as two adjacent bars and reads as a trend.
+    grouped = db.execute(
+        select(func.date(Signal.created_at), Signal.kind, func.count())
+        .where(func.date(Signal.created_at) >= first_day.isoformat())
+        .group_by(func.date(Signal.created_at), Signal.kind)
+    ).all()
+    by_day = {(day, kind): n for day, kind, n in grouped}
+    series = []
+    for i in range(30):
+        day = (first_day + datetime.timedelta(days=i)).isoformat()
+        series.append({
+            "day":     day,
+            "signup":  by_day.get((day, "signup"), 0),
+            "upgrade": by_day.get((day, "upgrade_attempt"), 0),
+        })
+
+    # ── per account ──────────────────────────────────────────────────────────
+    # One grouped query for the lecture counts instead of one per user, so the
+    # table costs two queries whatever the number of accounts.
+    lectures_by_user = dict(
+        db.execute(select(Lecture.user_id, func.count()).group_by(Lecture.user_id)).all()
+    )
+    users = db.execute(select(User).order_by(User.created_at)).scalars().all()
+    people = [{
+        "id":             u.id,
+        "clerk_user_id":  u.clerk_user_id,
+        "plan":           u.plan,
+        "live_seconds":   int(u.live_seconds or 0),
+        "upload_seconds": int(u.upload_seconds or 0),
+        "lectures":       lectures_by_user.get(u.id, 0),
+        "created_at":     u.created_at.isoformat() if u.created_at else None,
+    } for u in users]
+
+    # ── the feed ─────────────────────────────────────────────────────────────
+    feed = [{
+        "kind":          s.kind,
+        "clerk_user_id": s.clerk_user_id,
+        "user_id":       s.user_id,
+        "created_at":    s.created_at.isoformat() if s.created_at else None,
+    } for s in db.execute(
+        select(Signal).order_by(desc(Signal.created_at)).limit(50)
+    ).scalars().all()]
+
+    return {
+        "generated_at": now.isoformat(),
+        "totals":       totals,
+        "series":       series,
+        "people":       people,
+        "feed":         feed,
     }
 
 

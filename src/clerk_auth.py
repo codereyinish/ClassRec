@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from database import get_db
 from logger import logger
-from models import User
+from models import Signal, User
 
 # The publishable key encodes the Clerk domain, so there is nothing extra to
 # configure: pk_test_<base64 of "your-app.clerk.accounts.dev$">
@@ -137,6 +137,18 @@ def get_or_create_user(db: DBSession, clerk_user_id: str) -> User:
         return user
     db.refresh(user)
     logger.info(f"[auth] first sight of {clerk_user_id} -> user id={user.id}")
+
+    # Only reached on the insert path, so this is once per account for as long as
+    # the row lives. It is deliberately after the commit above and in its own
+    # try: a signal is a record of something that already happened, and failing
+    # to write one must not turn a successful sign-in into a 500.
+    try:
+        db.add(Signal(kind="signup", user_id=user.id, clerk_user_id=clerk_user_id))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[auth] signup signal not written for {clerk_user_id}: {e}")
+
     return user
 
 
