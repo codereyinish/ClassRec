@@ -301,10 +301,15 @@ function _showUpgradeModal(clerk) {
 /* What the Pro button says back. A note rather than a modal: nothing is being
    decided, so there is nothing to dismiss before carrying on.
 
-   The colours are literals rather than var(--primary) and friends. auth.js is
-   loaded by base.html too, and those pages do not declare the token block —
-   var() with no fallback there resolves to nothing and the note comes out
-   unstyled. These are the same values live.css and index.css use. */
+   The colours are tokens with literal fallbacks, which is what lets one note
+   serve both kinds of page. /live and /admin declare the token block, so there
+   the note follows the theme — including dark, where a hardcoded white card
+   reads as a hole punched in the page. base.html pages declare no tokens, and
+   there var() falls back to the light values live.css already uses.
+
+   --g1 and not --g0, because --g0 is the page itself: in dark the note would be
+   the same colour as what it floats over, held apart by a border and a shadow
+   that dark grounds barely show. */
 function showWaitlistNote(text) {
     document.getElementById("waitlist-note")?.remove();
 
@@ -314,8 +319,9 @@ function showWaitlistNote(text) {
         position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
         z-index: 1200; max-width: min(420px, calc(100vw - 32px));
         display: flex; gap: 12px; align-items: flex-start;
-        background: #FFFFFF; color: #281F3E;
-        border: 1px solid #E2DEE7; border-left: 3px solid #6365EB;
+        background: var(--g1, #FFFFFF); color: var(--g8, #281F3E);
+        border: 1px solid var(--rule, #E2DEE7);
+        border-left: 3px solid var(--primary, #6365EB);
         border-radius: 12px; padding: 14px 16px;
         font-family: 'DM Sans', system-ui, sans-serif; font-size: 14px; line-height: 1.55;
         box-shadow: 0 10px 34px rgba(40,31,62,.16);
@@ -324,7 +330,7 @@ function showWaitlistNote(text) {
         cursor: pointer;
     `;
     note.innerHTML =
-        `<svg viewBox="0 0 24 24" fill="none" stroke="#6365EB" stroke-width="1.8"
+        `<svg viewBox="0 0 24 24" fill="none" stroke="var(--primary, #6365EB)" stroke-width="1.8"
               stroke-linecap="round" style="width:18px;height:18px;flex:none;margin-top:1px">
            <circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 1.8"/>
          </svg>
